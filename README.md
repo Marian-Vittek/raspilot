@@ -45,9 +45,6 @@ flash the firmware every time we change the code. We can fly with new
 versions of our software again and again without physically touching
 the drone. Linux provides a file system with buffered I/O, allowing us
 to store and edit our configurations, logs, videos, etc.
-
-Though booting and shutting down may be annoying we are professional
-developers and we are used to it. Also, our experiments show that
 Linux user space processes can be perfectly timed with a resolution
 better than 1ms. This is largely sufficient for the autopilot, where
 the main loop is executed every 10ms. Things that require better
