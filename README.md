@@ -36,23 +36,23 @@ to shut down Linux before you disconnect the battery. And, of course,
 Linux is not a real-time operating system, and precise timing can be a
 problem.
 
-However, none of these points outweigh the advantages we have
-gained. Booting and shutting down may be annoying, but we are
-professional developers and we are used to it. Our experiments show
-that Linux user space processes can be perfectly timed with a
-resolution better than 1ms. This is largely sufficient for the
-autopilot, where the main loop is executed every 10ms. Things that
-require better timing (such as the dshot protocol) are implemented
-using busy wait loops.
 
-On the other hand, the Raspberry Pi offers plenty of processing power
-and a standard development and debugging environment. Connected via
-wifi we can edit, compile, run and debug the code directly on the
-drone. No need to flash the firmware every time we change the code. We
-can fly with new versions of our software over and over again without
-physically touching the drone. Linux provides a file system with
-buffered I/O, allowing us to store and edit our configurations, logs,
-videos, etc.
+However, none of these points outweigh the advantages we have
+gained. Raspberry Pi offers plenty of processing power and a standard
+development and debugging environment. Connected via wifi we can edit,
+compile, run and debug the code directly on the drone. No need to
+flash the firmware every time we change the code. We can fly with new
+versions of our software again and again without physically touching
+the drone. Linux provides a file system with buffered I/O, allowing us
+to store and edit our configurations, logs, videos, etc.
+
+Though booting and shutting down may be annoying we are professional
+developers and we are used to it. Also, our experiments show that
+Linux user space processes can be perfectly timed with a resolution
+better than 1ms. This is largely sufficient for the autopilot, where
+the main loop is executed every 10ms. Things that require better
+timing (such as the dshot protocol) are implemented using busy wait
+loops.
 
 
 
@@ -65,15 +65,15 @@ autopilot provides basic stabilisation, it reads sensors and sends
 commands to the motors.  The overall architecture is similar to that
 of the PX4. Specialised routines that manipulate the sensors are
 running in separate processes and are connected to the autopilot via
-Linux pipes. All systems run asynchronously and the input is read as
-it comes into the autopilot.  The autopilot itself runs an infinite
-loop at an adjustable frequency, usually 100Hz. Software that
-physically controls motors (or ESCs) runs in a separate process that
-is also connected through Linux pipes as well. It makes it easy to
-integrate specific ESC protocols or specific motor hardware.
+Linux pipes. Software runs asynchronously and the input is read as it
+comes.  The autopilot itself runs an infinite loop at an adjustable
+frequency, usually 100Hz. Software that physically controls motors (or
+ESCs) runs in a separate process that is also connected through Linux
+pipes as well. It makes it easy to integrate specific ESC protocols or
+specific motor hardware.
 
 
-From a developer's point of view, the whole autopilot behaves like a
+From the user point of view, the whole autopilot behaves like a
 library. The main program initialises the autopilot and then executes
 a mission for the drone to follow.  The mission is a C function coded
 by the user. It basically does what it wants to do and calls autopilot
