@@ -1,0 +1,198 @@
+// d250 is raspberry pi installed on my 250g drone.
+/*
+	All values here are in SI units, i.e. meters, seconds, meter/second, etc.
+	All angle related values are in radians, i.e. radians, radians/second, etc.
+*/
+
+// This file is preprocessed by C preprocessor before being read by raspilot, this
+// allows us to use some of preprocessor directives like #define and #if.
+// File format is an "extended" JSON which is JSON format where field names can be used without quotes,
+// comma can occur after the last field and constant expressions instead of constants.
+
+#define PI 3.1415926
+
+{
+    motor_number:          4,
+
+    // So far the lowest frequency with stable drone is 20Hz.
+    // Safe values seems to be between 50 and 400Hz.
+    stabilization_loop_Hz: 100,
+    
+    motor_yaw_forces:	   [-1,  1, -1,  1],
+    motor_pitch_forces:	   [ 1, -1, -1,  1],
+    motor_roll_forces:	   [-1, -1,  1,  1],
+
+    // What we call "short history" is the buffer of poses from which we compute supposed position of the drone.
+    // The main reason why we do that is that sensors may be noisy and the buffer is used to "smooth" or "average"
+    // some noise spikes. We use linear regression of buffered values to get current pose.
+    // The size of short history buffer is in seconds. If you have good sensors you can put smaller numbers.
+    // If you sensors are noisy you have to put larger value.
+    // The short history must be larger than 1 tick which is 1/stabilization_loop_Hz. The default (recommended) value
+    // is around 5/stabilization_loop_Hz.
+    short_history_seconds:	   0.05,
+
+    // waypoint shall not be lower than this altitude
+    drone_min_altitude:            0.01,
+    
+    // waypoint shall not be higher than this altitude. Also if drone happens to be higher than this, minimal thrust is applied
+    drone_max_altitude:            0.20, 
+    
+    // waypoint is considered as reached when the drone happens to be within that distance and orientation range
+    drone_waypoint_reached_range:    0.03,
+    drone_waypoint_reached_angle:    0.10,
+
+    // This is the time in which autopilots wants to reach target roll and pitch orientation. 
+    // Smaller values make drone more "nervous" more precise but you may reach drone physical
+    // limits. Check that your drone can stabilize with "nearly empty" battery with your value.
+    // Smaller value may also drain your battery.
+    pilot_reach_goal_orientation_time:	0.3,
+    
+    // This is the time in which autopilots wants to reach target position.
+    // This time must be at least double of pilot_reach_goal_orientation_time because in our simple model
+    // the drone first gets "go to target" orientation, then it moves to the half way, then it gets "braking"
+    // orientation and makes another half way while braking to zero velocity at target position.
+    pilot_reach_goal_position_time:	0.7,
+
+    // However, while moving between waypoints the drone is constrained by the following values as well
+    drone_max_speed: 		   0.5,
+    drone_max_rotation_speed:	   PI/4,
+    drone_max_inclination:	   PI/4,
+
+    // Two values for drone launch sequence, they are in the range 0..1
+    // 0 meaning no spinning, 1 meaning maximal spinning.
+    // minimal spin, i.e. the spin during "warning rotations" before launch
+    motor_thrust_min_spin:         0.005,
+    
+    //////////////////////////////////////////////
+    // PID controllers.
+    
+    // There are three sorts of PID controllers in raspilot. The first sort consists of two pid controllers named PidX and PidY.
+    // They are used to translate desired horizontal ground velocity of the drone to drone velocity relative to the air speed.
+    // They allow to fly in windy conditions. Values [0,0,0] may be used to block such a translation.
+    // It is perfectly OK to use values [0,0,0] for non-windy weather, flying in interior or during the calibration of the drone.
+    // You configure the same values for both PidX and PidY controllers.
+
+    pidXY:        { p:0.00,  i:0.00,  d:0.00 },
+
+    // The second sort of PID controllers translates the desired drone rotation speed to motor thrust (i.e. to a value between 0 and 1).
+    // That are PidRoll, PidPitch and PidYaw controllers.
+    // The "Integral" part of those controlers accumulates value representing unbalancing of the drone or its motors.
+    // It is supposed that during a flight, the Integral part will accumulate the same value for the same drone
+    // no matter the flight conditions. However, under some circumstances the I part of those controllers may "push"
+    // against pidX and pidY controllers and all those controllers may diverge.
+    // This is why we recommend to set the I factor to zero and we allow to use a so called "constant integral" value "CI" representing
+    // the average I*Integral specific to your drone. See the manual to learn how to determine CI value.
+    
+    pidRoll:     { p:0.02,  i:0.002,  d:0.00010, ci: 0.0000 },
+    pidPitch:    { p:0.02,  i:0.002,  d:0.00010, ci: 0.00 },
+    pidYaw:      { p:0.02,  i:0.002,  d:0.0001, ci: 0 },
+
+    // The last sort of PID controller is pidAltitude. It translates desired vertical speed (usually 0)
+    // to motor thrust. It shall have P factor large enough to launch and stabilize the drone altitude.
+    // Similarly to previous controllers you can use CI constant to start PID rotation at some previously
+    // determined constant value. Contrary to previous controllers you shall keep the I facor non zero in this
+    // controller even if CI is set. The I factor in this case accumulates the difference between fully
+    // charged and "nearly empty" batteries.
+
+    pidAltitude: { p:0.05,  i:0.01,  d:0.0010, ci:0.06 },
+
+    //////////////////////////////////////////////
+    // sensors and other devices installed on the drone and connected through pipes
+
+    device: [
+	{
+	    name: "motors",
+	    connection : {
+	    	// direct PWM connection of ESC to raspberry pi pinouts
+		type: "DCT_COMMAND_BASH",
+		command: "killall motor-dshot; sleep 0.5; killall -q -9 motor-dshot; sleep 0.5; exec chrt -f 99 ../tool/motors/motor-dshot/motor-dshot - - 6 13 19 26"
+	    },
+	    data: [
+		{ type:"DT_PONG",  tag: "pong",  debug_level: 10},
+		{ type:"DT_DEBUG", tag: "debug", debug_level: 10},
+	    ],
+	},
+	
+	{
+	    name: "zeropose",
+	    connection : {
+		type: "DCT_INTERNAL_ZEROPOSE",
+	    },
+            data: [
+		{ type: "DT_POSITION_VECTOR",        weight: 1e-100, debug_level: 1},
+		// { type: "DT_ORIENTATION_QUATERNION", weight: 1e-100, debug_level: 1},
+            ],
+	},
+
+#if 1
+	{
+	    name: "gyroscope",
+	    connection : {
+		type: "DCT_COMMAND_BASH",
+		command: "killall -q -9 demo_dmp; sleep 0.5; exec chrt -o 0 ../tool/MPU6050-Pi/demo_dmp",
+	    },
+	    warming_time: 30.0,
+	    //mount_position: [0, 0.01, 0.01],
+	    //mount_rpy: [0.07, 0, 0.07],
+            data: [
+		{ type: "DT_ORIENTATION_QUATERNION", tag: "quat", weight: 1.0, mandatory:1, history_size:3, debug_level: 88},
+		{ type: "DT_DEBUG",                  tag: "debug", debug_level: 1},
+            ],
+	},
+#endif
+
+#if 1
+	{
+	    name: "sonar",
+	    connection : {
+		type: "DCT_COMMAND_BASH",
+		command: "killall sonar-hcsr04; sleep 0.5; killall -q -9 sonar-hcsr04; sleep 0.5; exec chrt -o 0 ../tool/sonar-hcsr04/sonar-hcsr04 9 11",
+	    },
+	    mount_position: [0, 0.01, 0.04],
+            data: [
+		{ type: "DT_GROUND_DISTANCE",   tag: "dist", weight: 1.0, mandatory:1, history_size:10, debug_level: 88},
+		{ type: "DT_DEBUG",             tag: "debug", debug_level: 110},
+            ],
+	},
+#endif
+
+
+#if 0
+	{
+	    name: "neo-8m",
+	    connection : {
+		type: "DCT_COMMAND_BASH",
+		command: "cat /dev/serial0",
+	    },
+	    // GPS position 
+	    mount_position: [0, 0, 0],
+	    mount_pry: [0, 0, 0],
+	    data_ignore_unknown_tags: 1,
+            data: [
+	    	// TODO: Maybe implement some interface putting GPS, Glonass and Galileo together with the same tags
+		{ type: "DT_POSITION_NMEA_GPS",	     tag: "$GPGGA",  weight: 1, debug_level: 111},
+		{ type: "DT_POSITION_NMEA_GPS",	     tag: "$GLGGA",  weight: 1, debug_level: 111},
+		{ type: "DT_POSITION_NMEA_GPS",	     tag: "$GNGGA",  weight: 1, debug_level: 111},
+		{ type: "DT_DEBUG",                  tag: "debug", debug_level: 111},
+            ],
+	},
+#endif
+	
+#if 0
+	{
+	    name: "compass-hmc5883l",
+	    connection : {
+		type: "DCT_COMMAND_BASH",
+		command: "killall -q -9 compass; sleep 0.5; exec chrt -o 0 ../tool/compass/HMC5883l/hmc5883l.c-master/compass /dev/i2c-4",
+	    },
+	    // compass - magnetometer
+            data: [
+		{ type: "DT_ORIENTATION_RPY_COMPASS", tag: "head",  weight: [0,0,0.0001], debug_level: 111},
+		{ type: "DT_DEBUG",                   tag: "debug", debug_level: 111},
+            ],
+	},
+#endif
+	
+	],
+    
+}

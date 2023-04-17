@@ -1,0 +1,12 @@
+
+all: motor-dshot
+
+
+motor-dshot: motor-dshot.c ../motor-common.c ../motor-common.h 
+	gcc -O2 -S -o motor-dshot.s motor-dshot.c
+	gcc -O2 -Wall -o motor-dshot ../motor-common.c motor-dshot.c
+
+.PHONY: always
+
+
+
