@@ -1,12 +1,10 @@
 
 Raspilot is a drone flight controller and autopilot for Raspberry
 Pi. It does not require an additional computer on board, the Raspberry
-Pi pinout is connected directly to the ESCs. It is under active
-developmet right now.
+Pi pinout is connected directly to the ESCs. 
 
 
-WHY TO DO IT?
-^^^^^^^^^^^^^
+##Why to do it?
 
 This project began as a professional assignment. The aim was to
 develop a flight controller and autopilot where it is easy to connect
@@ -15,14 +13,15 @@ sensors and perform series of tests. Another goal was potentially
 unlimited precision (sub centimeter) of flight.
 
 Unfortunately, the company that commissioned the software cancelled
-the project before it had reached its first milestone. By that
-time the most of the autopilot code had been written. I decided to
-finish the autopilot on my own and publish it on the internet.
+the project before it had reached its first milestone. By that time
+the most of the autopilot code had been written. I published the code
+and continue working on it on my own. Here is a video of one of the
+first succesfull flight
+![video](https://www.youtube.com/watch?v=454NIqCr8b4)
 
 
 
-WHY RASPBERRY PI?
-^^^^^^^^^^^^^^^^^
+##Why raspberry pi?
 
 
 Raspberry Pi fits the purpose of the project. It is powerful enough to
@@ -56,8 +55,9 @@ buffered I/O, allowing us to store and edit our configurations, logs,
 videos, etc.
 
 
-WHAT DOES RASPILOT PROVIDE?
-^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+
+##What does raspilot provide?
 
 Raspilot is a small software at the moment. It implements the
 necessary to allow a drone to fly and carry out its mission.  The
@@ -93,8 +93,9 @@ frequency). We were able to fly drones with frequencies between 20Hz
 and 400Hz. At lower frequencies the drone is unstable, higher
 frequencies do not allow to save full log of the flight.
 
-HARDWARE
-^^^^^^^^
+
+
+##Hardware
 
 For the moment Raspilot supports T265 Intel intellisense positioning
 and orientation sensor; MPU-6050 family of gyroscopes; HC-SR04
