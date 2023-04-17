@@ -24,7 +24,7 @@ IGNORE_BUILD_ERROR=false
 endif
 
 
-all: raspilot logwriter mpucompile motorcompile altimetercompile sonarcompile
+all: raspilot mpucompile motorcompile altimetercompile sonarcompile
 
 viz: always
 	make -C ../tool/pose-vizualization || $(IGNORE_BUILD_ERROR)
