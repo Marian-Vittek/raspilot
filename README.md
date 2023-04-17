@@ -4,7 +4,7 @@ Pi. It does not require an additional computer on board, the Raspberry
 Pi pinout is connected directly to the ESCs. 
 
 
-##Why to do it?
+## Why to do it?
 
 This project began as a professional assignment. The aim was to
 develop a flight controller and autopilot where it is easy to connect
@@ -20,7 +20,7 @@ first succesfull flight](https://www.youtube.com/watch?v=454NIqCr8b4)
 
 
 
-##Why raspberry pi?
+## Why raspberry pi?
 
 
 Raspberry Pi fits the purpose of the project. It is powerful enough to
@@ -56,7 +56,7 @@ videos, etc.
 
 
 
-##What does raspilot provide?
+## What does raspilot provide?
 
 Raspilot is a small software at the moment. It implements the
 necessary to allow a drone to fly and carry out its mission.  The
@@ -94,7 +94,7 @@ frequencies do not allow to save full log of the flight.
 
 
 
-##Hardware
+## Hardware
 
 For the moment Raspilot supports T265 Intel intellisense positioning
 and orientation sensor; MPU-6050 family of gyroscopes; HC-SR04
