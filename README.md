@@ -68,8 +68,8 @@ running in separate processes and are connected to the autopilot via
 Linux pipes. Software runs asynchronously and the input is read as it
 comes.  The autopilot itself runs an infinite loop at an adjustable
 frequency, usually 100Hz. Software that physically controls motors (or
-ESCs) runs in a separate process that is also connected through Linux
-pipes as well. It makes it easy to integrate specific ESC protocols or
+ESCs) runs in a separate process that is connected through Linux pipes
+as well. It makes it easy to integrate specific ESC protocols or
 specific motor hardware.
 
 
