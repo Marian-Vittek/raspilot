@@ -797,7 +797,7 @@ int baioLineDispatchInputLine(struct deviceData *dd, char *s, int n) {
 		r = parseVector(&pp.pr[3], 4, tag, p, dd, ddd);
 		if (r == 0) {
 		    quatToYpr(&pp.pr[3], &pp.pr[9], &pp.pr[8], &pp.pr[7]);
-		    lprintf(1, "%s: debug got orientation rpy %s\n", PPREFIX(), vec3ToString_st(&pp.pr[7]));
+		    // lprintf(1, "%s: debug got orientation rpy %s\n", PPREFIX(), vec3ToString_st(&pp.pr[7]));
 		    // apply mount correction
 		    vec3_sub(&pp.pr[7], &pp.pr[7], dd->mount_rpy);
 		    // lprintf(1, "%s: debug after sub mount %s\n", PPREFIX(), vec3ToString_st(&pp.pr[7]));
