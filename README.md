@@ -1,8 +1,8 @@
 
 
-Raspilot is a drone flight controller and autopilot for Raspberry
-Pi. It does not require an additional computer on board, the Raspberry
-Pi pinout is connected directly to the ESCs. 
+Drone flight controller and autopilot for Raspberry
+Pi. It does not require any additional board, the Raspberry
+Pi pinout is connected directly to ESCs and sensors.
 
 
 ### Why to do it?

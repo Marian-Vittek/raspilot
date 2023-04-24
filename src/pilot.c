@@ -703,7 +703,7 @@ static void pilotComputeMotorThrustsForStabilizationAndWaypoint() {
     
     // pitch - negative == nose down;      positive == nose up
     // roll  - negative == left wing down; positive == left wing up
-    // yaw   - positive == rotated clockwise (view from up)
+    // yaw   - positive == rotated counterclockwise (view from up)
 
     // small hack, suppose that we never travel much more than max_speed to avoid dirty values.
     vec3TruncateToSize(movingVelocity, uu->config.drone_max_speed * 1.9, "movingVelocity");
