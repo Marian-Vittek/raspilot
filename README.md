@@ -1,8 +1,9 @@
 
 
-Drone flight controller and autopilot for Raspberry
-Pi. It does not require any additional board, the Raspberry
-Pi pinout is connected directly to ESCs and sensors.
+Drone flight controller and autopilot for Raspberry Pi. It does not
+require any additional board, the Raspberry Pi pinout is connected
+directly to ESCs and sensors. It has been developed from the scratch,
+the code for stabilisation and reaching waypoints is original.
 
 
 ### Why to do it?
@@ -43,13 +44,7 @@ development and debugging environment. Connected via wifi we can edit,
 compile, run and debug the code directly on the drone. No need to
 flash the firmware every time we change the code. We can fly with new
 versions of our software again and again without physically touching
-the drone. Linux provides a file system with buffered I/O, allowing us
-to store and edit our configurations, logs, videos, etc.
-Linux user space processes can be perfectly timed with a resolution
-better than 1ms. This is largely sufficient for the autopilot, where
-the main loop is executed every 10ms. Things that require better
-timing (such as the dshot protocol) are implemented using busy wait
-loops.
+the drone.
 
 
 
@@ -73,14 +68,14 @@ specific motor hardware.
 From the user point of view, the whole autopilot behaves like a
 library. The main program initialises the autopilot and then executes
 a mission for the drone to follow.  The mission is a C function coded
-by the user. It basically does what it wants to do and calls autopilot
-functions like "goto_waypoint(X,Y,Z,Yaw)", which means that the drone
-will go to the point X,Y,Z and approach it with the yaw
-orientation. When the waypoint is reached, the function returns and
-the mission can continue. Such an architecture gives the user (who
-must be a C programmer) full control over all flight variables and
-configurations to perform any sophisticated computations he may wish
-during the flight.
+by the user. It basically calls autopilot functions like
+"goto_waypoint(X,Y,Z,Yaw)", which means that the drone will go to the
+point X,Y,Z and approach it with the yaw orientation. When the
+waypoint is reached, the function returns and the mission can
+continue. Such an architecture gives the user (who must be a C
+programmer) full control over all flight variables and configurations
+to perform any sophisticated computations he may wish during the
+flight.
 
 The physics that Raspilot uses to stabilise drones is very
 rudimentary. Only inertia rules are taken into account. Changes in
@@ -88,7 +83,8 @@ rotation and speed of movement are controlled by PID controllers. This
 model is able to stabilise the drone very well at 100Hz (main loop
 frequency). We were able to fly drones with frequencies between 20Hz
 and 400Hz. At lower frequencies the drone is unstable, higher
-frequencies do not allow to save full log of the flight.
+frequencies may be readonable if you have sensors with such update
+rates.
 
 
 
