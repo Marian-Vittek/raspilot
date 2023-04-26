@@ -7,7 +7,7 @@
 // This file is preprocessed by C preprocessor before being read by raspilot, this
 // allows us to use some of preprocessor directives like #define and #if.
 // File format is an "extended" JSON which is JSON format where field names can be used without quotes,
-// comma can occur after the last field and constant expressions instead of constants.
+// comma can occur after the last field and constant expressions can be used instead of constants.
 
 #define PI 3.1415926
 
@@ -94,7 +94,7 @@
     // controller even if CI is set. The I factor in this case accumulates the difference between fully
     // charged and "nearly empty" batteries.
 
-    pidAltitude: { p:0.05,  i:0.01,  d:0.0010, ci:0.06 },
+    pidAltitude: { p:0.05,  i:0.01,  d:0.0010, ci:0.066 },
 
     //////////////////////////////////////////////
     // sensors and other devices installed on the drone and connected through pipes
@@ -136,7 +136,7 @@
 	    //mount_rpy: [0.07, 0, 0.07],
             data: [
 		{ type: "DT_ORIENTATION_QUATERNION", tag: "quat", weight: 1.0, mandatory:1, history_size:3, debug_level: 88},
-		{ type: "DT_DEBUG",                  tag: "debug", debug_level: 1},
+		{ type: "DT_DEBUG",                  tag: "debug", debug_level: 111},
             ],
 	},
 #endif

@@ -216,8 +216,8 @@ void mission() {
 
     if (0) {
 	missionMotorPwmCalibrationAndExit(1);
-    } else if (1) {
-	missionMotorTest(-1);
+    } else if (0) {
+	missionMotorTest(0);
     } else {
 	raspilotPreLaunchSequence();
 	

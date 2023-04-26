@@ -39,4 +39,3 @@ test_3d: main_3d.cpp demo_3d.cpp demo_3d.h
 
 clean:
 	rm -f $(CMN_OBJS) $(DMP_OBJS) $(D3D_OBJS) $(RAW_OBJS) demo_raw demo_dmp demo_3d test_3d
-
