@@ -137,7 +137,7 @@ void setup() {
 // ===                    MAIN PROGRAM LOOP                     ===
 // ================================================================
 
-#define DDDEBUG 1
+#define DDDEBUG 0
 #if DDDEBUG
 static void wikiQuaternionToEulerAngles(Quaternion *q, double *yaw, double *pitch, double *roll) {
     double x, y, z, w;
