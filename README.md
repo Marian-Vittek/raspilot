@@ -4,7 +4,8 @@ Drone flight controller and autopilot for Raspberry Pi. It does not
 require any additional board, the Raspberry Pi pinout is connected
 directly to ESCs and sensors. It has been developed from the scratch,
 the code for stabilisation and reaching waypoints is original.
-
+ Here is a [video of one of the
+first succesfull flight](https://www.youtube.com/watch?v=454NIqCr8b4) .
 
 ### Why to do it?
 
@@ -17,8 +18,7 @@ unlimited precision (sub centimeter) of flight.
 Unfortunately, the company that commissioned the software cancelled
 the project before it had reached its first milestone. By that time
 the most of the autopilot code had been written. I published the code
-and continue working on it on my own. Here is a [video of one of the
-first succesfull flight](https://www.youtube.com/watch?v=454NIqCr8b4)
+and continue working on it on my own.
 
 
 
