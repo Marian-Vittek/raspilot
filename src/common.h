@@ -47,7 +47,7 @@
 #define PILOT_THRUST_NORMALIZATION_DEBUG_LEVEL 	22
 #define PILOT_LAND_ALTITUDE			1.0
 
-// The default configuration is overwritten at launch and land time
+// The default configuration is overwritten during launch and land time
 #define PILOT_LAUNCH_SPEED			1.0
 #define PILOT_LAUNCH_GOAL_ORIENTATION_TIME	0.2
 #define PILOT_LAUNCH_GOAL_POSITION_TIME		0.6
@@ -56,7 +56,6 @@
 
 #define PILOT_PRELAUNCH_FREQUENCY_HZ		20
 
-// put there 30 sec if using MPU-6050 which calibrates itself during that time
 #define PILOT_WARMING_WARNING_ROTATION_TIME		0.5
 #define PILOT_WARMING_WARNING_ROTATIONS_DELAY		3.0
 #define PILOT_WARMING_WARNING_ROTATIONS_TO_LAUNCH	2.0
@@ -68,14 +67,13 @@
 //////////////////////////////////////////////////////////////
 
 #if 0
+// some stuff used for latency profiling/checking
 #define select(...) (checkTimeLimit("", 0, 0), checkTimeLimit("select", 0.001, select(__VA_ARGS__)))
 #define read(...)   (checkTimeLimit("", 0, 0), checkTimeLimit("read",   0.001, read(__VA_ARGS__)))
 #define write(...)  (checkTimeLimit("", 0, 0), checkTimeLimit("write",  0.001, write(__VA_ARGS__)))
 #define printf(...) (checkTimeLimit("", 0, 0), checkTimeLimit("printf", 0.001, printf(__VA_ARGS__)))
 #define fflush(...) (checkTimeLimit("", 0, 0), checkTimeLimit("fflush", 0.001, fflush(__VA_ARGS__)))
 #endif
-
-#define PILOT_TICK_HZ			10
 
 #define DEFAULT_DEBUG_LEVEL		10
 #define MOTOR_MAX			16
@@ -97,7 +95,7 @@
 
 /////////////////////////////////////////////////////////////
 
-// spaecial valu fro motor setting function
+// special value for motor setting/testing function
 #define MOTORS_ALL			-1
 
 #define POSE_HISTORY_LAST(hh) (&(hh)->a[(hh)->ailast])
@@ -364,7 +362,7 @@ struct globalTimeInfo {
     long long int   usec;       // micro seconds since epoch
     long long int   msec;       // milli seconds since epoch
     time_t          sec;        // seconds since epoch
-    double          dtime;      // time since "zero moment" in seconds with microsecond precission
+    double          dtime;      // time since epoch in seconds with microsecond precission
     int             hour;       // hours since epoch
     int             msecPart;   // milli seconds since last second (0 .. 999) 
     int             usecPart;   // micro seconds since last second (0 .. 999999)

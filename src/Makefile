@@ -10,10 +10,10 @@ OBJS=main.o common.o expmem.o json.o baio.o config.o pilot.o mission.o
 ########################################################
 
 #dev
-#HOST=d250
+HOST=d250
 #HOST=piw
 #HOST=pc
-HOST=piz2
+#HOST=piz2
 ###
 
 #set IGNORE_BUILD_ERROR to true if you want to ignore build errors

@@ -31,7 +31,7 @@ https://stackoverflow.com/questions/69425540/execute-mmap-on-linux-kernel
 // advance we are going to clear zero bits in dshot frames. Too small
 // value makes ESC to interpret 0 bits as being 1. Too large will
 // makes ESC not to recognize the protocol.
-#define DSHOT_AD_HOC_OFFSET	(300)
+#define DSHOT_AD_HOC_OFFSET	(DSHOT_T0H_ns / 5)
 
 
 
@@ -67,11 +67,14 @@ https://stackoverflow.com/questions/69425540/execute-mmap-on-linux-kernel
 
 #endif
 
+#define DSHOT_MAX_TIMING_ERROR_ns       2000
+// how many times we retry to send dshot frame if previous was not timed well
+#define DSHOT_MAX_RETRY			3
+#define USLEEP_BEFORE_REBROADCAST	100
+
 //#define DSHOT_USE__CLOCK		CLOCK_REALTIME
 #define DSHOT_USE__CLOCK		CLOCK_MONOTONIC_RAW 
-#define USLEEP_BEFORE_BROADCAST		100
 #define TIMESPEC_TO_INT(tt) 		(tt.tv_sec * 1000000000LL + tt.tv_nsec)
-
 /////////
 
 #define GPIO_BASE_OFFSET 	0x00200000
@@ -121,8 +124,8 @@ static int dshotAddChecksumAndTelemetry(int packet, int telem) {
 }
 
 static void dshotSendFrames(uint32_t allMotorsPinMask, uint32_t *clearMasks) {
-    int 		i;
-    int64_t		t, offset1, offset2, offset3;
+    int 		i, j;
+    int64_t		t, tt, t0, offset1, offset2, offset3;
     volatile unsigned	*gpioset;
     volatile unsigned	*gpioclear;
 
@@ -134,23 +137,40 @@ static void dshotSendFrames(uint32_t allMotorsPinMask, uint32_t *clearMasks) {
     offset1 = DSHOT_T0H_ns - DSHOT_AD_HOC_OFFSET;
     offset2 = DSHOT_T0H_ns;
     offset3 = DSHOT_BIT_ns - offset1 - offset2;
-    
-    // relax to OS for a small period of time, hope it reduces the probability that we will
-    // be interrupted during broadcasting.
-    usleep(USLEEP_BEFORE_BROADCAST);	
-    // send dshot frame bits
-    t = dshotGetNanoseconds();
-    for(i=0; i<16; i++) {
-	t += offset3;
-	while (dshotGetNanoseconds() < t) ;
-	*gpioset = allMotorsPinMask;
-	t += offset1;
-	while (dshotGetNanoseconds() < t) ;
-	*gpioclear = clearMasks[i];
-	t += offset2;
-	while (dshotGetNanoseconds() < t) ;
-	*gpioclear = allMotorsPinMask;
+
+    // We will try to send the frame several times if timing was wrong
+    for(j=0; j<DSHOT_MAX_RETRY; j++) {
+	// send dshot frame bits
+	tt = t0 = dshotGetNanoseconds();
+	for(i=0; i<16; i++) {
+	    tt += offset3;
+	    while ((t=dshotGetNanoseconds()) < tt) ;
+	    *gpioset = allMotorsPinMask;
+	    // if we are not in time, abandon the whole dshot frame
+	    if (t - tt > DSHOT_MAX_TIMING_ERROR_ns) break;
+	    tt += offset1;
+	    while ((t=dshotGetNanoseconds()) < tt) ;
+	    *gpioclear = clearMasks[i];
+	    if (t - tt > DSHOT_MAX_TIMING_ERROR_ns) break;
+	    tt += offset2;
+	    while ((t=dshotGetNanoseconds()) < tt) ;
+	    *gpioclear = allMotorsPinMask;
+	    if (t - tt > DSHOT_MAX_TIMING_ERROR_ns) break;
+	}
+	if (t - tt > DSHOT_MAX_TIMING_ERROR_ns) {
+	    // we were out of timing, the frame was abandonned and we will retry to broadcast it
+	    *gpioclear = allMotorsPinMask;
+	    // printf("debug Dshot Frame was abandonned because of wrong timing in attempt %d, bit %d.\n", j, i); fflush(stdout);
+	    // relax to OS for a small period of time, hope it reduces the probability that we will
+	    // be interrupted during next broadcasting.
+	    usleep(USLEEP_BEFORE_REBROADCAST);	
+	} else {
+	    // ok we are done here.
+	    // printf("debug Dshot Frame successfully sent.\n"); fflush(stdout);
+	    return;
+	}
     }
+    printf("debug Dshot Frame failure.\n"); fflush(stdout);
 }
 
 static uint32_t getGpioRegBase(void) {
@@ -256,7 +276,7 @@ void motorImplementationFinalize(int motorPins[], int motorMax) {
 void motorImplementationSendThrottles(int motorPins[], int motorMax, double motorThrottle[]) {
     int		i, bi;
     unsigned	frame[NUM_PINS+1];
-    unsigned	bit;
+    unsigned	val, bit;
     uint32_t	msk, allMotorsMask;
     uint32_t	clearMasks[16];
 
@@ -265,7 +285,12 @@ void motorImplementationSendThrottles(int motorPins[], int motorMax, double moto
     allMotorsMask = dshotGetAllMotorsPinMask(motorPins, motorMax);
 
     // translate double throttles ranging <0, 1> to dshot frames.
-    for(i=0; i<motorMax; i++) frame[i] = dshotAddChecksumAndTelemetry(motorThrottle[i] * 1999 + 48, 0);
+    for(i=0; i<motorMax; i++) {
+	val = motorThrottle[i] * 1999 + 48;
+	// we use command 0 for zero thrust which should be used as arming sequence as well.
+	if (motorThrottle[i] == 0) val = 0;
+	frame[i] = dshotAddChecksumAndTelemetry(val, 0);
+    }
 
     // compute masks for zero bits in all frames
     for(bi=0; bi<16; bi++) {

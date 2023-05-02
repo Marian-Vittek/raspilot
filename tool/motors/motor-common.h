@@ -3,6 +3,9 @@
 
 #define MOTOR_MAX		64
 
+// motor-common.c exports a variable indicating debug level
+extern int debug;
+
 // each motor implementation have to implement following three
 // functions
 

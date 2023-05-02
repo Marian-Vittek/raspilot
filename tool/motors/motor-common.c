@@ -24,7 +24,7 @@
 #define THROTTLE_LANDING	0
 #endif
 
-int debug = 99;
+int debug = 0;
 
 // TODO: Maybe replace pipes with shared memeory
 
