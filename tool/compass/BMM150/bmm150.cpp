@@ -13,8 +13,8 @@ int fd_i2c = -1;
 BMM150::BMM150() {
 }
 
-int8_t BMM150::initialize(void) {
-  fd_i2c = pi2cOpen((char*)"/dev/i2c-1", BMM150_I2C_Address);
+int8_t BMM150::initialize(char *devicePath) {
+  fd_i2c = pi2cOpen(devicePath, BMM150_I2C_Address);
     
     /* Power up the sensor from suspend to sleep mode */
     set_op_mode(BMM150_SLEEP_MODE);

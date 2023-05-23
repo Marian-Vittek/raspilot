@@ -13,7 +13,7 @@ class BMM150 {
         \brief initialze device
 
     */
-    int8_t initialize(void);
+    int8_t initialize(char *devicePath);
 
     /**
         \brief Read magnetometer data

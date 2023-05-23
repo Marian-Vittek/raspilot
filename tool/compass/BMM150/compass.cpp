@@ -9,7 +9,7 @@ BMM150 bmm = BMM150();
 bmm150_mag_data value_offset;
 
 void setup() {
-    if (bmm.initialize() == BMM150_E_ID_NOT_CONFORM) {
+    if (bmm.initialize((char*)"/dev/i2c-1") == BMM150_E_ID_NOT_CONFORM) {
         printf("Chip ID can not read!\n");
 	exit(-1);
     } else {
