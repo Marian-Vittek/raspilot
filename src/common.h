@@ -54,7 +54,7 @@
 #define PILOT_LAUNCH_MAX_TIME			30.0
 #define PILOT_LAND_SPEED			0.2
 
-#define PILOT_PRELAUNCH_FREQUENCY_HZ		20
+#define PILOT_PRELAUNCH_FREQUENCY_HZ		50
 
 #define PILOT_WARMING_WARNING_ROTATION_TIME		0.5
 #define PILOT_WARMING_WARNING_ROTATIONS_DELAY		3.0
@@ -253,16 +253,21 @@ enum coordinateSystemEnum {
 enum deviceDataTypes {
     DT_NONE,
     
+    DT_VOID,
     DT_DEBUG,
     DT_PONG,
     DT_POSITION_VECTOR,
     DT_GROUND_DISTANCE,
+    DT_ALTITUDE,
     DT_ORIENTATION_RPY_COMPASS,
     DT_ORIENTATION_QUATERNION,
     
     DT_POSITION_NMEA,
     DT_MAGNETIC_HEADING_NMEA,
-    
+
+    // Exotic stuff
+    DT_JSTEST,		// joystick
+
     DT_MAX,
 };
 
@@ -665,8 +670,8 @@ struct deviceData {
 
 struct motorStr {
     double			thrust;
-    int				rotationSpeed;
-    int				lastSentRotationSpeed;
+    double			rotationSpeed;
+    double			lastSentRotationSpeed;
 
     double			lastSentThrust;
     double			totalWork;
@@ -908,6 +913,7 @@ struct baio *baioNewUDP(char *ip, int port, int ioDirection, int additionalSpace
 
 // mission.c
 void missionProcessInteractiveInput(int c) ;
+void missionLandImmediately() ;
 void mission();
 
 // main.c

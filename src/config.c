@@ -253,7 +253,9 @@ void configLoadDeviceData(struct jsonnode *c, struct deviceData	*dl, char *path,
 	    LOAD_CONFIG_CONTEXT_PUSH(context, "data[%d]", i);
 	    LOAD_CONFIG_ENUM_STRING_OPTION(d, context, ddl, deviceDataTypeNames,  type);
 	    if (ddl->type < DT_NONE || ddl->type >= DT_MAX) {
-		lprintf(0,"%s:%s:%d: Error: unknown data type in %s. Ignoring.\n", PPREFIX(), __FILE__, __LINE__, context);
+		lprintf(0,"%s:%s:%d: Error: unknown data type in %s. Exiting.\n", PPREFIX(), __FILE__, __LINE__, context);
+		// Actuall this probably means serious configuration problem. Prefer not to continue
+		CANT_LOAD_CONFIGURATION_FILE_FATAL(path);
 		ddl->type = DT_NONE;
 	    }
 	    LOAD_CONFIG_STRING_OPTION_WITH_DEFAULT_VALUE(d, context, ddl, tag, NULL);
@@ -479,14 +481,17 @@ void configloadFile() {
     struct jsonFieldList	*ll;
 
     path = uu->cfgFileName;
-    if (path == NULL) {
-	gethostname(hname, sizeof(hname));
-	hname[sizeof(hname)-1] = 0;
-	snprintf(ttt, sizeof(ttt)-1, "../cfg/raspilot-%s.json", hname);
-	ttt[sizeof(ttt)-1] = 0;
-	path = ttt;
-    }
+    if (path == NULL) path = "config.json";
     
+#if 0
+    // Old versions loaded configuration file based on hostname
+    gethostname(hname, sizeof(hname));
+    hname[sizeof(hname)-1] = 0;
+    snprintf(ttt, sizeof(ttt)-1, "../cfg/raspilot-%s.json", hname);
+    ttt[sizeof(ttt)-1] = 0;
+    path = ttt;
+#endif
+	
     ss = fileLoadToNewlyAllocatedString(path, 1);
     if (ss == NULL) {CANT_LOAD_CONFIGURATION_FILE_FATAL(path); raspilotShutDownAndExit();};
 

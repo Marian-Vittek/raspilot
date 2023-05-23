@@ -25,16 +25,17 @@ https://stackoverflow.com/questions/69425540/execute-mmap-on-linux-kernel
 // Select the dshot version you want to use. Value may be 150, 300,
 // 600 or 1200. DSHOT_VERSION 150 seems to work fine on raspberry pi
 // zero 2, other values may not work.
+#ifndef DSHOT_VERSION
 #define DSHOT_VERSION 150
+#endif
 
 // This ad-hoc value have to be "guessed".  It specifies how much in
 // advance we are going to clear zero bits in dshot frames. Too small
 // value makes ESC to interpret 0 bits as being 1. Too large will
-// makes ESC not to recognize the protocol.
-#define DSHOT_AD_HOC_OFFSET	(DSHOT_T0H_ns / 5)
-
-
-
+// make ESC not to recognize the protocol.
+#ifndef DSHOT_AD_HOC_OFFSET
+#define DSHOT_AD_HOC_OFFSET     (DSHOT_T0H_ns / 5)
+#endif
 
 //////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////
@@ -69,31 +70,67 @@ https://stackoverflow.com/questions/69425540/execute-mmap-on-linux-kernel
 
 #define DSHOT_MAX_TIMING_ERROR_ns       2000
 // how many times we retry to send dshot frame if previous was not timed well
-#define DSHOT_MAX_RETRY			3
-#define USLEEP_BEFORE_REBROADCAST	100
+#define DSHOT_MAX_RETRY                 3
+#define USLEEP_BEFORE_REBROADCAST       100
 
-//#define DSHOT_USE__CLOCK		CLOCK_REALTIME
-#define DSHOT_USE__CLOCK		CLOCK_MONOTONIC_RAW 
-#define TIMESPEC_TO_INT(tt) 		(tt.tv_sec * 1000000000LL + tt.tv_nsec)
+//#define DSHOT_USE__CLOCK              CLOCK_REALTIME
+#define DSHOT_USE__CLOCK                CLOCK_MONOTONIC_RAW 
+#define TIMESPEC_TO_INT(tt)             (tt.tv_sec * 1000000000LL + tt.tv_nsec)
 /////////
 
-#define GPIO_BASE_OFFSET 	0x00200000
-#define PAGE_SIZE 		(4*1024)
-#define BLOCK_SIZE 		(4*1024)
+#define GPIO_BASE_OFFSET        0x00200000
+#define PAGE_SIZE               (4*1024)
+#define BLOCK_SIZE              (4*1024)
 
 // GPIO setup macros. Always use INP_GPIO(x) before using OUT_GPIO(x) or SET_GPIO_ALT(x,y)
-#define INP_GPIO(g) 		(*(dshotGpio+((g)/10)) &= ~(7<<(((g)%10)*3)))
-#define OUT_GPIO(g) 		(*(dshotGpio+((g)/10)) |=  (1<<(((g)%10)*3)))
+#define INP_GPIO(g)             (*(dshotGpio+((g)/10)) &= ~(7<<(((g)%10)*3)))
+#define OUT_GPIO(g)             (*(dshotGpio+((g)/10)) |=  (1<<(((g)%10)*3)))
 
-#define GPIO_SET 		(*(dshotGpio+7))
-#define GPIO_CLR 		(*(dshotGpio+10))
+#define GPIO_SET                (*(dshotGpio+7))
+#define GPIO_CLR                (*(dshotGpio+10))
 
-#define NUM_PINS 		27
+#define NUM_PINS                27
 
-    
+enum {
+    DSHOT_CMD_MOTOR_STOP = 0,
+    DSHOT_CMD_BEACON1,
+    DSHOT_CMD_BEACON2,
+    DSHOT_CMD_BEACON3,
+    DSHOT_CMD_BEACON4,
+    DSHOT_CMD_BEACON5,
+    DSHOT_CMD_ESC_INFO, // V2 includes settings
+    DSHOT_CMD_SPIN_DIRECTION_1,
+    DSHOT_CMD_SPIN_DIRECTION_2,
+    DSHOT_CMD_3D_MODE_OFF,
+    DSHOT_CMD_3D_MODE_ON,
+    DSHOT_CMD_SETTINGS_REQUEST, // Currently not implemented
+    DSHOT_CMD_SAVE_SETTINGS,
+    DSHOT_CMD_SPIN_DIRECTION_NORMAL = 20,
+    DSHOT_CMD_SPIN_DIRECTION_REVERSED = 21,
+    DSHOT_CMD_LED0_ON, // BLHeli32 only
+    DSHOT_CMD_LED1_ON, // BLHeli32 only
+    DSHOT_CMD_LED2_ON, // BLHeli32 only
+    DSHOT_CMD_LED3_ON, // BLHeli32 only
+    DSHOT_CMD_LED0_OFF, // BLHeli32 only
+    DSHOT_CMD_LED1_OFF, // BLHeli32 only
+    DSHOT_CMD_LED2_OFF, // BLHeli32 only
+    DSHOT_CMD_LED3_OFF, // BLHeli32 only
+    DSHOT_CMD_AUDIO_STREAM_MODE_ON_OFF = 30, // KISS audio Stream mode on/Off
+    DSHOT_CMD_SILENT_MODE_ON_OFF = 31, // KISS silent Mode on/Off
+    DSHOT_CMD_SIGNAL_LINE_TELEMETRY_DISABLE = 32,
+    DSHOT_CMD_SIGNAL_LINE_CONTINUOUS_ERPM_TELEMETRY = 33,
+    DSHOT_CMD_MAX = 47
+};
+
 // I/O access
-static void 			*dshotGpioMap;
-static volatile uint32_t 	*dshotGpio;
+static void                     *dshotGpioMap;
+static volatile uint32_t        *dshotGpio;
+
+// 3D mode, if dshot3dMode != 0 then reverse rotation is enabled
+static int dshot3dMode = 0;
+
+
+//////////////////////////////////////////////////////////////////////////////////////
 
 
 static inline uint64_t dshotGetNanoseconds() {
@@ -123,11 +160,11 @@ static int dshotAddChecksumAndTelemetry(int packet, int telem) {
     return ((packet_telemetry << 4) | csum);
 }
 
-static void dshotSendFrames(uint32_t allMotorsPinMask, uint32_t *clearMasks) {
-    int 		i, j;
-    int64_t		t, tt, t0, offset1, offset2, offset3;
-    volatile unsigned	*gpioset;
-    volatile unsigned	*gpioclear;
+static void dshotSend(uint32_t allMotorsPinMask, uint32_t *clearMasks) {
+    int                 i, j;
+    int64_t             t, tt, t0, offset1, offset2, offset3;
+    volatile unsigned   *gpioset;
+    volatile unsigned   *gpioclear;
 
     // prepare addresses
     gpioset = &GPIO_SET;
@@ -140,37 +177,70 @@ static void dshotSendFrames(uint32_t allMotorsPinMask, uint32_t *clearMasks) {
 
     // We will try to send the frame several times if timing was wrong
     for(j=0; j<DSHOT_MAX_RETRY; j++) {
-	// send dshot frame bits
-	tt = t0 = dshotGetNanoseconds();
-	for(i=0; i<16; i++) {
-	    tt += offset3;
-	    while ((t=dshotGetNanoseconds()) < tt) ;
-	    *gpioset = allMotorsPinMask;
-	    // if we are not in time, abandon the whole dshot frame
-	    if (t - tt > DSHOT_MAX_TIMING_ERROR_ns) break;
-	    tt += offset1;
-	    while ((t=dshotGetNanoseconds()) < tt) ;
-	    *gpioclear = clearMasks[i];
-	    if (t - tt > DSHOT_MAX_TIMING_ERROR_ns) break;
-	    tt += offset2;
-	    while ((t=dshotGetNanoseconds()) < tt) ;
-	    *gpioclear = allMotorsPinMask;
-	    if (t - tt > DSHOT_MAX_TIMING_ERROR_ns) break;
-	}
-	if (t - tt > DSHOT_MAX_TIMING_ERROR_ns) {
-	    // we were out of timing, the frame was abandonned and we will retry to broadcast it
-	    *gpioclear = allMotorsPinMask;
-	    // printf("debug Dshot Frame was abandonned because of wrong timing in attempt %d, bit %d.\n", j, i); fflush(stdout);
-	    // relax to OS for a small period of time, hope it reduces the probability that we will
-	    // be interrupted during next broadcasting.
-	    usleep(USLEEP_BEFORE_REBROADCAST);	
-	} else {
-	    // ok we are done here.
-	    // printf("debug Dshot Frame successfully sent.\n"); fflush(stdout);
-	    return;
-	}
+        // send dshot frame bits
+        tt = t0 = dshotGetNanoseconds();
+        for(i=0; i<16; i++) {
+            tt += offset3;
+            while ((t=dshotGetNanoseconds()) < tt) ;
+            *gpioset = allMotorsPinMask;
+            // if we are not in time, abandon the whole dshot frame
+            if (t - tt > DSHOT_MAX_TIMING_ERROR_ns) break;
+            tt += offset1;
+            while ((t=dshotGetNanoseconds()) < tt) ;
+            *gpioclear = clearMasks[i];
+            if (t - tt > DSHOT_MAX_TIMING_ERROR_ns) break;
+            tt += offset2;
+            while ((t=dshotGetNanoseconds()) < tt) ;
+            *gpioclear = allMotorsPinMask;
+            if (t - tt > DSHOT_MAX_TIMING_ERROR_ns) break;
+        }
+        if (t - tt > DSHOT_MAX_TIMING_ERROR_ns) {
+            // we were out of timing, the frame was abandonned and we will retry to broadcast it
+            *gpioclear = allMotorsPinMask;
+            // printf("debug Dshot Frame was abandonned because of wrong timing in attempt %d, bit %d.\n", j, i); fflush(stdout);
+            // relax to OS for a small period of time, hope it reduces the probability that we will
+            // be interrupted during next broadcasting.
+            usleep(USLEEP_BEFORE_REBROADCAST);  
+        } else {
+            // ok we are done here.
+            // printf("debug Dshot Frame successfully sent.\n"); fflush(stdout);
+            return;
+        }
     }
     printf("debug Dshot Frame failure.\n"); fflush(stdout);
+}
+
+static uint32_t dshotGetAllMotorsPinMask(int motorPins[], int motorMax) {
+    int         i;
+    uint32_t    allMotorsPinsMask;
+
+    // compute masks
+    allMotorsPinsMask = 0;
+    for(i=0; i<motorMax; i++) allMotorsPinsMask |= (1<<motorPins[i]);
+    return(allMotorsPinsMask);
+}
+
+void dshotSendFrames(int motorPins[], int motorMax, unsigned frame[]) {
+    int         i, bi;
+    unsigned    bit;
+    uint32_t    clearMasks[16];
+    uint32_t    msk, allMotorsMask;
+
+    assert(motorMax < NUM_PINS);
+
+    allMotorsMask = dshotGetAllMotorsPinMask(motorPins, motorMax);
+
+    // compute masks for zero bits in all frames
+    for(bi=0; bi<16; bi++) {
+        msk = 0;
+        bit = (0x8000 >> bi);
+        for(i=0; i<motorMax; i++) {
+            if ((frame[i] & bit) == 0) msk |= (1<<motorPins[i]);
+        }
+        clearMasks[bi] = msk;
+    }
+
+    dshotSend(allMotorsMask, clearMasks);
 }
 
 static uint32_t getGpioRegBase(void) {
@@ -186,7 +256,7 @@ static uint32_t getGpioRegBase(void) {
             cpu = (revision[2] >> 4) & 0xf;
         } else {
             printf("debug Error: Revision data too short\n");
-	}
+        }
         fclose(fd);
     }
 
@@ -206,8 +276,8 @@ static uint32_t getGpioRegBase(void) {
 }
 
 static void dshotSetupIo() {
-    int  	mem_fd;
-    int32_t	gpioBase;
+    int         mem_fd;
+    int32_t     gpioBase;
 
     gpioBase = getGpioRegBase();
     
@@ -239,70 +309,94 @@ static void dshotSetupIo() {
 
 }
 
-
-static uint32_t dshotGetAllMotorsPinMask(int motorPins[], int motorMax) {
-    int 	i;
-    uint32_t 	allMotorsPinsMask;
-
-    // compute masks
-    allMotorsPinsMask = 0;
-    for(i=0; i<motorMax; i++) allMotorsPinsMask |= (1<<motorPins[i]);
-    return(allMotorsPinsMask);
+// Send a command repeatedly during a given perion of time
+static void dshotRepeatSendCommand(int motorPins[], int motorMax, int cmd, int telemetry, int timePeriodMsec) {
+    unsigned    frame[NUM_PINS+1];
+    int         i;
+    int64_t     t;
+    
+    for(i=0; i<motorMax; i++) frame[i] = dshotAddChecksumAndTelemetry(cmd, telemetry);
+    t = dshotGetNanoseconds() + timePeriodMsec * 1000000LL;
+    while (dshotGetNanoseconds() <= t) {
+        dshotSendFrames(motorPins, motorMax, frame);
+        usleep(USLEEP_BEFORE_REBROADCAST);
+    }
 }
-
-
 
 //////////////////////////////////////////////////////////////////////////////////////////////
 // Main exported functions of the module implementing raspilot motor instance.
 //////////////////////////////////////////////////////////////////////////////////////////////
 
 void motorImplementationInitialize(int motorPins[], int motorMax) {
-    int i, pin;
+    int         i, pin;
     
     dshotSetupIo();
     
     for(i=0; i<motorMax; i++) {
-	pin = motorPins[i];
-	INP_GPIO(pin); // must use INP_GPIO before we can use OUT_GPIO
-	OUT_GPIO(pin);
-	GPIO_CLR = 1<<pin;
+        pin = motorPins[i];
+        INP_GPIO(pin);          // must use INP_GPIO before we can use OUT_GPIO
+        OUT_GPIO(pin);
+        GPIO_CLR = 1<<pin;
     }
+
+    // send zero throttle for 5 seconds to initialize ESCs
+    dshotRepeatSendCommand(motorPins, motorMax, DSHOT_CMD_MOTOR_STOP, 0, 5000);
 }
 
 void motorImplementationFinalize(int motorPins[], int motorMax) {
     munmap(dshotGpioMap, BLOCK_SIZE);
 }
 
+// This function allows to set bidirectional rotation (mode3dFlag!=0) and reverse rotation logic (reverseDirectionFlag!=0).
+// Changing 3D mode is interfering with rotation direction (at least on my ESC), so always reset the direction when changing 3D.
+void motorImplementationSet3dModeAndSpinDirection(int motorPins[], int motorMax, int mode3dFlag, int reverseDirectionFlag) {
+    int         repeatMsec;
+
+    // Repeat the command for some time to take effect. Do it longer in our case as we are not sure to send 
+    // all the frames correctly. If repeatMsec == 20, then this function will take 4*20 msec.
+    repeatMsec = 20;
+    
+    dshot3dMode = mode3dFlag;
+    if (dshot3dMode) {
+        dshotRepeatSendCommand(motorPins, motorMax, DSHOT_CMD_3D_MODE_ON, 1, repeatMsec);
+    } else {
+        dshotRepeatSendCommand(motorPins, motorMax, DSHOT_CMD_3D_MODE_OFF, 1, repeatMsec);
+    }
+    dshotRepeatSendCommand(motorPins, motorMax, DSHOT_CMD_SAVE_SETTINGS, 0, repeatMsec);
+
+    if (reverseDirectionFlag) {
+        dshotRepeatSendCommand(motorPins, motorMax, DSHOT_CMD_SPIN_DIRECTION_REVERSED, 1, repeatMsec);
+    } else {
+        dshotRepeatSendCommand(motorPins, motorMax, DSHOT_CMD_SPIN_DIRECTION_NORMAL, 1, repeatMsec);
+    }
+    dshotRepeatSendCommand(motorPins, motorMax, DSHOT_CMD_SAVE_SETTINGS, 0, repeatMsec);
+}
+
 void motorImplementationSendThrottles(int motorPins[], int motorMax, double motorThrottle[]) {
-    int		i, bi;
-    unsigned	frame[NUM_PINS+1];
-    unsigned	val, bit;
-    uint32_t	msk, allMotorsMask;
-    uint32_t	clearMasks[16];
+    int         i;
+    unsigned    frame[NUM_PINS+1];
+    int         val;
 
     assert(motorMax < NUM_PINS);
 
-    allMotorsMask = dshotGetAllMotorsPinMask(motorPins, motorMax);
-
-    // translate double throttles ranging <0, 1> to dshot frames.
     for(i=0; i<motorMax; i++) {
-	val = motorThrottle[i] * 1999 + 48;
-	// we use command 0 for zero thrust which should be used as arming sequence as well.
-	if (motorThrottle[i] == 0) val = 0;
-	frame[i] = dshotAddChecksumAndTelemetry(val, 0);
+        if (dshot3dMode) {
+            // translate double throttles ranging <-1, 1> to dshot frames.
+            if (motorThrottle[i] > 0) {
+                val = motorThrottle[i] * 998 + 1049;
+            } else {
+                val = -motorThrottle[i] * 999 + 48;
+            }
+        } else {
+            // translate double throttles ranging <0, 1> to dshot frames.
+            val = motorThrottle[i] * 1999 + 48;
+        }
+        // we use command 0 for zero thrust which should be used as arming sequence as well.
+        if (motorThrottle[i] == 0 || val < 48 || val >= 2048) val = DSHOT_CMD_MOTOR_STOP;
+        frame[i] = dshotAddChecksumAndTelemetry(val, 0);
     }
 
-    // compute masks for zero bits in all frames
-    for(bi=0; bi<16; bi++) {
-	msk = 0;
-	bit = (0x8000 >> bi);
-	for(i=0; i<motorMax; i++) {
-	    if ((frame[i] & bit) == 0) msk |= (1<<motorPins[i]);
-	}
-	clearMasks[bi] = msk;
-    }
-
-    dshotSendFrames(allMotorsMask, clearMasks);
+    dshotSendFrames(motorPins, motorMax, frame);
 }
 
 

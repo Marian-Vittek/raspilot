@@ -83,7 +83,7 @@ rotation and speed of movement are controlled by PID controllers. This
 model is able to stabilise the drone very well at 100Hz (main loop
 frequency). We were able to fly drones with frequencies between 20Hz
 and 400Hz. At lower frequencies the drone is unstable, higher
-frequencies did not make sense for us as we do not have sensors with
+frequencies did not make sense for us as we did not have sensors with
 such update rate.
 
 
@@ -92,5 +92,77 @@ such update rate.
 
 For the moment Raspilot supports T265 Intel intellisense positioning
 and orientation sensor; MPU-6050 family of gyroscopes; HC-SR04
-distance sensor; any NMEA GPS sensor and HMC5883 compass.
+distance sensor; any NMEA GPS sensor and HMC5883 compass. It provides
+PWM and DSHOT 150 to control motor ESCs.  It is quite easy to add
+new hardware to Raspilot. All you need to do is to hack a demo example
+that comes with the sensor and make it print measurements to the
+standard output.
+
+### Getting Started
+
+To use Raspilot, you need to have at least a basic understanding of C
+programming. If you have the courage to try it then:
+
+1.) Clone Raspilot to your Raspberry Pi
+
+2.) Create/Edit configuration file for your drone in the directory
+"cfg". There are a few working configurations which can be used as
+templates. Then create a symbolic link to your configuration file in
+the "src" directory. The name of the link shall be "config.json".
+
+```
+    cd src
+    ln -s -f ../cfg/raspilot-myconfiguration.json config.json
+```
+
+3.) Possibly edit the file "mission.c" and change the body of the
+function "mission" to execute your mission. In the beginning you
+probably just want to perfom test of motors rotating one motor after
+another. The code will be:
+
+```
+  void mission() {
+    missionMotorTest(0);
+  }
+```
+
+There are a few precoded missions in mission.c. You can inspect and
+use them.  For example, to perform a simple square mission making the
+drone to fly in a square of 20cm at the altitude 10cm use the following
+code:
+
+```
+  void mission() {
+    raspilotPreLaunchSequence();
+    missionSquare(0.20, 0.10, 1.0, 1);
+  }
+```
+
+
+4.) Compile Raspilot
+
+```
+    make all
+```
+
+5.) Launch the autopilot with
+
+```
+   make starttolog
+```
+
+Once the mission is completed, the log from the last flight can be
+seen in the file currentlog.txt. All logs from previous flights can be
+found in ../log directory. If you do not need log files, you can
+launch autopilot with:
+
+```
+  make start
+```
+
+
+Good luck and do not hesitate to contact me.
+
+
+
 

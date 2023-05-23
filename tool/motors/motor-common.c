@@ -17,9 +17,9 @@
 
 #include "motor-common.h"
 
-#define THROTTLE_MAX		1000
+#define THROTTLE_MAX		10000
 #if 0
-#define THROTTLE_LANDING	200
+#define THROTTLE_LANDING	0.2
 #else
 #define THROTTLE_LANDING	0
 #endif
@@ -123,7 +123,8 @@ int readThrustFromInputPipe() {
     static char		bbb[MOTOR_READ_BUFFER_SIZE];
     static int		bbbi = 0;
 
-    int 		i, n, t;
+    int 		i, n;
+    double		t;
     long long		tstamp;
     char		*p, *q, *eq;
     int 		r, d, res;
@@ -227,11 +228,11 @@ int readThrustFromInputPipe() {
 	    if (n != motorMax) goto emergencyLanding;
 	    q = eq;
 	    for(i=0; i<n; i++) {
-		t = strtol(q, &eq, 10);
+		t = strtod(q, &eq);
 		if (eq == q) goto emergencyLanding;
 		q = eq;
-		if (t < 0 || t > THROTTLE_MAX) goto emergencyLanding;
-		motorThrottle[i] = ((double)t)/THROTTLE_MAX;
+		if (t < -1 || t > 1) goto emergencyLanding;
+		motorThrottle[i] = t;
 	    }
 	    // since that moment watch for timeouts until new standby mode activated
 	    motorStandBy = 0;
@@ -332,7 +333,7 @@ int main(int argc, char *argv[]) {
 	motorPins[i] = g;
 	motorThrottle[i] = 0;
 	// motorThrottleSafeLand[i] = 1500;
-	motorThrottleSafeLand[i] = ((double)THROTTLE_LANDING) / THROTTLE_MAX;
+	motorThrottleSafeLand[i] = THROTTLE_LANDING;
     }
     motorMax = i;
    

@@ -84,6 +84,20 @@ void missionSquare(double squareSize, double altitude, double waitOnWaypoint, in
     
 }
 
+void missionLandImmediately() {
+    int r;
+    r = timeLineRemoveEventAtUnknownTimeAndArg(pilotRegularPreLaunchTick);
+    if (r == 0) {
+	// if we did not launch yet, just shutdown pilot
+	lprintf(0, "%s: Interactive: shutdown.\n", PPREFIX());
+	raspilotShutDownAndExit();
+    } else {
+	// we are flying, do landing
+	lprintf(0, "%s: Interactive: Landing based on interactive command.\n", PPREFIX());
+	pilotImmediateLanding();
+    }
+}
+
 void missionProcessInteractiveInput(int c) {
     static double 	tinc = 0;
     int			r;
@@ -110,16 +124,7 @@ void missionProcessInteractiveInput(int c) {
 	break;
     case 'l':
 	// normal interactive landing
-	r = timeLineRemoveEventAtUnknownTimeAndArg(pilotRegularPreLaunchTick);
-	if (r == 0) {
-	    // if we did not launch yet, just shutdown pilot
-	    lprintf(0, "%s: Interactive: shutdown.\n", PPREFIX());
-	    raspilotShutDownAndExit();
-	} else {
-	    // we are flying, do landing
-	    lprintf(0, "%s: Interactive: Landing based on interactive command.\n", PPREFIX());
-	    pilotImmediateLanding();
-	}
+	missionLandImmediately();
 	break;
     default:
 	// emergency turn off nmotors
@@ -134,6 +139,15 @@ void missionInteractive(double missionTime) {
     raspilotWaypointSet(0, 0, 0, 0);
     lprintf(1, "%s: Starting Interactive\n", PPREFIX());
     raspilotBusyWait(9999);
+}
+
+void missionJoystick(double loiterTime) {
+    // We suppose that the waypoint has been set by joystick yet
+    raspilotLaunch(uu->currentWaypoint.position[2]);
+    lprintf(1, "%s: mission: Begin following the joystick!\n", PPREFIX());
+    raspilotBusyWait(loiterTime);
+    lprintf(1, "%s: mission: End   following the joystick!\n", PPREFIX());
+    raspilotLand(uu->currentWaypoint.position[0], uu->currentWaypoint.position[1]);    
 }
 
 // if motorIndex < 0 then all motors are set together
@@ -185,9 +199,9 @@ void missionSingleMotorTest(int motorIndex) {
     motorsThrustSetAndSend(0);
     lprintf(0, "%s: Warning: testing motor %d\n", PPREFIX(), motorIndex);
     motorThrustSetAndSend(motorIndex, uu->config.motor_thrust_min_spin);
-    raspilotBusyWait(5.0);
+    raspilotBusyWait(1.0);
     motorThrustSetAndSend(motorIndex, 0);
-    raspilotBusyWait(2.0);
+    raspilotBusyWait(1.0);
 }
 
 void missionMotorTest(int i) {
@@ -217,11 +231,12 @@ void mission() {
     if (0) {
 	missionMotorPwmCalibrationAndExit(1);
     } else if (0) {
-	missionMotorTest(0);
+	missionMotorTest(-1);
     } else {
 	raspilotPreLaunchSequence();
 	
 	missionLoiter(1.0, 0.10);
+	// missionJoystick(10.0);
 	// missionTestYawLoiter(0.10);
 	// missionSquare(0.10, 0.10, 1.0, 1);
 	// missionSquare(0.30, 0.15, 1.0, 1);

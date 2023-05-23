@@ -10,10 +10,10 @@ OBJS=main.o common.o expmem.o json.o baio.o config.o pilot.o mission.o
 ########################################################
 
 #dev
-HOST=d250
+#HOST=d250
 #HOST=piw
 #HOST=pc
-#HOST=piz2
+HOST=piz2
 ###
 
 #set IGNORE_BUILD_ERROR to true if you want to ignore build errors
@@ -39,7 +39,7 @@ librealsensecompile:
 	make -C ../tool/librealsense/build/examples/pose  || $(IGNORE_BUILD_ERROR)
 
 mpucompile: always
-	make -C ../tool/MPU6050-Pi demo_dmp  || $(IGNORE_BUILD_ERROR)
+	make -C ../tool/gyro/MPU6050-Pi demo_dmp  || $(IGNORE_BUILD_ERROR)
 
 altimetercompile: always
 	make -C ../tool/altimeter/baro/bmp180/bmp180-master/src altimeter  || $(IGNORE_BUILD_ERROR)
@@ -131,7 +131,7 @@ distclean: stop clean
 	rm -f ../tool/motor/*.o ../tool/motor/motor ../tool/motor/calibrator
 	rm -f ../tool/raspicam-april/{*.o,raspicam-april}
 	rm -f ../tool/pose-vizualization/{*.o,raspicam-april}
-	rm -f ../tool/MPU6050-Pi/*.o ../tool/MPU6050-Pi/demo_dmp ../tool/MPU6050-Pi/demo_raw 
+	rm -f ../tool/gyro/MPU6050-Pi/*.o ../tool/gyro/MPU6050-Pi/demo_dmp ../tool/gyro/MPU6050-Pi/demo_raw 
 
 dist:   distclean
 	(cd ../.. && tar cfHz raspilot.tgz posix --exclude='raspilot/.git' --exclude='raspilot/misc' --exclude='raspilot/log' raspilot && cp raspilot.tgz raspilot-`date "+%Y-%m-%d"`.tgz)
@@ -140,7 +140,7 @@ dist:   distclean
 
 test:always
 	# ssh $(HOST) "cd dev/raspilot/tool/raspicam-april && killall -9 raspicam-april ; ./raspicam-april -x 1 -t 1 -m 480 -n 360" | ../tool/pose-vizualization/viz
-	# ssh $(HOST) "cd dev/raspilot/tool/MPU6050-Pi/ && sudo killall -9 demo_dmp ; sudo ./demo_dmp" | ../tool/pose-vizualization/viz 
+	# ssh $(HOST) "cd dev/raspilot/tool/gyro/MPU6050-Pi/ && sudo killall -9 demo_dmp ; sudo ./demo_dmp" | ../tool/pose-vizualization/viz 
 	# ssh $(HOST) "cd dev/raspilot/tool/librealsense/build/examples/pose && sudo killall -9 rs-pose ; sudo ./rs-pose" | ../tool/pose-vizualization/viz 
 	# ssh $(HOST) "cd dev/raspilot/tool/april-mipi/src && sudo killall -9 raspiapril ; ./raspiapril -r 10" | ../tool/pose-vizualization/viz 
 	# ssh $(HOST) "cd dev/raspilot/src ; make start" | ../tool/pose-vizualization/viz 

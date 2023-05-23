@@ -79,11 +79,18 @@ void setup() {
     mpu.initialize();
 
     // mpu.setDLPFMode(MPU6050_DLPF_BW_5);
-
+    usleep(10000);
+    
     // verify connection
     printf("Testing device connections...\n");
     printf(mpu.testConnection() ? "MPU6050 connection successful\n" : "MPU6050 connection failed\n");
 
+    { uint8_t ss;
+       I2Cdev::readByte(0x68, MPU6050_RA_INT_PIN_CFG, &ss);
+       printf("DEVICE ID: %d, CONTROL: %d\n", mpu.getDeviceID(), ss);
+       I2Cdev::writeByte(0x68, MPU6050_RA_INT_PIN_CFG, ss | 0x02);
+    }
+    
     // load and configure the DMP
     printf("Initializing DMP...\n");
     devStatus = mpu.dmpInitialize();
@@ -231,8 +238,25 @@ int loop() {
 
     // translated to drone orientation
     // translation discovered by pure experimentation
+#if 0    
+    // This is for the following orientation of MPU development board:
+    //    front of the drone
+    //     ^
+    //   o   I
+    //       I
+    //   o   I
+    //holes  pins     
     printf("quat %9.7f %9.7f %9.7f %9.7f\n", -q.y, q.x, q.z, q.w);
-
+#else
+    // This is for the following orientation of MPU development board:
+    //    front of the drone
+    //     ^
+    //   I   o
+    //   I   
+    //   I   o
+    // pins holes
+    printf("quat %9.7f %9.7f %9.7f %9.7f\n", q.y, -q.x, q.z, q.w);
+#endif
 
 #if DDDEBUG
     setRangePerDigit();

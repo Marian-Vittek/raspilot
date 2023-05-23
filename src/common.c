@@ -694,7 +694,58 @@ int parseNmeaPosition(double *rr, char *tag, char *s, struct deviceData *dd, str
     return(0);
 }
 
- 
+// Joystick lines look like: Event: type 2, time 8695440, number 0, value 6808
+int parseJstestJoystickSetWaypoint(double *rr, char *tag, char *s, struct deviceData *dd, struct deviceDataData *ddd) {
+    char 		*stype;
+    char 		*snumber;
+    char 		*svalue;
+    int 		type, number, value;
+    vec3		offset;
+    
+    stype = strstr(s, "type ");
+    if (stype == NULL) return(-1);
+    snumber = strstr(s, "number ");
+    if (snumber == NULL) return(-1);
+    svalue = strstr(s, "value ");
+    if (svalue == NULL) return(-1);
+    
+    type = atoi(stype + strlen("type "));
+    number = atoi(snumber + strlen("number "));
+    value = atoi(svalue + strlen("value "));
+
+    if (type == 1) {
+	// button click
+	// For the moment evry button is emergency land
+	missionLandImmediately();
+    }
+    
+    if (type != 2) return(0);
+    
+    switch (number) {
+    case 0:
+	// In my joystick, axes 0 controls X
+	offset[0] = value / 32767.0 / 10.0;
+	break;
+    case 1:
+	// In my joystick, axes 1 controls Y
+	offset[1] = - value / 32767.0 / 10.0;
+	break;
+    case 3:
+	// In my joystick, axes 3 controls Z
+	offset[2] = (32767.0 - value) / 32767.0 / 10.0;
+	break;
+    default:
+	break;
+    }
+
+    lprintf(10, "%s: Joystick setting waypoint to: %s\n", PPREFIX(), vec3ToString_st(offset));
+    // actually you can not add to the waypoint all the time, instead set it hard
+    // TODO: figure this out.
+    vec3_assign(uu->currentWaypoint.position, offset);
+    
+    return(0);
+}
+
 //////////////////////////////////////////////////////////////////////////////////////////////////
 
 char *arrayWithDimToStr_st(double *a, int dim) {
@@ -730,7 +781,9 @@ static int baioLineInputDevCallBackOnDelete(struct baio *b) {
     assert(i>=0 && i<uu->deviceMax);
     dd = uu->device[i];
     assert(dd != NULL);
+    // print both to stdout and log. We do not know which of them is currently usable
     printf("%s: Error: connection to %s lost\n", PPREFIX(), dd->name);
+    lprintf(0, "%s: Error: connection to %s lost\n", PPREFIX(), dd->name);
     /*
     if (dd->autoReconnectFlag) {
 	timeLineInsertUniqEventIfNotYetInserted(UTIME_AFTER_MSEC(100), (timelineEventFunType*)baioLineIOConnectInternal, (void*)dd);
@@ -747,7 +800,9 @@ static int baioLineInputDevCallBackOnError(struct baio *b) {
     assert(i>=0 && i<uu->deviceMax);
     dd = uu->device[i];
     assert(dd != NULL);
+    // print both to stdout and log. We do not know which of them is currently usable
     printf("%s: Error: problem in connection to %s, closing it.\n", PPREFIX(), dd->name);
+    lprintf(0, "%s: Error: problem in connection to %s, closing it.\n", PPREFIX(), dd->name);
     baioClose(b);
     return(0);
 }
@@ -777,6 +832,9 @@ int baioLineDispatchInputLine(struct deviceData *dd, char *s, int n) {
 	    memset(&pp, 0, sizeof(pp));
 	    pp.time = currentTime.dtime - ddd->latency;
 	    switch(ddd->type) {
+	    case DT_VOID:
+		r = 0;
+		break;
 	    case DT_DEBUG:
 		r = parseDeviceDebugPrint(tag, p, dd, ddd);
 		break;
@@ -796,6 +854,8 @@ int baioLineDispatchInputLine(struct deviceData *dd, char *s, int n) {
 		// read as quaternion, store both as quaternion and roll-pitch-yaw
 		r = parseVector(&pp.pr[3], 4, tag, p, dd, ddd);
 		if (r == 0) {
+		    // Add mount RPY.
+		    // TODO: maybe I shall convert mount rpy to quaternion and multipy quats here!
 		    quatToYpr(&pp.pr[3], &pp.pr[9], &pp.pr[8], &pp.pr[7]);
 		    // lprintf(1, "%s: debug got orientation rpy %s\n", PPREFIX(), vec3ToString_st(&pp.pr[7]));
 		    // apply mount correction
@@ -805,13 +865,19 @@ int baioLineDispatchInputLine(struct deviceData *dd, char *s, int n) {
 		}
 		break;
 	    case DT_POSITION_NMEA:
-		r = parseNmeaPosition(&pp.pr[3], tag, p, dd, ddd);
+		r = parseNmeaPosition(&pp.pr[0], tag, p, dd, ddd);
 		break;
 	    case DT_MAGNETIC_HEADING_NMEA:
 		lprintf(0, "%s: Not yet implemented\n", PPREFIX());
 		break;
 	    case DT_GROUND_DISTANCE:
 		r = parseVector(&pp.pr[2], 1, tag, p, dd, ddd);
+		break;
+	    case DT_ALTITUDE:
+		r = parseVector(&pp.pr[2], 1, tag, p, dd, ddd);
+		break;
+	    case DT_JSTEST:
+		r = parseJstestJoystickSetWaypoint(&pp.pr[0], tag, p, dd, ddd);
 		break;
 	    default:
 		if (! dd->data_ignore_unknown_tags) printf("%s: %s: Error: Tag %s not implemented!\n", PPREFIX(), dd->name, tag);
@@ -909,11 +975,13 @@ void deviceInitiate(int i) {
 	break;
     default:
 	printf("%s: Internal error: wrong connection type %d for device %s.\n", PPREFIX(), dd->connection.type, dd->name);
+	lprintf(0, "%s: Internal error: wrong connection type %d for device %s.\n", PPREFIX(), dd->connection.type, dd->name);
 	bb = NULL;
 	break;
     }
     if (bb == NULL) {
 	printf("%s: Error: can't create connection to device %s. Ignoring device.\n", PPREFIX(), dd->name);
+	lprintf(0, "%s: Error: can't create connection to device %s. Ignoring device.\n", PPREFIX(), dd->name);
 	return;
     } 
     dd->baioMagic = bb->baioMagic;
@@ -982,14 +1050,17 @@ void enumNamesInit() {
     ENUM_NAME_SET(signalInterruptNames, SIGUSR2);
 
     ENUM_NAME_SET(deviceDataTypeNames, DT_NONE);
+    ENUM_NAME_SET(deviceDataTypeNames, DT_VOID);
     ENUM_NAME_SET(deviceDataTypeNames, DT_DEBUG);
     ENUM_NAME_SET(deviceDataTypeNames, DT_PONG);
     ENUM_NAME_SET(deviceDataTypeNames, DT_POSITION_VECTOR);
     ENUM_NAME_SET(deviceDataTypeNames, DT_GROUND_DISTANCE);
+    ENUM_NAME_SET(deviceDataTypeNames, DT_ALTITUDE);
     ENUM_NAME_SET(deviceDataTypeNames, DT_ORIENTATION_RPY_COMPASS);
     ENUM_NAME_SET(deviceDataTypeNames, DT_ORIENTATION_QUATERNION);
     ENUM_NAME_SET(deviceDataTypeNames, DT_POSITION_NMEA);
     ENUM_NAME_SET(deviceDataTypeNames, DT_MAGNETIC_HEADING_NMEA);
+    ENUM_NAME_SET(deviceDataTypeNames, DT_JSTEST);
     ENUM_NAME_SET(deviceDataTypeNames, DT_MAX);
     ENUM_NAME_CHECK(deviceDataTypeNames, DT_);
     

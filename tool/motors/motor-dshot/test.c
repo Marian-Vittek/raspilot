@@ -17,6 +17,7 @@ int main() {
 
     motorImplementationInitialize(motorPins, N);
 
+    printf("Initializing ESC / Arm, waiting 5 seconds.\n");
     // send 0 throttle during 5 seconds
     for(i=0; i<N; i++) throttles[i] = 0;
     for(i=0; i<500; i++) {
@@ -24,6 +25,7 @@ int main() {
         usleep(10000);
     }
 
+    printf("Spinning.\n");
     // make motors spinning on 15% throttle during 5 seconds
     for(i=0; i<N; i++) throttles[i] = 0.15;
     for(i=0; i<500; i++) {
@@ -31,6 +33,7 @@ int main() {
 	usleep(10000);
     }
     
+    printf("Stop.\n");
     // stop motors
     for(i=0; i<N; i++) throttles[i] = 0;
     motorImplementationSendThrottles(motorPins, N, throttles);

@@ -62,6 +62,9 @@ void mainStatisticsPoseSensors(FILE *ff, int action) {
 		if (ddd != NULL) {
 		    if (action == STATISTIC_PRINT) fprintf(ff, "%s:   %30s: ", PPREFIX(), ddd->name);
 		    switch (ddd->type) {
+		    case DT_VOID:
+			if (action == STATISTIC_PRINT) fprintf(ff, "%d records received", ddd->totalNumberOfRecordsReceivedForStatistics);
+			break;
 		    case DT_DEBUG:
 			// no statistics for debugging info?
 			if (action == STATISTIC_PRINT) fprintf(ff, "%d records received", ddd->totalNumberOfRecordsReceivedForStatistics);
@@ -204,6 +207,8 @@ static void zombieHandler(int s) {
 }
 
 static void sigPipeHandler(int s) {
+    // TODO: Do some more informal message. Implement something to detect closed pipe
+    // and printing some informative message which device crashed.
     lprintf(0, "%s: Warning: SIGPIPE received!\n", PPREFIX());
 }
 
@@ -416,17 +421,8 @@ void raspilotPreLaunchSequence() {
     // start flying motor rotation
     // rotate up to 80% of loitering rotation. Do not rotate until 100%, because you may start flying here
     // which would be a disaster without doing any correction.
-    tt = currentTime.dtime;
-    thrust_base = uu->pidAltitude.constant.ci * 80.0 / 100.0;
-    thrust = uu->config.motor_thrust_min_spin;
-    motorsThrustSet(thrust);
-    raspilotBusyWait(0.3);
-    // following loop shall take 3 seconds
-    while (thrust < thrust_base) {
-	thrust += thrust_base / 10;
-	motorsThrustSet(thrust);
-	raspilotBusyWait(0.3);
-    }
+    motorsThrustSet(uu->config.motor_thrust_min_spin);
+    raspilotBusyWait(PILOT_WARMING_WARNING_ROTATION_TIME);
 
     // end of pre-launch events
     timeLineRemoveEventAtUnknownTimeAndArg(pilotRegularPreLaunchTick);
@@ -445,7 +441,8 @@ void raspilotLaunch(double altitude) {
 
     if (altitude != 0 && altitude < uu->config.drone_min_altitude) {
 	lprintf(1, "%s: Warning: Launch altitude smaller than drone_min_altitude!\n", PPREFIX());
-	altitude = uu->config.drone_min_altitude;
+	// prefer not to overwrite because of 'joystick' fly
+	// altitude = uu->config.drone_min_altitude;
     }
     
     lprintf(1, "%s: Warning: launch: Going to fly!\n", PPREFIX());
@@ -586,8 +583,10 @@ void raspilotGotoWaypoint(double x, double y, double z, double yaw) {
     lprintf(1, "%s: Info: next    waypoint (%7.2g,%7.2g,%7.2g ), yaw %5.2g\n", PPREFIX(), x, y, z, yaw);
     raspilotWaypointSet(x, y, z, yaw);
     while (! raspilotWaypointReached()) raspilotPoll();
+    if (debugLevel > 10)  lprintf(1, "\n\n\n");
     lprintf(1, "%s: Info: reached waypoint (%7.2g,%7.2g,%7.2g ), yaw %5.2g !\n", PPREFIX(), x, y, z, yaw);
     // lprintf(1, "%s: Warning: reached waypoint (%7.2g,%7.2g,%7.2g ), yaw %5.2g !\n", PPREFIX(), x, y, z, yaw);
+    if (debugLevel > 10)  lprintf(1, "\n\n\n");
 }
 
 int raspilotShutDownAndExit() {

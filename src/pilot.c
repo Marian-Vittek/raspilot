@@ -17,21 +17,9 @@ void motorsThrustSend(void *d) {
 
     for(i=0; i<uu->motor_number; i++) {
 	thrust = uu->motor[i].thrust ;
-	uu->motor[i].rotationSpeed = sqrt(thrust) * 1000; 	// c1 + c2 * sqrt(thrust);
+	uu->motor[i].rotationSpeed = sqrt(thrust); 			// c1 + c2 * sqrt(thrust);
     }
 
-    // if we are within 0.1s from the last motor sending, do not resend the same values
-    if (uu->motorLastSendTime + 0.10 >= currentTime.dtime) {
-	for(i=0; i<uu->motor_number; i++) {
-	    if (uu->motor[i].rotationSpeed != uu->motor[i].lastSentRotationSpeed) break;
-	}
-	// exactly the same values were sent within last 0.1s, do nothing.
-	// I wonder if this ever happens
-	// TODO: TEST: Put me back!!!!
-	// if (i == uu->motor_number) return;
-	
-    }
-    
     for(i=0; i<uu->motor_number; i++) {
 	// For statistics
 	// Hmm. when flying too long, this will not add anything, because of the big difference.
@@ -45,14 +33,14 @@ void motorsThrustSend(void *d) {
     for(i=0; i<uu->motor_number; i++) {
 	uu->motor[i].lastSentRotationSpeed = uu->motor[i].rotationSpeed;
 	uu->motor[i].lastSentThrust = uu->motor[i].thrust;
-	baioPrintfToBuffer(bb, " %d", uu->motor[i].rotationSpeed);
+	baioPrintfToBuffer(bb, " %.4g", uu->motor[i].rotationSpeed);
     }
     baioPrintfToBuffer(bb, "\n");
     uu->motorLastSendTime = currentTime.dtime;
 
     if (debugLevel > 39) {
 	lprintf(0, "%s: Sent motor rotation speed: ", PPREFIX());
-	for(i=0; i<uu->motor_number; i++) lprintf(0, "%d ", uu->motor[i].rotationSpeed);
+	for(i=0; i<uu->motor_number; i++) lprintf(0, "%g ", uu->motor[i].rotationSpeed);
 	lprintf(0, "\n");
     }
 
@@ -293,6 +281,34 @@ static double pilotAddCurrentGroundDistanceFromSensorToSum(vec3 ppsum, vec3 weig
     return(0);
 }
 
+static double pilotAddCurrentAltitudeFromSensorToSum(vec3 ppsum, vec3 weightsum, struct deviceDataData *gg, quat droneOrientation) {
+    struct pose			pp, *vv;
+    double			alt;
+    int				r;
+    
+    // this is basically adding altitude from down radar
+
+    // {static int cc = 0; if (cc++ % 300 != 0) return(-1);}
+    
+    if (pilotCheckDeviceForTimeout(gg)) return(-1);
+
+    r = poseHistoryEstimatePoseForTimeByLinearRegression(&gg->history, currentTime.dtime, &pp);
+
+    vv = &pp;
+    // if (vv->pr[2] < gg->min_range) return(-1);
+    // if (vv->pr[2] > gg->max_range) return(-1);
+
+    alt = vv->pr[2];
+    if (gg->launchPoseSetFlag) alt -= gg->launchPose.pr[2];
+    
+    ppsum[2] += alt * gg->weight[2];
+    weightsum[2] += gg->weight[2];
+
+    lprintf(PILOT_SENSOR_MERGE_DEBUG_LEVEL, "%s: add %10s.%-10s: \tweights: [0,0,%g], confidence %f, altitude: %f --> [0,0,%f]\n", PPREFIX(), gg->dd->name, gg->name, gg->weight[2], 1.0, vv->pr[2], alt);
+    
+    return(0);
+}
+
 static double pilotAddCurrentOrientationFromDataTypeToSum(quat qqsum, int datatype) {
     struct deviceDataData 	*ddl;
     double			w;
@@ -355,6 +371,9 @@ static int pilotCombineCurrentPositionFromSensors(vec3 position, quat orientatio
     pilotAddCurrentPositionFromDataTypeToSum(ppsum, weightsum, orientation, DT_POSITION_NMEA);
     for(ddl=uu->deviceDataDataByType[DT_GROUND_DISTANCE]; ddl!=NULL; ddl=ddl->nextWithSameType) {
 	pilotAddCurrentGroundDistanceFromSensorToSum(ppsum, weightsum, ddl, orientation);
+    }
+    for(ddl=uu->deviceDataDataByType[DT_ALTITUDE]; ddl!=NULL; ddl=ddl->nextWithSameType) {
+	pilotAddCurrentAltitudeFromSensorToSum(ppsum, weightsum, ddl, orientation);
     }
     
     if (weightsum[0] == 0) return(-1);
@@ -453,7 +472,8 @@ void pilotStoreLaunchPose(void *d) {
 	    ddd = dd->ddt[j];
 	    poseHistoryGetMean(&ddd->history, &ddd->launchPose);
 	    ddd->launchPoseSetFlag = 1;
-	    lprintf(23, "%s: %s.%s launch pose %s.\n", PPREFIX(), dd->name, ddd->name, vecToString_st(ddd->launchPose.pr));
+	    // lprintf(23, "%s: %s.%s launch pose %s.\n", PPREFIX(), dd->name, ddd->name, vecToString_st(ddd->launchPose.pr));
+	    lprintf(23, "%s: %s.%s launch pose %s from %d values\n", PPREFIX(), dd->name, ddd->name, vecToString_st(ddd->launchPose.pr), MIN(ddd->history.size, ddd->history.n));
 	}
     }
 }
@@ -870,6 +890,7 @@ void pilotRegularStabilizationLoopTick(void *d) {
 
 void pilotRegularPreLaunchTick(void *d) {
     // pre launch tick are running on low frequency because launching pipes, etc. takes time
+    // but this makes that we have a smaller number of samples
     pilotScheduleNextTick(PILOT_PRELAUNCH_FREQUENCY_HZ, pilotRegularPreLaunchTick, NULL);
     if (pilotAreAllDevicesReady()) pilotGetDronePositionAndVelocityAndStoreInShortHistory();
     motorsThrustSend(NULL);
