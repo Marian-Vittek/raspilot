@@ -131,11 +131,11 @@ void loop() {
 
 int main() {
   setup();
+  
   usleep(100000);
 
   for(;;) {
     loop();
-    usleep(100000);
   }
 }
 

@@ -45,7 +45,7 @@ altimetercompile: always
 	make -C ../tool/altimeter/baro/bmp180/bmp180-master/src altimeter  || $(IGNORE_BUILD_ERROR)
 
 sonarcompile: always
-	make -C ../tool/sonar-hcsr04  || $(IGNORE_BUILD_ERROR)
+	make -C ../tool/sonar/sonar-hcsr04  || $(IGNORE_BUILD_ERROR)
 
 motorcompile: always
 	make -C ../tool/motors/motor-pca9685 motor-pca9685  || $(IGNORE_BUILD_ERROR)

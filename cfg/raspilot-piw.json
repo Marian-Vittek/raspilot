@@ -108,11 +108,11 @@
 #if 1
 		// direct PWM connection of ESC to raspberry pi pinouts
 		type: "DCT_COMMAND_BASH",
-		command: "killall motor-pigpio; sleep 0.5; killall -q -9 motor-pigpio; sleep 0.5; exec chrt -o 0 ../tool/motors/motor-pigpio/motor-pigpio - - 8 25 24 23"
+		command: "killall motor-pigpio-pwm; sleep 0.5; killall -q -9 motor-pigpio; sleep 0.5; exec chrt -o 0 ../tool/motor/motor-pigpio/motor-pigpio-pwm - - 8 25 24 23"
 #else		
 		// PWM extension board with pca9685 chip
 		type: "DCT_COMMAND_BASH",
-		command: "killall motor-pca9685; sleep 0.5; killall -q -9 motor-pca9685; sleep 0.5; exec chrt -o 0 ../tool/motors/motor-pca9685/motor-pca9685 - - 3 2 10 11"
+		command: "killall motor-pca9685; sleep 0.5; killall -q -9 motor-pca9685; sleep 0.5; exec chrt -o 0 ../tool/motor/motor-pca9685/motor-pca9685 - - 3 2 10 11"
 #endif		
 	    },
 	    data: [

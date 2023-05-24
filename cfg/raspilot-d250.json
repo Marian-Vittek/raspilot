@@ -107,7 +107,7 @@
 	    connection : {
 	    	// direct PWM connection of ESC to raspberry pi pinouts
 		type: "DCT_COMMAND_BASH",
-		command: "killall motor-dshot; sleep 0.5; killall -q -9 motor-dshot; sleep 0.5; exec chrt -f 99 ../tool/motors/motor-dshot/motor-dshot - - 6 13 19 26"
+		command: "killall motor-dshot; sleep 0.5; killall -q -9 motor-dshot; sleep 0.5; exec chrt -f 99 ../tool/motor/motor-dshot/motor-dshot - - 6 13 19 26"
 	    },
 	    data: [
 		{ type:"DT_PONG",  tag: "pong",  debug_level: 10},
@@ -185,7 +185,7 @@
 	    name: "sonar",
 	    connection : {
 		type: "DCT_COMMAND_BASH",
-		command: "killall sonar-hcsr04; sleep 0.5; killall -q -9 sonar-hcsr04; sleep 0.5; exec chrt -o 0 ../tool/sonar-hcsr04/sonar-hcsr04 9 11",
+		command: "killall sonar-hcsr04; sleep 0.5; killall -q -9 sonar-hcsr04; sleep 0.5; exec chrt -o 0 ../tool/sonar/sonar-hcsr04/sonar-hcsr04 9 11",
 	    },
 	    mount_position: [0, 0.01, 0.04],
             data: [
