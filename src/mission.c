@@ -235,7 +235,7 @@ void mission() {
     } else {
 	raspilotPreLaunchSequence();
 	
-	missionLoiter(1.0, 0.10);
+	missionLoiter(3.0, 0.20);
 	// missionJoystick(10.0);
 	// missionTestYawLoiter(0.10);
 	// missionSquare(0.10, 0.10, 1.0, 1);

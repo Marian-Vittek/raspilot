@@ -37,7 +37,7 @@
     drone_min_altitude:            0.01,
     
     // waypoint shall not be higher than this altitude. Also if drone happens to be higher than this, minimal thrust is applied
-    drone_max_altitude:            0.20, 
+    drone_max_altitude:            1.00, 
     
     // waypoint is considered as reached when the drone happens to be within that distance and orientation range
     drone_waypoint_reached_range:    0.03,
@@ -108,7 +108,7 @@
 #if 1
 		// direct PWM connection of ESC to raspberry pi pinouts
 		type: "DCT_COMMAND_BASH",
-		command: "killall motor-pigpio-pwm; sleep 0.5; killall -q -9 motor-pigpio; sleep 0.5; exec chrt -o 0 ../tool/motor/motor-pigpio/motor-pigpio-pwm - - 8 25 24 23"
+		command: "killall motor-pigpio; sleep 0.5; killall -q -9 motor-pigpio; sleep 0.5; exec chrt -o 0 ../tool/motor/motor-pigpio-pwm/motor-pigpio - - 8 25 24 23"
 #else		
 		// PWM extension board with pca9685 chip
 		type: "DCT_COMMAND_BASH",

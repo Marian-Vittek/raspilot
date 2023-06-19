@@ -39,6 +39,10 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ===============================================
+
+Copyright (c) 2012 Marian Vittek
+Modified fo fit raspilot shared pi2c interface
+
 */
 
 #include <stdio.h>
@@ -53,35 +57,7 @@ THE SOFTWARE.
 #include <sys/stat.h>
 #include <linux/i2c-dev.h>
 #include "I2Cdev.h"
-
-// [MV] Todo: rewrite i2c to our common i2c access lib
-
-static int fffd = -1;
-static int devaddr = -1;
-
-static void i2c_close(int fd) {
-  close(fffd);
-  fffd = devaddr = -1;
-}
-
-static int i2c_open(int devAddr) {
-  if (fffd < 0) {
-    fffd = open("/dev/i2c-1",  O_RDWR | O_NONBLOCK);
-    if (fffd < 0) return(-1);
-  }
-
-  if (devaddr != devAddr) {
-    devaddr = devAddr;
-    if (ioctl(fffd, I2C_SLAVE, devAddr) < 0) {
-        fprintf(stderr, "Failed to select device: %s\n", strerror(errno));
-        i2c_close(fffd);
-        return(-1);
-    }
-  }
-  
-  return(fffd);
-}
-
+#include "pi2c.h"
 
 /** Default constructor.
  */
@@ -201,30 +177,7 @@ int8_t I2Cdev::readWord(uint8_t devAddr, uint8_t regAddr, uint16_t *data, uint16
  */
 int8_t I2Cdev::readBytes(uint8_t devAddr, uint8_t regAddr, uint8_t length, uint8_t *data, uint16_t timeout) {
     int8_t count = 0;
-    
-    int fd = i2c_open(devAddr);
-
-    if (fd < 0) {
-        fprintf(stderr, "Failed to open device: %s\n", strerror(errno));
-        return(-1);
-    }
-    if (write(fd, &regAddr, 1) != 1) {
-        fprintf(stderr, "Failed to write reg: %s\n", strerror(errno));
-        i2c_close(fd);
-        return(-1);
-    }
-    count = read(fd, data, length);
-    if (count < 0) {
-        fprintf(stderr, "Failed to read device(%d): %s\n", count, ::strerror(errno));
-        i2c_close(fd);
-        return(-1);
-    } else if (count != length) {
-        fprintf(stderr, "Short read  from device, expected %d, got %d\n", length, count);
-        i2c_close(fd);
-        return(-1);
-    }
-    i2c_close(fd);
-
+    count = pi2cReadBytes(devAddr, regAddr, length, data);
     return count;
 }
 
@@ -361,34 +314,8 @@ bool I2Cdev::writeWord(uint8_t devAddr, uint8_t regAddr, uint16_t data) {
  */
 bool I2Cdev::writeBytes(uint8_t devAddr, uint8_t regAddr, uint8_t length, uint8_t* data) {
     int8_t count = 0;
-    uint8_t buf[128];
-    int fd;
-
-    if (length > 127) {
-        fprintf(stderr, "Byte write count (%d) > 127\n", length);
-        return(FALSE);
-    }
-
-    fd = i2c_open(devAddr);
-    if (fd < 0) {
-        fprintf(stderr, "Failed to open device: %s\n", strerror(errno));
-        return(FALSE);
-    }
-    buf[0] = regAddr;
-    memcpy(buf+1,data,length);
-    count = write(fd, buf, length+1);
-    if (count < 0) {
-        fprintf(stderr, "Failed to write device(%d): %s\n", count, ::strerror(errno));
-        i2c_close(fd);
-        return(FALSE);
-    } else if (count != length+1) {
-        fprintf(stderr, "Short write to device, expected %d, got %d\n", length+1, count);
-        i2c_close(fd);
-        return(FALSE);
-    }
-    i2c_close(fd);
-
-    return TRUE;
+    count = pi2cWriteBytesToReg(devAddr, regAddr, length, data);
+    return(count==length);
 }
 
 /** Write multiple words to a 16-bit device register.
@@ -399,40 +326,10 @@ bool I2Cdev::writeBytes(uint8_t devAddr, uint8_t regAddr, uint8_t length, uint8_
  * @return Status of operation (true = success)
  */
 bool I2Cdev::writeWords(uint8_t devAddr, uint8_t regAddr, uint8_t length, uint16_t* data) {
-    int8_t count = 0;
-    uint8_t buf[128];
-    int i, fd;
+    int8_t count;
 
-    // Should do potential byteswap and call writeBytes() really, but that
-    // messes with the callers buffer
-
-    if (length > 63) {
-        fprintf(stderr, "Word write count (%d) > 63\n", length);
-        return(FALSE);
-    }
-
-    fd = i2c_open(devAddr);
-    if (fd < 0) {
-        fprintf(stderr, "Failed to open device: %s\n", strerror(errno));
-        return(FALSE);
-    }
-    buf[0] = regAddr;
-    for (i = 0; i < length; i++) {
-        buf[i*2+1] = data[i] >> 8;
-        buf[i*2+2] = data[i];
-    }
-    count = write(fd, buf, length*2+1);
-    if (count < 0) {
-        fprintf(stderr, "Failed to write device(%d): %s\n", count, ::strerror(errno));
-        i2c_close(fd);
-        return(FALSE);
-    } else if (count != length*2+1) {
-        fprintf(stderr, "Short write to device, expected %d, got %d\n", length+1, count);
-        i2c_close(fd);
-        return(FALSE);
-    }
-    i2c_close(fd);
-    return TRUE;
+    count = pi2cWriteWordsToReg(devAddr, regAddr, length, data);
+    return(count==length);
 }
 
 /** Default timeout value for read operations.

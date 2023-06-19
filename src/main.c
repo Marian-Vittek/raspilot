@@ -10,7 +10,7 @@ enum statisticsActionEnum {
     STATISTIC_MAX,
 };
 
-void mainStatisticsMotors(FILE *ff, int action) {
+void mainStatisticsMotors(int action) {
     int 	i;
     double 	sum, max, tt;
 
@@ -26,74 +26,74 @@ void mainStatisticsMotors(FILE *ff, int action) {
     
     if (action != STATISTIC_PRINT) return;
     
-    fprintf(ff, "%s: Average motor thrust: %g\n", PPREFIX(), sum / uu->motor_number / (currentTime.dtime - uu->flyStartTime));
+    lprintf(0, "%s: Average motor thrust: %g\n", PPREFIX(), sum / uu->motor_number / (currentTime.dtime - uu->flyStartTime));
 
     if (0) {
-	fprintf(ff, "%s: Proposed New motor_esc_corrections: ", PPREFIX());
+	lprintf(0, "%s: Proposed New motor_esc_corrections: ", PPREFIX());
 	for(i=0; i<uu->motor_number; i++) {
 	    tt = uu->motor[i].totalWork;
 	    if (i==0) {
-		fprintf(ff, "[");
+		lprintf(0, "[");
 	    } else {
-		fprintf(ff, ",");
+		lprintf(0, ",");
 	    }
-	    fprintf(ff, "%f", tt/max);
+	    lprintf(0, "%f", tt/max);
 	}
-	fprintf(ff, "],\n");
+	lprintf(0, "],\n");
     }
 }
 
-void mainStatisticsPoseSensors(FILE *ff, int action) {
+void mainStatisticsPoseSensors(int action) {
     int 			i, j, k;
     struct deviceData		*dd;
     struct deviceDataData	*ddd;
     char			*sep;
     
     if (action == STATISTIC_PRINT) {
-	fprintf(ff, "%s:\n", PPREFIX());
-	fprintf(ff, "%s: Sensors / Devices:\n", PPREFIX());
+	lprintf(0, "%s:\n", PPREFIX());
+	lprintf(0, "%s: Sensors / Devices:\n", PPREFIX());
     }
     for(i=0; i<uu->deviceMax; i++) {
 	dd = uu->device[i];
 	if (dd != NULL) {
-	    if (action == STATISTIC_PRINT) fprintf(ff, "%s:  %s\n", PPREFIX(), dd->name);
+	    if (action == STATISTIC_PRINT) lprintf(0, "%s:  %s\n", PPREFIX(), dd->name);
 	    for(j=0; j<dd->ddtMax; j++) {
 		ddd = dd->ddt[j];
 		if (ddd != NULL) {
-		    if (action == STATISTIC_PRINT) fprintf(ff, "%s:   %30s: ", PPREFIX(), ddd->name);
+		    if (action == STATISTIC_PRINT) lprintf(0, "%s:   %30s: ", PPREFIX(), ddd->name);
 		    switch (ddd->type) {
 		    case DT_VOID:
-			if (action == STATISTIC_PRINT) fprintf(ff, "%d records received", ddd->totalNumberOfRecordsReceivedForStatistics);
+			if (action == STATISTIC_PRINT) lprintf(0, "%d records received", ddd->totalNumberOfRecordsReceivedForStatistics);
 			break;
 		    case DT_DEBUG:
 			// no statistics for debugging info?
-			if (action == STATISTIC_PRINT) fprintf(ff, "%d records received", ddd->totalNumberOfRecordsReceivedForStatistics);
+			if (action == STATISTIC_PRINT) lprintf(0, "%d records received", ddd->totalNumberOfRecordsReceivedForStatistics);
 			break;
 		    case DT_PONG:
-			if (action == STATISTIC_PRINT) fprintf(ff, "average round trip latency: %g ms from %d pings", 1000.0*ddd->pongTotalTimeForStatistics/ddd->totalNumberOfRecordsReceivedForStatistics, ddd->totalNumberOfRecordsReceivedForStatistics);
+			if (action == STATISTIC_PRINT) lprintf(0, "average round trip latency: %g ms from %d pings", 1000.0*ddd->pongTotalTimeForStatistics/ddd->totalNumberOfRecordsReceivedForStatistics, ddd->totalNumberOfRecordsReceivedForStatistics);
 			break;
 		    default:
 			sep = "average: [";
 			for(k=0; k<DIM(ddd->history.totalSumForStatistics); k++) {
 			    if (action == STATISTIC_INIT) ddd->history.totalSumForStatistics[k]=0;
-			    if (action == STATISTIC_PRINT && ddd->history.n != 0) fprintf(ff, "%s%g", sep, ddd->history.totalSumForStatistics[k] / ddd->history.n);
+			    if (action == STATISTIC_PRINT && ddd->history.n != 0) lprintf(0, "%s%g", sep, ddd->history.totalSumForStatistics[k] / ddd->history.n);
 			    sep = ", ";
 			}
 			// Do not do this. It would clear current position and orientation
 			// if (action == STATISTIC_INIT) ddd->history.n = 0;
-			if (action == STATISTIC_PRINT) fprintf(ff, "]");
+			if (action == STATISTIC_PRINT) lprintf(0, "]");
 			break;
 		    }
-		    if (action == STATISTIC_PRINT) fprintf(ff, "\n");
+		    if (action == STATISTIC_PRINT) lprintf(0, "\n");
 		}
 	    }
 	}
     }
-    if (action == STATISTIC_PRINT) fprintf(ff, "%s: End\n", PPREFIX());   
+    if (action == STATISTIC_PRINT) lprintf(0, "%s: End\n", PPREFIX());   
 }
 
 
-void mainStatisticsPids(FILE *ff, int action) {
+void mainStatisticsPids(int action) {
     int 			i, j, k;
     struct deviceData		*dd;
     struct deviceDataData	*ddd;
@@ -110,37 +110,31 @@ void mainStatisticsPids(FILE *ff, int action) {
     }
     
     if (action == STATISTIC_PRINT) {
-	fprintf(ff, "%s:\n", PPREFIX());
-	fprintf(ff, "%s: PID Roll:     %s\n", PPREFIX(), pidControllerStatistics(&uu->pidRoll, 1));
-	fprintf(ff, "%s: PID Pitch:    %s\n", PPREFIX(), pidControllerStatistics(&uu->pidPitch, 1));
-	fprintf(ff, "%s: PID Yaw:      %s\n", PPREFIX(), pidControllerStatistics(&uu->pidYaw, 1));
-	fprintf(ff, "%s: PID Altitude: %s\n", PPREFIX(), pidControllerStatistics(&uu->pidAltitude, 1));
-	fprintf(ff, "%s: PID X:        %s\n", PPREFIX(), pidControllerStatistics(&uu->pidX, 0));
-	fprintf(ff, "%s: PID Y:        %s\n", PPREFIX(), pidControllerStatistics(&uu->pidY, 0));
-	fprintf(ff, "%s:\n", PPREFIX());
+	lprintf(0, "%s:\n", PPREFIX());
+	lprintf(0, "%s: PID Roll:     %s\n", PPREFIX(), pidControllerStatistics(&uu->pidRoll, 1));
+	lprintf(0, "%s: PID Pitch:    %s\n", PPREFIX(), pidControllerStatistics(&uu->pidPitch, 1));
+	lprintf(0, "%s: PID Yaw:      %s\n", PPREFIX(), pidControllerStatistics(&uu->pidYaw, 1));
+	lprintf(0, "%s: PID Altitude: %s\n", PPREFIX(), pidControllerStatistics(&uu->pidAltitude, 1));
+	lprintf(0, "%s: PID X:        %s\n", PPREFIX(), pidControllerStatistics(&uu->pidX, 0));
+	lprintf(0, "%s: PID Y:        %s\n", PPREFIX(), pidControllerStatistics(&uu->pidY, 0));
+	lprintf(0, "%s:\n", PPREFIX());
     }
 }
 
 void mainStatistics(int action) {
-    FILE *ff;
-
-    ff = NULL;
     if (action == STATISTIC_INIT) uu->flyStartTime = currentTime.dtime;
     if (action == STATISTIC_PRINT) {
-	ff = fopen("statistics.txt", "w");
-	if (ff == NULL) ff = stdout;
-	fprintf(ff, "%s: \n", PPREFIX());
-	fprintf(ff, "%s: STATISTICS:\n", PPREFIX());
-	fprintf(ff, "%s: Mission time: %gs\n", PPREFIX(), currentTime.dtime - uu->flyStartTime);
+	lprintf(0, "%s: \n", PPREFIX());
+	lprintf(0, "%s: STATISTICS:\n", PPREFIX());
+	lprintf(0, "%s: Mission time: %gs\n", PPREFIX(), currentTime.dtime - uu->flyStartTime);
     }
     
-    mainStatisticsMotors(ff, action);
-    mainStatisticsPoseSensors(ff, action);
-    mainStatisticsPids(ff, action);
+    mainStatisticsMotors(action);
+    mainStatisticsPoseSensors(action);
+    mainStatisticsPids(action);
     
     if (action == STATISTIC_PRINT) {
-	fprintf(ff, "\n");
-	if (ff != stdout) fclose(ff);
+	lprintf(0, "\n");
     }
 }
 
@@ -152,19 +146,20 @@ void shutdown() {
 
 void mainExit(void *d) {
     printf("%s: Exiting.\n", PPREFIX());
-    if (1) mainStatistics(STATISTIC_PRINT);
     fflush(stdout);
     exit(0);
 }
 
 void mainStandardShutdown(void *d) {
     lprintf(0, "%s: Raspilot is going down\n", PPREFIX());
+    motorsStop(NULL);
+    motorsStandby(NULL);
+    if (uu->deviceMotors >= 0 && uu->device[uu->deviceMotors]->shutdownExit) motorsExit(NULL);
+    if (1) mainStatistics(STATISTIC_PRINT);
     trajectoryLogClose();
     pingToHostClose();
     stdbaioClose();
     fflush(stdout);
-    motorsStop(NULL);
-    motorsStandby(NULL) ;
     shutDownInProgress = 1;
     terminalResume();
     timeLineRemoveAllEvents();
@@ -323,15 +318,26 @@ static void initConfiguredPilot() {
     for(i=0; i<uu->motor_number; i++) {
 	uu->motor[i].thrust = 0.0;
     }
+
+    // find motors
+    uu->deviceMotors = -1;
+    for(i=0; i<uu->deviceMax; i++) {
+	if (strcmp(uu->device[i]->name, "motors") == 0) {
+	    uu->deviceMotors = i;
+	    break;
+	}
+    }
+    if (uu->deviceMotors < 0) {
+	fprintf(stderr, "%s: \"motors\" device not found. Exiting.\n", PPREFIX());
+	exit(-1);
+    }
     
     for(i=0; i<uu->deviceMax; i++) {
 	deviceInitiate(i);
     }
 
-    // Just for now
-    assert(uu->device[0]->name != NULL);
-    assert(strcmp(uu->device[0]->name, "motors") == 0);
-    uu->motorBaioMagic = uu->device[0]->baioMagic;
+    assert(strcmp(uu->device[uu->deviceMotors]->name, "motors") == 0);
+    uu->motorBaioMagic = uu->device[uu->deviceMotors]->baioMagic;
 }
     
 //////////////////////////////////////////////////////////////////////////////////////////
@@ -596,6 +602,36 @@ int raspilotShutDownAndExit() {
     assert(0);
 }
 
+#if 0
+void test() {
+    int 		i;
+    struct pose 	pp, rr, mm, mmr, rrm, rrr;
+    struct poseHistory 	hh, hhr, hhm;
+    
+    double		x;
+    
+    poseHistoryInit(&hh, 5);
+    poseHistoryInit(&hhr, 20);
+    poseHistoryInit(&hhm, 20);
+    for(x=0; x<12.6; x+=0.1) {
+	pp.time = x;
+	pp.pr[0] = sin(x) ; // + (rand()%1024-512)*0.0001;
+	poseHistoryAddElem(&hh, &pp);
+	poseHistoryEstimatePoseForTimeByLinearRegression(&hh, x, &rr);
+	poseHistoryAddElem(&hhr, &rr);	
+	poseHistoryGetMean(&hh, &mm);
+	poseHistoryAddElem(&hhm, &mm);	
+	if (x>6.28) {
+	    poseHistoryGetMean(&hh, &mm);
+	    poseHistoryEstimatePoseForTimeByLinearRegression(&hh, x, &rr);
+	    poseHistoryGetMean(&hhr, &mmr);
+	    poseHistoryEstimatePoseForTimeByLinearRegression(&hhm, x, &rrm);
+	    poseHistoryEstimatePoseForTimeByLinearRegression(&hhr, x, &rrr);
+	    printf("%g %g %g %g %g %g %g\n", x, pp.pr[0], rr.pr[0], mm.pr[0], mmr.pr[0], rrm.pr[0], rrr.pr[0]);
+	}
+    }
+}
+#endif
 
 ///////////////////////////////////////////////////////////////////////////////////////////
 // This is the main raspilot entry function
@@ -604,6 +640,8 @@ int raspilotShutDownAndExit() {
 
 int main(int argc, char **argv) {
 
+    // test(); exit(0);
+    
     raspilotInit(argc, argv);
     mission();
     raspilotShutDownAndExit();

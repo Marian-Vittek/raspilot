@@ -6,7 +6,7 @@ void motorsThrustSend(void *d) {
     struct baio		*bb;
     double		thrust;
 
-    // do not send anything in shutdown sequence (otherwise motors are awaken)
+    // Hmm. I need to stop motors. do not send anything in shutdown sequence (otherwise motors are awaken)
     if (shutDownInProgress) return;
 
     if (debugLevel > 49) {
@@ -53,6 +53,13 @@ void motorsStandby(void *d) {
     baioPrintfToBuffer(bb, "stan\n");
 }
 
+void motorsExit(void *d) {
+    struct baio	*bb;
+    bb = baioFromMagic(uu->motorBaioMagic);
+    if (bb == NULL) return;
+    baioPrintfToBuffer(bb, "exit\n");
+}
+
 void motorsThrustSet(double thrust) {
     int i;
     for(i=0; i<uu->motor_number; i++) {
@@ -78,6 +85,7 @@ void motorsThrustSetAndSend(double thrust) {
 }
 
 void motorsStop(void *d) {
+    int i;
     motorsThrustSetAndSend(0);
 }
 
@@ -86,6 +94,7 @@ void motorsStop(void *d) {
 // supposing raspilot task crashed and is in inconsistent state.
 void motorsEmergencySendSpecialCommand(char *command) {
     struct baio		*bb;
+    
     bb = baioFromMagic(uu->motorBaioMagic);
     if (bb == NULL) return;
     if (bb->wfd < 0) return;
@@ -97,8 +106,8 @@ void motorsEmmergencyLand() {
     motorsEmergencySendSpecialCommand("\nland\n");
 }
 
-void motorsEmmergencyStanby() {
-    motorsEmergencySendSpecialCommand("\nstan\n");
+void motorsEmmergencyShutdown() {
+    motorsEmergencySendSpecialCommand("\nstop\n");
 }
 
 void pilotImmediateLanding() {
@@ -184,14 +193,14 @@ static int pilotCheckDeviceForTimeout(struct deviceDataData *gg) {
     return(0);
 }
 
-static double pilotAddCurrentOrientationFromSensorToSum(quat qqsum, struct deviceDataData *gg) {
+static void pilotAddCurrentOrientationFromSensorToSum(quat qqsum, double *weightsum, struct deviceDataData *gg) {
     struct pose			vv;
     quat			qq;
     int				r;
     double			weightconf;
     
-    if (pilotCheckDeviceForTimeout(gg)) return(0);
-
+    if (pilotCheckDeviceForTimeout(gg)) return;
+    
     r = poseHistoryEstimatePoseForTimeByLinearRegression(&gg->history, currentTime.dtime, &vv);
     if (r) {
 	lprintf(50, "%s: Warning: %s.%s pose estimation failed!\n", PPREFIX(), gg->dd->name, gg->name);
@@ -207,10 +216,10 @@ static double pilotAddCurrentOrientationFromSensorToSum(quat qqsum, struct devic
     lprintf(PILOT_SENSOR_MERGE_DEBUG_LEVEL, "%s: add %10s.%-10s: weight %f, confidence %g, orientation %s\n", PPREFIX(), gg->dd->name, gg->name, gg->weight[0], gg->confidence, vecToString_st(qq));
     vec4_scale(qq, qq, weightconf);
     vec4_add(qqsum, qqsum, qq);
-    return(weightconf);
+    *weightsum += weightconf;
 }
 
-static double pilotAddCurrentPositionFromSensorToSum(vec3 ppsum, vec3 weightsum, struct deviceDataData *gg, quat droneOrientation) {
+static void pilotAddCurrentPositionFromSensorToSum(vec3 ppsum, vec3 weightsum, struct deviceDataData *gg, quat droneOrientation) {
     struct pose			vv;
     double				*devicePos;
     vec3				mm, dronepos, pbase;
@@ -221,7 +230,7 @@ static double pilotAddCurrentPositionFromSensorToSum(vec3 ppsum, vec3 weightsum,
     // (based on sensor mount points) 
 
     // if (pilotCheckDeviceDataDataType(gg, DDT_VECTOR, 3)) return(-1);
-    if (pilotCheckDeviceForTimeout(gg)) return(-1);
+    if (pilotCheckDeviceForTimeout(gg)) return;
 
     r = poseHistoryEstimatePoseForTimeByLinearRegression(&gg->history, currentTime.dtime, &vv);
     if (r) {
@@ -236,6 +245,12 @@ static double pilotAddCurrentPositionFromSensorToSum(vec3 ppsum, vec3 weightsum,
     quat_mul_vec3(mm, ii, gg->dd->mount_position);
     vec3_add(dronepos, mm, pbase);
     vec3_sub(dronepos, dronepos, gg->dd->mount_position);
+
+    if (gg->launchPoseSetFlag) {
+	vec3_sub(dronepos, dronepos, &gg->launchPose.pr[0]);
+    } else {
+	memset(dronepos, 0, sizeof(dronepos));
+    }
     
     lprintf(PILOT_SENSOR_MERGE_DEBUG_LEVEL,"%s: add %10s.%-10s: \tweights: %s, confidence %f, position: %s --> %s\n", PPREFIX(), gg->dd->name, gg->name, vecToString_st(gg->weight), gg->confidence, arrayWithDimToStr_st(vv.pr, 3), vecToString_st(dronepos));
     dronepos[0] *= gg->weight[0] * gg->confidence;
@@ -245,10 +260,10 @@ static double pilotAddCurrentPositionFromSensorToSum(vec3 ppsum, vec3 weightsum,
     weightsum[0] += gg->weight[0] * gg->confidence;
     weightsum[1] += gg->weight[1] * gg->confidence;
     weightsum[2] += gg->weight[2] * gg->confidence;
-    return(0);
+    return;
 }
 
-static double pilotAddCurrentGroundDistanceFromSensorToSum(vec3 ppsum, vec3 weightsum, struct deviceDataData *gg, quat droneOrientation) {
+static void pilotAddCurrentGroundDistanceFromSensorToSum(vec3 ppsum, vec3 weightsum, struct deviceDataData *gg, quat droneOrientation) {
     struct pose			pp, *vv;
     double			alt;
     int				r;
@@ -257,31 +272,35 @@ static double pilotAddCurrentGroundDistanceFromSensorToSum(vec3 ppsum, vec3 weig
 
     // {static int cc = 0; if (cc++ % 300 != 0) return(-1);}
     
-    if (pilotCheckDeviceForTimeout(gg)) return(-1);
+    if (pilotCheckDeviceForTimeout(gg)) return;
 
     r = poseHistoryEstimatePoseForTimeByLinearRegression(&gg->history, currentTime.dtime, &pp);
 
     vv = &pp;
     // radar is getting vec1, which is [distance]
-    if (vv->pr[2] < gg->min_range) return(-1);
-    if (vv->pr[2] > gg->max_range) return(-1);
+    if (vv->pr[2] < gg->min_range) return;
+    if (vv->pr[2] > gg->max_range) return;
 
     
     // lprintf(0, "%s: Error: down radar not yet implemented\n", PPREFIX());
 
     // TODO: translate distance to altitude based on drone orientation
     alt = vv->pr[2];
-    if (gg->launchPoseSetFlag) alt -= gg->launchPose.pr[2];
+    if (gg->launchPoseSetFlag) {
+	alt -= gg->launchPose.pr[2];
+    } else {
+	alt = 0;
+    }
     
     ppsum[2] += alt * gg->weight[2];
     weightsum[2] += gg->weight[2];
 
     lprintf(PILOT_SENSOR_MERGE_DEBUG_LEVEL, "%s: add %10s.%-10s: \tweights: [0,0,%g], confidence %f, distance: %f --> [0,0,%f]\n", PPREFIX(), gg->dd->name, gg->name, gg->weight[2], 1.0, vv->pr[2], alt);
     
-    return(0);
+    return;
 }
 
-static double pilotAddCurrentAltitudeFromSensorToSum(vec3 ppsum, vec3 weightsum, struct deviceDataData *gg, quat droneOrientation) {
+static void pilotAddCurrentAltitudeFromSensorToSum(vec3 ppsum, vec3 weightsum, struct deviceDataData *gg, quat droneOrientation) {
     struct pose			pp, *vv;
     double			alt;
     int				r;
@@ -290,7 +309,7 @@ static double pilotAddCurrentAltitudeFromSensorToSum(vec3 ppsum, vec3 weightsum,
 
     // {static int cc = 0; if (cc++ % 300 != 0) return(-1);}
     
-    if (pilotCheckDeviceForTimeout(gg)) return(-1);
+    if (pilotCheckDeviceForTimeout(gg)) return;
 
     r = poseHistoryEstimatePoseForTimeByLinearRegression(&gg->history, currentTime.dtime, &pp);
 
@@ -299,32 +318,36 @@ static double pilotAddCurrentAltitudeFromSensorToSum(vec3 ppsum, vec3 weightsum,
     // if (vv->pr[2] > gg->max_range) return(-1);
 
     alt = vv->pr[2];
-    if (gg->launchPoseSetFlag) alt -= gg->launchPose.pr[2];
+    if (gg->launchPoseSetFlag) {
+	alt -= gg->launchPose.pr[2];
+    } else {
+	alt = 0;
+    }
     
     ppsum[2] += alt * gg->weight[2];
     weightsum[2] += gg->weight[2];
 
     lprintf(PILOT_SENSOR_MERGE_DEBUG_LEVEL, "%s: add %10s.%-10s: \tweights: [0,0,%g], confidence %f, altitude: %f --> [0,0,%f]\n", PPREFIX(), gg->dd->name, gg->name, gg->weight[2], 1.0, vv->pr[2], alt);
     
-    return(0);
+    return;
 }
 
-static double pilotAddCurrentOrientationFromDataTypeToSum(quat qqsum, int datatype) {
+
+static void pilotAddOrientation(quat qqsum, double *w, int datatype, void mapfun(quat, double *, struct deviceDataData*)) {
     struct deviceDataData 	*ddl;
-    double			w;
+
     assert(datatype > DT_NONE && datatype < DT_MAX);
-    w = 0;
     for(ddl=uu->deviceDataDataByType[datatype]; ddl!=NULL; ddl=ddl->nextWithSameType) {
-	w += pilotAddCurrentOrientationFromSensorToSum(qqsum, ddl);
+	mapfun(qqsum, w, ddl);
     }
-    return(w);
 }
 
-static void pilotAddCurrentPositionFromDataTypeToSum(vec3 ppsum, vec3 weightsum, quat orientation, int datatype) {
+static void pilotAddPosition(vec3 ppsum, vec3 weightsum, quat orientation, int datatype, void mapfun(vec3, vec3, struct deviceDataData *, quat)) {
     struct deviceDataData *ddl;
     
+    assert(datatype > DT_NONE && datatype < DT_MAX);
     for(ddl=uu->deviceDataDataByType[datatype]; ddl!=NULL; ddl=ddl->nextWithSameType) {
-	pilotAddCurrentPositionFromSensorToSum(ppsum, weightsum, ddl, orientation);
+	mapfun(ppsum, weightsum, ddl, orientation);
     }
 }
 
@@ -341,8 +364,9 @@ static int pilotCombineCurrentOrientationFromSensors(quat orientation) {
 
     lprintf(PILOT_SENSOR_MERGE_DEBUG_LEVEL, "%s: Going to merge orientation from sensors\n", PPREFIX());
 
-    w += pilotAddCurrentOrientationFromDataTypeToSum(qqsum, DT_ORIENTATION_QUATERNION);
-    w += pilotAddCurrentOrientationFromDataTypeToSum(qqsum, DT_ORIENTATION_RPY_COMPASS);
+    // Go through all sensors contributing to the orientation
+    pilotAddOrientation(qqsum, &w, DT_ORIENTATION_QUATERNION, pilotAddCurrentOrientationFromSensorToSum);
+    pilotAddOrientation(qqsum, &w, DT_ORIENTATION_RPY, pilotAddCurrentOrientationFromSensorToSum);
     
     if (w == 0) {
 	memset(orientation, 0, sizeof(quat));
@@ -357,7 +381,6 @@ static int pilotCombineCurrentPositionFromSensors(vec3 position, quat orientatio
     int				i,j;
     struct deviceData		*dd;
     vec3			ppsum, weightsum;
-    struct deviceDataData	*ddl;
 
     // pilotComputeCurrentGyropose("gyropose", DT_POSITION_VECTOR, orientation);
 
@@ -367,14 +390,11 @@ static int pilotCombineCurrentPositionFromSensors(vec3 position, quat orientatio
     memset(ppsum, 0, sizeof(vec3));
     memset(weightsum, 0, sizeof(vec3));
 
-    pilotAddCurrentPositionFromDataTypeToSum(ppsum, weightsum, orientation, DT_POSITION_VECTOR);
-    pilotAddCurrentPositionFromDataTypeToSum(ppsum, weightsum, orientation, DT_POSITION_NMEA);
-    for(ddl=uu->deviceDataDataByType[DT_GROUND_DISTANCE]; ddl!=NULL; ddl=ddl->nextWithSameType) {
-	pilotAddCurrentGroundDistanceFromSensorToSum(ppsum, weightsum, ddl, orientation);
-    }
-    for(ddl=uu->deviceDataDataByType[DT_ALTITUDE]; ddl!=NULL; ddl=ddl->nextWithSameType) {
-	pilotAddCurrentAltitudeFromSensorToSum(ppsum, weightsum, ddl, orientation);
-    }
+    // Go through all sensors contributing to the position
+    pilotAddPosition(ppsum, weightsum, orientation, DT_POSITION_VECTOR, pilotAddCurrentPositionFromSensorToSum);
+    pilotAddPosition(ppsum, weightsum, orientation, DT_POSITION_NMEA, pilotAddCurrentPositionFromSensorToSum);
+    pilotAddPosition(ppsum, weightsum, orientation, DT_GROUND_DISTANCE, pilotAddCurrentGroundDistanceFromSensorToSum);
+    pilotAddPosition(ppsum, weightsum, orientation, DT_ALTITUDE, pilotAddCurrentAltitudeFromSensorToSum);
     
     if (weightsum[0] == 0) return(-1);
     if (weightsum[1] == 0) return(-1);
@@ -465,7 +485,7 @@ void pilotStoreLaunchPose(void *d) {
     struct deviceData 		*dd;
     struct deviceDataData 	*ddd;
 
-    lprintf(6, "%s: Storing launch pose.\n", PPREFIX());
+    lprintf(6, "%s: Storing launch poses.\n", PPREFIX());
     for(i=0; i<uu->deviceMax; i++) {
 	dd = uu->device[i];
 	for(j=0; j<dd->ddtMax; j++) {
@@ -473,7 +493,7 @@ void pilotStoreLaunchPose(void *d) {
 	    poseHistoryGetMean(&ddd->history, &ddd->launchPose);
 	    ddd->launchPoseSetFlag = 1;
 	    // lprintf(23, "%s: %s.%s launch pose %s.\n", PPREFIX(), dd->name, ddd->name, vecToString_st(ddd->launchPose.pr));
-	    lprintf(23, "%s: %s.%s launch pose %s from %d values\n", PPREFIX(), dd->name, ddd->name, vecToString_st(ddd->launchPose.pr), MIN(ddd->history.size, ddd->history.n));
+	    lprintf(23, "%s: %s.%s stored pose %s from %d values\n", PPREFIX(), dd->name, ddd->name, vecToString_st(ddd->launchPose.pr), MIN(ddd->history.size, ddd->history.n));
 	}
     }
 }
@@ -528,14 +548,14 @@ static int pilotNormalizeMotorThrust() {
 	if (t > tmax) tmax = t;
     }
     lprintf(PILOT_THRUST_NORMALIZATION_DEBUG_LEVEL, "%s: Normalizing motor thrusts: ", PPREFIX());
-#if 0
+#if 1
     for(i=0; i<uu->motor_number; i++) {
 	t = uu->motor[i].thrust;
 	nt = truncateToRange(t, 0, 1);
 	lprintf(PILOT_THRUST_NORMALIZATION_DEBUG_LEVEL, "%d: %g->%g;  ", i, t, nt);
 	uu->motor[i].thrust = nt;
     }
-#elif 1
+#elif 0
     // This normalizes motor thrust to the range 0..1 in the way that the average thrust is
     // kept. I.e. drone shall hold its altitude but will be destabilized.
     avg = tsum / uu->motor_number;
@@ -575,20 +595,18 @@ static int pilotNormalizeMotorThrust() {
     // for(i=0; i<uu->motor_number; i++) assert(uu->motor[i].thrust >= 0 && uu->motor[i].thrust <= 1);
 #else
     // This normalizes in the way to keep the difference between thrusts. I.e. drone shall stay stable
-    // but may loose altitude.
+    // but may loose altitude or climb too much.
     if (tmax - tmin > 1.0) {
 	lprintf(PILOT_THRUST_NORMALIZATION_DEBUG_LEVEL, "\n%s: Error: Thrust can not be normalized tmax - tmin == %f.\n", PPREFIX(), tmax-tmin);
-	for(i=0; i<uu->motor_number; i++) uu->motor[i].thrust = truncateToRange(uu->motor[i].thrust, 0, 1);
-	return(-1);
     }
     shift = 0;
-    if (tmin < 0) shift = -tmin;
-    else if (tmax > 1) shift = tmax-1;
+    if (tmax > 1) shift = 1-tmax;
+    else if (tmin < 0) shift = -tmin;
     for(i=0; i<uu->motor_number; i++) {
 	t = uu->motor[i].thrust;
 	nt = t + shift;
 	lprintf(PILOT_THRUST_NORMALIZATION_DEBUG_LEVEL, "%d: %g->%g;  ", i, t, nt);
-	uu->motor[i].thrust = nt;
+	uu->motor[i].thrust = truncateToRange(nt, 0, 1);
     }
 #endif
     lprintf(PILOT_THRUST_NORMALIZATION_DEBUG_LEVEL, "\n");
@@ -616,12 +634,12 @@ static void normalizeMotorThrustIfOutOfRange() {
 	    // This is a warning during normal flight, may be normal during landing
 	    // TODO: Do not show it during landing phase
 	    if (normalizationFailedDuringLastSecondCounter >= 5 || normalizationDuringLastSecondCounter >= 5) {
-		lprintf(0, "%s: Warning: %d thrust overflows during previous second. Maybe too aggressive drone setting.\n",
+		lprintf(0, "%s: Error: %d thrust overflows during previous second. Maybe too aggressive drone setting!\n",
 			PPREFIX(), normalizationDuringLastSecondCounter
 		    );
 	    }
-	    if (normalizationFailedDuringLastSecondCounter >= 5) {
-		lprintf(0, "%s: Error: Thrust can't be normalized %d times during previous second! Something is wrong!\n",
+	    if (normalizationFailedDuringLastSecondCounter >= 1) {
+		lprintf(0, "%s: Error: Thrust can't be normalized %d times during previous second!\n",
 			PPREFIX(), normalizationFailedDuringLastSecondCounter
 		    );
 	    }
@@ -668,24 +686,24 @@ static void pilotSetMinimalMotorThrust() {
 // move toward the next waypoint.
 //
 static void pilotComputeMotorThrustsForStabilizationAndWaypoint() {
-    int 			i;
-    vec3			targetPositionVector, targetPositionDroneFrame;
-    double 			roll, pitch, yaw;
-    double 			targetRoll, targetPitch, targetYaw;
-    double			altitudeThrust, yawThrust, rollThrust, pitchThrust;
-    double			tdTick, tdRpyFix;	// td stands for Time Delta
+    int 		i;
+    vec3		targetPositionVector, targetPositionDroneFrame;
+    double 		roll, pitch, yaw;
+    double 		targetRoll, targetPitch, targetYaw;
+    double		altitudeThrust, yawThrust, rollThrust, pitchThrust;
+    double		tdTick, tdRpyFix;	// td stands for Time Delta
     struct pose		poseEstimatedAtHalfRpyFixTime;
     struct pose		veloEstimatedAtQuartRpyFixTime;
-    vec3			movingVelocity;
-    vec3			movingVelocityDroneFrame;
-    vec3			targetGroundVelocity, targetRelativeVelocity, targetVelocityDroneFrame, diffVelocityDroneFrame;
+    vec3		movingVelocity;
+    vec3		movingVelocityDroneFrame;
+    vec3		targetGroundVelocity, targetRelativeVelocity, targetVelocityDroneFrame, diffVelocityDroneFrame;
     struct pose		ccpose, *cpose;
     struct pose		*cvelo;
-    double			t;
-    double			yawRotationSpeed, rollRotationSpeed, pitchRotationSpeed;
-    double			targetYawRotationSpeed, targetRollRotationSpeed, targetPitchRotationSpeed;
-    double			verticalSpeed, targetVerticalSpeed;
-    double			dmax, dspeed;
+    double		t;
+    double		yawRotationSpeed, rollRotationSpeed, pitchRotationSpeed;
+    double		targetYawRotationSpeed, targetRollRotationSpeed, targetPitchRotationSpeed;
+    double		verticalSpeed, targetVerticalSpeed;
+    double		dmax, dspeed;
     
     // if not enough of data do nothing
     if (uu->shortHistoryPose.n <= 1) return;
@@ -726,7 +744,9 @@ static void pilotComputeMotorThrustsForStabilizationAndWaypoint() {
     // yaw   - positive == rotated counterclockwise (view from up)
 
     // small hack, suppose that we never travel much more than max_speed to avoid dirty values.
-    vec3TruncateToSize(movingVelocity, uu->config.drone_max_speed * 1.9, "movingVelocity");
+    // narmalize separately XY speed and altitude speed (because we actually can fall down very fast
+    vec2TruncateToSize(movingVelocity, 9.9 * uu->config.drone_max_speed, "movingVelocity");
+    vec1TruncateToSize(&movingVelocity[2], 2.9 * uu->config.drone_max_speed, "movingVerticalVelocity");
     // rollRotationSpeed = truncateToRange(rollRotationSpeed, -1.9 * uu->drone_max_rotation_speed, 1.9 * uu->drone_max_rotation_speed);
     // pitchRotationSpeed = truncateToRange(pitchRotationSpeed, -1.9 * uu->drone_max_rotation_speed, 1.9 * uu->drone_max_rotation_speed);
     // yawRotationSpeed = truncateToRange(yawRotationSpeed, -1.9 * uu->drone_max_rotation_speed, 1.9 * uu->drone_max_rotation_speed);
@@ -736,8 +756,12 @@ static void pilotComputeMotorThrustsForStabilizationAndWaypoint() {
     // rotates to the goal pitch&roll (during tdRyFix time), then it travels to the middle of
     // the distance while accelerating, then he rotates to "braking" pitch&roll (another tdRpyFix time)
     // and then slowing down to the final speed zero when reaching the point X.
-
-    vec3_sub(targetPositionVector, uu->currentWaypoint.position, poseEstimatedAtHalfRpyFixTime.pr);
+    // TODO: The model is not very accurate. If we are nearly in good orientation it will not take as
+    // much to get the orientation. Those times shall be infered from current orientation, rotation speed
+    // and drone max rotation speed. For both acceleration and braking.
+    
+    vec2_sub(targetPositionVector, uu->currentWaypoint.position, poseEstimatedAtHalfRpyFixTime.pr);
+    targetPositionVector[2] = uu->currentWaypoint.position[2] - cpose->pr[2];
     for(i=0; i<3; i++) {
 	// Restrict targetPositionVector so that we do not need to go over max size in any direction
 	// I think this is here to restrict vertical speed in particular, so that drone does not try to climb/descent
@@ -752,6 +776,8 @@ static void pilotComputeMotorThrustsForStabilizationAndWaypoint() {
     targetRelativeVelocity[0] = targetGroundVelocity[0] + pidControllerStep(&uu->pidX, targetGroundVelocity[0], movingVelocity[0], tdTick);
     targetRelativeVelocity[1] = targetGroundVelocity[1] + pidControllerStep(&uu->pidY, targetGroundVelocity[1], movingVelocity[1], tdTick);
     targetRelativeVelocity[2] = targetGroundVelocity[2];
+    
+    // lprintf(30, "%s: Info: target position vector %s, targetGroundVelocity: %s, targetRelativeVelocity: %s\n", PPREFIX(), vec3ToString_st(targetPositionVector), vec3ToString_st(targetGroundVelocity), vec3ToString_st(targetRelativeVelocity));
     
     // Translate everything neccessary to drone frame!
     // Attention: What we currently consider as drone frame is not rotated by drone pitch and roll!!!
@@ -811,8 +837,8 @@ static void pilotComputeMotorThrustsForStabilizationAndWaypoint() {
     lprintf(22, "%s: Info: Speeds     : PRY == Current: %f %f %f  --> Target: %f %f %f \n", PPREFIX(), pitchRotationSpeed, rollRotationSpeed, yawRotationSpeed, targetPitchRotationSpeed, targetRollRotationSpeed, targetYawRotationSpeed);
 
     // Use PID controllers to compute final motor thrusts to achieve target rotation speeds from current rotation speeds
-    rollThrust = pidControllerStep(&uu->pidRoll, targetRollRotationSpeed, rollRotationSpeed, tdTick);
     pitchThrust = pidControllerStep(&uu->pidPitch, targetPitchRotationSpeed, pitchRotationSpeed, tdTick);
+    rollThrust = pidControllerStep(&uu->pidRoll, targetRollRotationSpeed, rollRotationSpeed, tdTick);
     yawThrust = pidControllerStep(&uu->pidYaw, targetYawRotationSpeed, yawRotationSpeed, tdTick);
 
     // finally get the Altitude thrust
@@ -838,8 +864,8 @@ static void pilotComputeMotorThrustsForStabilizationAndWaypoint() {
     // function shall "normalize" thrust in the way that the drone does not crash immediately.
     normalizeMotorThrustIfOutOfRange();
 
-    // Security exception. Hard prevent the drone to fly higher than drone_max_altitude.
-    if (poseEstimatedAtHalfRpyFixTime.pr[2] > uu->config.drone_max_altitude) pilotSetMinimalMotorThrust();
+    // Security exception. Hard prevent the drone to fly much higher than drone_max_altitude.
+    if (poseEstimatedAtHalfRpyFixTime.pr[2] > uu->config.drone_max_altitude + 1.0) pilotSetMinimalMotorThrust();
 
 #if CONNECTION_JITTER_TEST
     {
@@ -970,7 +996,13 @@ int pilotAreAllDevicesReady() {
 		// if (dd->connection.type ras!= DCT_INTERNAL && dd->lastActivityTime <= uu->pilotStartingTime) {
 		// this sensor did not send data yet, continue waiting
 		if (debugLevel > 0 && currentTime.msec > lastWaitingMsgMsec + 2000) {
-		    if (lastWaitingMsgMsec != 0) lprintf(1, "%s: Info: waiting for device: %s.\n", PPREFIX(), dd->name);
+		    if (lastWaitingMsgMsec != 0) {
+			lprintf(1, "%s: Info: waiting for device: %s.", PPREFIX(), dd->name);
+			if (uu->pilotLaunchTime + dd->warming_time > currentTime.dtime) {
+			    lprintf(1, " Remains: %2d seconds.", (int)(uu->pilotLaunchTime + dd->warming_time - currentTime.dtime));
+			}
+			lprintf(1, "\n");
+		    }
 		    lastWaitingMsgMsec = currentTime.msec;
 		}
 		return(0);

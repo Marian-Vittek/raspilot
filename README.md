@@ -82,9 +82,7 @@ rudimentary. Only inertia rules are taken into account. Changes in
 rotation and speed of movement are controlled by PID controllers. This
 model is able to stabilise the drone very well at 100Hz (main loop
 frequency). We were able to fly drones with frequencies between 20Hz
-and 400Hz. At lower frequencies the drone is unstable, higher
-frequencies did not make sense for us as we did not have sensors with
-such update rate.
+and 400Hz.
 
 
 

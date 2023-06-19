@@ -38,6 +38,7 @@ THE SOFTWARE.
 #define _MPU6050_H_
 
 #include "I2Cdev.h"
+#include "helper_3dmath.h"
 //#include <avr/pgmspace.h>
 
 #define pgm_read_byte(p) (*(uint8_t *)(p))
@@ -403,8 +404,10 @@ class MPU6050 {
     public:
         MPU6050();
         MPU6050(uint8_t address);
+	MPU6050(char *devicePath, uint8_t address);
+        ~MPU6050();
 
-        void initialize();
+        int initialize();
         bool testConnection();
 
         // AUX_VDDIO register
@@ -981,8 +984,10 @@ class MPU6050 {
         #endif
 
     private:
-        uint8_t devAddr;
-        uint8_t buffer[14];
+	    char *pi2cPath;
+	    int pi2cFd;
+	    uint8_t devAddr;
+	    uint8_t buffer[14];
 };
 
 #endif /* _MPU6050_H_ */

@@ -29,7 +29,7 @@ void sonarReceiveAlertFunction(int gpio, int level, uint32_t tick) {
     }
 }
 
-void sonarStop(int signum) {
+void taskStop(int signum) {
     gpioTerminate();
     exit(0);
 }
@@ -50,7 +50,7 @@ int main(int argc, char **argv) {
         exit(-1);
     }
 
-    signal(SIGINT, sonarStop);
+    signal(SIGINT, taskStop);
   
     gpioSetAlertFunc(pinReceive, sonarReceiveAlertFunction);
   
@@ -62,5 +62,5 @@ int main(int argc, char **argv) {
         gpioWrite(pinSend, 0);
     }
     
-    sonarStop(0);
+    taskStop(0);
 }

@@ -4,7 +4,8 @@
 #include <stdint.h>
 #include <string.h>
 #include <math.h>
-#include "I2Cdev.h"
+#include <sys/time.h>
+#include "pi2c.h"
 #include "MPU6050_6Axis_MotionApps20.h"
 
 // class default I2C address is 0x68
@@ -76,21 +77,18 @@ uint8_t teapotPacket[14] = { '$', 0x02, 0,0, 0,0, 0,0, 0,0, 0x00, 0x00, '\r', '\
 void setup() {
     // initialize device
     printf("Initializing I2C devices...\n");
+    // Remove this
+    pi2cReset((char*)"/dev/i2c-1");
     mpu.initialize();
 
-    // mpu.setDLPFMode(MPU6050_DLPF_BW_5);
+    // Is DLPF adding latency also with dmp?
+    mpu.setDLPFMode(0);
     usleep(10000);
     
     // verify connection
     printf("Testing device connections...\n");
     printf(mpu.testConnection() ? "MPU6050 connection successful\n" : "MPU6050 connection failed\n");
 
-    { uint8_t ss;
-       I2Cdev::readByte(0x68, MPU6050_RA_INT_PIN_CFG, &ss);
-       printf("DEVICE ID: %d, CONTROL: %d\n", mpu.getDeviceID(), ss);
-       I2Cdev::writeByte(0x68, MPU6050_RA_INT_PIN_CFG, ss | 0x02);
-    }
-    
     // load and configure the DMP
     printf("Initializing DMP...\n");
     devStatus = mpu.dmpInitialize();
@@ -144,65 +142,6 @@ void setup() {
 // ===                    MAIN PROGRAM LOOP                     ===
 // ================================================================
 
-#define DDDEBUG 0
-#if DDDEBUG
-static void wikiQuaternionToEulerAngles(Quaternion *q, double *yaw, double *pitch, double *roll) {
-    double x, y, z, w;
-    double sinr_cosp, cosr_cosp, sinp, siny_cosp, cosy_cosp;
-    
-    x = q->x;
-    y = q->y;
-    z = q->z;
-    w = q->w;
-    
-    // roll (x-axis rotation)
-    sinr_cosp = 2 * (w * x + y * z);
-    cosr_cosp = 1 - 2 * (x * x + y * y);
-    *roll = atan2(sinr_cosp, cosr_cosp);
-
-    // pitch (y-axis rotation)
-    // [MV] I had to change the sign here to get my pitch
-    sinp = 2 * (w * y - z * x);
-    if (fabs(sinp) >= 1) {
-        *pitch = - copysign(M_PI / 2, sinp); // use 90 degrees if out of range
-    } else {
-        *pitch = - asin(sinp);
-    }
-	
-    // yaw (z-axis rotation)
-    siny_cosp = 2 * (w * z + x * y);
-    cosy_cosp = 1 - 2 * (y * y + z * z);
-    *yaw = atan2(siny_cosp, cosy_cosp);
-	
-}
-double rangePerDigit = 0;
-
-void setRangePerDigit() {
-  
-  int range = mpu.getFullScaleAccelRange();
-      
-
-    switch (range) {
-    case MPU6050_ACCEL_FS_2:
-      rangePerDigit = .000061f;
-      break;
-    case MPU6050_ACCEL_FS_4:
-      rangePerDigit = .000122f;
-      break;
-    case MPU6050_ACCEL_FS_8:
-      rangePerDigit = .000244f;
-      break;
-    case MPU6050_ACCEL_FS_16:
-      rangePerDigit = .0004882f;
-      break;
-    default:
-      break;
-    }	
-}
-
-#endif
-
-
 static int ncount = 0;
 
 int loop() {
@@ -247,7 +186,7 @@ int loop() {
     //   o   I
     //holes  pins     
     printf("quat %9.7f %9.7f %9.7f %9.7f\n", -q.y, q.x, q.z, q.w);
-#else
+#elif 1
     // This is for the following orientation of MPU development board:
     //    front of the drone
     //     ^
@@ -258,36 +197,10 @@ int loop() {
     printf("quat %9.7f %9.7f %9.7f %9.7f\n", q.y, -q.x, q.z, q.w);
 #endif
 
-#if DDDEBUG
-    setRangePerDigit();
+#if 0
     mpu.dmpGetGravity(&gravity, &q);
     mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
-    printf("debug rpy     %9.7f %9.7f %9.7f\n", ypr[2], ypr[1], ypr[0]);
-    { double tt,y,p,r;
-      tt = q.x;
-      q.x = -q.y;
-      q.y = tt;
-      wikiQuaternionToEulerAngles(&q, &y, &p, &r);
-      printf("debug wikirpy %9.7f %9.7f %9.7f\n", r,p,y);
-    }
-
-    {
-      static int16_t ax, ay, az;
-      static int16_t gx, gy, gz;
-
-      mpu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
-      // these methods (and a few others) are also available
-      mpu.getAcceleration(&ax, &ay, &az);
-      //mpu.getRotation(&gx, &gy, &gz);
-      // printf("a/g: %6hd %6hd %6hd   %6hd %6hd %6hd\n",ax,ay,az,gx,gy,gz);
-      ax *= rangePerDigit * 9.80665f;
-      ay *= rangePerDigit * 9.80665f;
-      az *= rangePerDigit * 9.80665f;
-
-      double roll = atan2(ax, az);
-      double pitch = atan2(ax, sqrt(ay*ay + az*az));
-      printf("raw rp == %9.7f %9.7f\n", roll, pitch);
-    }
+    printf("rpy %9.7f %9.7f %9.7f\n", ypr[2], ypr[1], ypr[0]);
 #endif    
     
     
@@ -298,7 +211,6 @@ int loop() {
   return(0);
 }
 
-#include <sys/time.h>
 long long getTimeMsec() {
     struct timeval tv;
     
@@ -316,7 +228,11 @@ int main() {
   
   setup();
   usleep(100000);
-
+  
+#if DDDEBUG
+  setRangePerDigit();
+#endif
+  
   debugCount = 0;
   shortSleepCount = 0;
   sleepUsec = 3000;

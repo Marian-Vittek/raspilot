@@ -29,6 +29,8 @@ THE SOFTWARE.
 ===============================================
 */
 
+#include <math.h>
+
 #ifndef _HELPER_3DMATH_H_
 #define _HELPER_3DMATH_H_
 

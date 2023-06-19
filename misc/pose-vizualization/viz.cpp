@@ -339,6 +339,23 @@ void MotionFunc(int x, int y) {
 #define READ_BUFFER_SIZE (1<<15)
 #define SKIP_BLANK(p) { while (*p != 0 && isspace(*p)) p++; }
 
+static void wikiEulerAnglesToQuaternion(double yaw, double pitch, double roll, double *q) {
+    double cy, sy, cp, sp, cr, sr;
+
+    cy = cos(yaw * 0.5);
+    sy = sin(yaw * 0.5);
+    // [MV] Use pitch with inversed sign to get back to original quaternion
+    cp = cos(-pitch * 0.5);
+    sp = sin(-pitch * 0.5);
+    cr = cos(roll * 0.5);
+    sr = sin(roll * 0.5);
+
+    q[3] = cr * cp * cy + sr * sp * sy;
+    q[0] = sr * cp * cy - cr * sp * sy;
+    q[1] = cr * sp * cy + sr * cp * sy;
+    q[2] = cr * cp * sy - sr * sp * cy;
+}
+
 int checkInput() {
   static char		bbb[READ_BUFFER_SIZE];
   static int		bbbi = 0;
@@ -354,6 +371,7 @@ int checkInput() {
   static int inputPipeFd = STDIN_FILENO;
   res = 0;
   double 		a[16];
+  double 		b[16];
 
   // TODO: Maybe do this more efficiently preparing and holding static empty fdsets
   FD_ZERO(&inset);
@@ -425,6 +443,18 @@ int checkInput() {
 	  if (eq == q) i = 0;
 	  arrows[i].setQuat(a);
 	  res |= 1;
+	} else if (strncmp(q, "rpy", 3) == 0) {
+	  q += 3;
+	  for(i=0; i<3; i++) {
+		a[i] = strtod(q, &eq);
+		if (eq == q) goto skip;
+		q = eq;
+	  }
+	  wikiEulerAnglesToQuaternion(a[2], a[1], a[0], b);
+	  i = strtol(q, &eq, 10);
+	  if (eq == q) i = 0;
+	  arrows[i].setQuat(b);
+	  res |= 1;
 	} else if (strncmp(q, "pose", 4) == 0) {
 	  q += 4;
 	  for(i=0; i<3; i++) {
@@ -436,8 +466,8 @@ int checkInput() {
 	  if (eq == q || i<0 || i>=DIM(arrows) ) i = 0;
 	  arrows[i].setPose(a[0]*100, a[1]*100, a[2]*100);
 	} else {
-	  //printf("%s:%d: Ign '%s'\n", __FILE__, __LINE__, bbb);
-	  //fflush(stdout);
+	  printf("%s:%d: Ignoring '%s'\n", __FILE__, __LINE__, bbb);
+	  fflush(stdout);
 	}
   skip:
 	d = bbb+bbbi-p-1;

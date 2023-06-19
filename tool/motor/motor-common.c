@@ -112,10 +112,15 @@ void motorSendThrottles() {
 void motorStartEmergencyLanding() {
     int i;
     // This is some emergency stop. If there is an error on the input, try to land with minimal damage.
+    printf("debug motor: emergency landing\n"); fflush(stdout);
     motorEmergencyLandingInProgress = 1;
     for(i=0; i<motorMax; i++) motorThrottle[i] = motorThrottleSafeLand[i];
-    motorSendThrottles();
-    usleep(100000);
+    // send zero throttles several time for case dshot frame is missed or so
+    for(i=0; i<10; i++) {
+	motorSendThrottles();
+	usleep(10000);
+    }
+    if (debug) abort();
 }
 
 int readThrustFromInputPipe() {
@@ -127,7 +132,7 @@ int readThrustFromInputPipe() {
     double		t;
     long long		tstamp;
     char		*p, *q, *eq;
-    int 		r, d, res;
+    int 		r, d, res, parsedOkFlag;
     fd_set 		inset;
     fd_set 		outset;
     fd_set 		errset;
@@ -167,7 +172,7 @@ int readThrustFromInputPipe() {
     }
     // check for timeout expired
     if (r == 0) {
-	if (motorStandBy) return(0);
+	if (motorStandBy) return(1);
 	printf("debug Error: %s:%d: select returned 0 == timeout, errno == %d, emergency landing!\n", __FILE__, __LINE__, errno);
 	printf("debug Current timestamp == %s\n", sprintTime_st(currentTimestampUsec()));
 	fflush(stdout);
@@ -194,7 +199,7 @@ int readThrustFromInputPipe() {
     if (n == 0) {
 	// surprising this seems to happens when the writing end of pipe is closed
 	usleep(10000);
-	if (motorStandBy) return(0);
+	if (motorStandBy) return(1);
 	printf("debug Error: %s:%d: read has read nothing!\n", __FILE__, __LINE__);
 	// return(0);
 	goto emergencyLanding;
@@ -217,37 +222,60 @@ int readThrustFromInputPipe() {
 	    t = currentTimestampUsec();
 	    printf("debug %s: %s:%d: Parsing '%s'\n", sprintTime_st(t), __FILE__, __LINE__, bbb);
 	}
+	if (0) {
+	    uint64_t 	t;
+	    t = currentTimestampUsec();
+	    static FILE *ff;
+	    if (ff == NULL) ff = fopen("motor-debug.txt", "w");
+	    fprintf(ff, "debug %s: %s:%d: Parsing '%s'\n", sprintTime_st(t), __FILE__, __LINE__, bbb);
+	    fflush(ff);
+	}
 	SKIP_BLANK(q);
 	if (q[0] == 'h' && q[1] == 'b' && q[2] == 0) {
 	    // heartbeat, meaning hold last pwm
 	    res |= 0;
 	} else if (q[0] == 'm' && q[1] == 't') {
+	    parsedOkFlag = 1;
 	    q += 2;
 	    n = strtol(q, &eq, 10);
-	    if (eq == q) goto emergencyLanding;
-	    if (n != motorMax) goto emergencyLanding;
-	    q = eq;
-	    for(i=0; i<n; i++) {
-		t = strtod(q, &eq);
-		if (eq == q) goto emergencyLanding;
+	    if (eq == q || n != motorMax) {
+		parsedOkFlag = 0;
+	    } else {
 		q = eq;
-		if (t < -1 || t > 1) goto emergencyLanding;
-		motorThrottle[i] = t;
+		for(i=0; i<n; i++) {
+		    t = strtod(q, &eq);
+		    if (eq == q) {
+			parsedOkFlag = 0;
+		    } else {
+			q = eq;
+			if (t < -1 || t > 1) {
+			    parsedOkFlag = 0;
+			} else {
+			    motorThrottle[i] = t;
+			}
+		    }
+		}
 	    }
 	    // since that moment watch for timeouts until new standby mode activated
 	    motorStandBy = 0;
-	    res |= 1;
+	    if (parsedOkFlag) {
+		res |= 1;
+	    } else {
+		printf("debug Error: %s:%d: In line: %s\n", __FILE__, __LINE__, bbb);
+		goto emergencyLanding;
+	    }
 	} else if (q[0] == 's' && q[1] == 't' && q[2] == 'a' && q[3] == 'n') {
 	    // stand bye. This happens when raspilot exits, wait until a new connection happens
 	    motorStandBy = 1;
+	    for(i=0; i<motorMax; i++) motorThrottle[i] =  0;
 	    res |= 1;
-	} else if ((q[0] == 'f' && q[1] == 'i' && q[2] == 'n')
-		   || (q[0] == 's' && q[1] == 't' && q[2] == 'o' && q[2] == 'p')) {
+	} else if (q[0] == 'e' && q[1] == 'x' && q[2] == 'i' && q[3] == 't') {
 	    motorShutdownInProgress = 1;
 	    for(i=0; i<motorMax; i++) motorThrottle[i] =  0;
 	    res |= 1;
 	} else if (q[0] == 'l' && q[1] == 'a' && q[2] == 'n' && q[3] == 'd') {
 	    // raspilot asked for emergency landing
+	    printf("debug Warning: %s:%d: autopilot asked for Emergency landing!\n", __FILE__, __LINE__);	
 	    goto emergencyLanding;
 	} else if (q[0] == 'p' && q[1] == 'i' && q[2] == 'n' && q[3] == 'g') {
 	    tstamp = atoll(q+4);
@@ -262,7 +290,7 @@ int readThrustFromInputPipe() {
 	    res |= 0;
 	} else {
 	    // some wrong input, do emergency landing
-	    printf("debug Error: %s:%d: wrong input line: %s! Emergency landing!\n", __FILE__, __LINE__, bbb);	
+	    printf("debug Error: %s:%d: wrong input line: %s! Emergency landing!\n", __FILE__, __LINE__, bbb);
 	    goto emergencyLanding;
 	}
 
@@ -351,9 +379,13 @@ int main(int argc, char *argv[]) {
     
     // send min_width to motors to stop them before exit
     for(i=0; i<motorMax; i++) motorThrottle[i] = 0;
-    motorSendThrottles();
-    
-    usleep(100000);
+    // for case of missed dshot frames
+    // also make this to take longer than raspilot exit/shutdown sequence (which is 0.5s) in order
+    // not to receive SIGPIPE there.
+    for(i=0; i<100; i++) {
+	motorSendThrottles();
+	usleep(10000);
+    }
 
     motorImplementationFinalize(motorPins, motorMax);
     return 0;

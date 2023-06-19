@@ -261,6 +261,9 @@ void configLoadDeviceData(struct jsonnode *c, struct deviceData	*dl, char *path,
 	    LOAD_CONFIG_STRING_OPTION_WITH_DEFAULT_VALUE(d, context, ddl, tag, NULL);
 	    LOAD_CONFIG_STRING_OPTION_WITH_DEFAULT_VALUE(d, context, ddl, name, deviceDataTypeNames[ddl->type]);
 	    LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(d, context, ddl, latency, 0);
+	    if (fabs(ddl->latency) >= 1.0) {
+		lprintf(0,"%s:%s:%d: Warning: %s.latency above 1 second? Are you sure?.\n", PPREFIX(), __FILE__, __LINE__, context);
+	    }
 	    LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(d, context, ddl, timeout, 1.0);
 	    LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(d, context, ddl, min_range, 0.001);
 	    LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(d, context, ddl, max_range, 1e33);
@@ -381,9 +384,9 @@ void configLoadDevices(struct jsonnode *cc, char *path, char *context) {
     
     LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(cc, context, cfg, pilot_reach_goal_orientation_time, 0.2);
     LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(cc, context, cfg, pilot_reach_goal_position_time, cfg->pilot_reach_goal_orientation_time*2+0.5);
-    if (cfg->pilot_reach_goal_position_time <= 2*cfg->pilot_reach_goal_orientation_time) {
+    if (cfg->pilot_reach_goal_position_time < 2*cfg->pilot_reach_goal_orientation_time) {
 	lprintf(0, "%s: Error: pilot_reach_goal_position_time has to be 2*pilot_reach_goal_orientation_time plus the time of fly\n", PPREFIX());
-	cfg->pilot_reach_goal_position_time = 2 * cfg->pilot_reach_goal_orientation_time + 0.5;
+	cfg->pilot_reach_goal_position_time = 2 * cfg->pilot_reach_goal_orientation_time;
     }
     LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(cc, context, cfg, drone_max_inclination, 0.3);
     LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(cc, context, cfg, drone_max_speed, 1.0);
@@ -435,6 +438,7 @@ void configLoadDevices(struct jsonnode *cc, char *path, char *context) {
 	    } else {
 		configLoadVectorWithDefaultValue(c, dl->mount_rpy, 3, "mount_rpy", 0.0, path, context, 0);
 	    }
+	    LOAD_CONFIG_BOOL_OPTION_WITH_DEFAULT_VALUE(c, context, dl, shutdownExit, 0);
 	    LOAD_CONFIG_BOOL_OPTION_WITH_DEFAULT_VALUE(c, context, dl, data_ignore_unknown_tags, 0);
 	    LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(c, context, dl, warming_time, 1.0);
 	    configLoadDeviceData(c, dl, path, context);
@@ -487,7 +491,7 @@ void configloadFile() {
     // Old versions loaded configuration file based on hostname
     gethostname(hname, sizeof(hname));
     hname[sizeof(hname)-1] = 0;
-    snprintf(ttt, sizeof(ttt)-1, "../cfg/raspilot-%s.json", hname);
+    snprintf(ttt, sizeof(ttt)-1, "../cfg/%s.json", hname);
     ttt[sizeof(ttt)-1] = 0;
     path = ttt;
 #endif

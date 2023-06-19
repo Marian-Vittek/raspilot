@@ -259,7 +259,7 @@ enum deviceDataTypes {
     DT_POSITION_VECTOR,
     DT_GROUND_DISTANCE,
     DT_ALTITUDE,
-    DT_ORIENTATION_RPY_COMPASS,
+    DT_ORIENTATION_RPY,
     DT_ORIENTATION_QUATERNION,
     
     DT_POSITION_NMEA,
@@ -659,6 +659,7 @@ struct deviceData {
     vec3			mount_position;
     vec3			mount_rpy;		// roll pitch yaw
     double			warming_time;
+    uint8_t			shutdownExit;
     uint8_t			data_ignore_unknown_tags;
     
     uint8_t			enabled;
@@ -725,7 +726,8 @@ struct universe {
     
     struct deviceData		*device[DEVICE_MAX];
     int				deviceMax;
-
+    int				deviceMotors;
+    
     struct deviceDataData	*deviceDataDataByType[DT_MAX];	// lists by data types
     
     // run time values
@@ -820,6 +822,8 @@ void poseVectorAdd(struct pose *res, struct pose *a, struct pose *b) ;
 void poseVectorSubstract(struct pose *res, struct pose *a, struct pose *b) ;
 void poseHistoryGetMean(struct poseHistory *hh, struct pose *res) ;
 int poseHistoryEstimatePoseForTimeByLinearRegression(struct poseHistory *hh, double time, struct pose *res) ;
+void vec1TruncateToSize(double *r, double size, char *warningId) ;
+void vec2TruncateToSize(vec2 r, double size, char *warningId) ;
 void vec3TruncateToSize(vec3 r, double size, char *warningId) ;
 void pidControllerReset(struct pidController *pp) ;
 char *pidControllerStatistics(struct pidController *pp, int showProposedCiFlag) ;
@@ -868,12 +872,14 @@ void raspilotGotoWaypoint(double x, double y, double z, double yaw) ;
 double raspilotCurrentAltitude() ;
 int raspilotWaypointReached() ;
 void motorsThrustSend(void *d) ;
+void motorsExit(void *d) ;
 void motorsStandby(void *d) ;
 void motorsThrustSet(double thrust) ;
 void motorThrustSetAndSend(int i, double thrust) ;
 void motorsThrustSetAndSend(double thrust) ;
 void motorsStop(void *d) ;
 void motorsEmmergencyLand() ;
+void motorsEmmergencyShutdown() ;
 void pilotImmediateLanding() ;
 void pilotInteractiveInputRegularCheck(void *d) ;
 void pilotRegularSpecialTick(void *d) ;

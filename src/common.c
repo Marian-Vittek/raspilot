@@ -27,6 +27,7 @@ static int  baioStaticStringsRingIndex = 0;
 
 char *getTemporaryStringPtrFromStaticStringRing() {
     char *res;
+    
     res = baioStaticStringsRing[baioStaticStringsRingIndex];
     baioStaticStringsRingIndex  = (baioStaticStringsRingIndex+1) % STATIC_STRINGS_RING_SIZE;
     // make sure that snprint-ed string will be zero terminating
@@ -844,7 +845,7 @@ int baioLineDispatchInputLine(struct deviceData *dd, char *s, int n) {
 	    case DT_POSITION_VECTOR:
 		r = parseVector(&pp.pr[0], 3, tag, p, dd, ddd);
 		break;
-	    case DT_ORIENTATION_RPY_COMPASS:
+	    case DT_ORIENTATION_RPY:
 		r = parseVector(&pp.pr[7], 3, tag, p, dd, ddd);
 		// apply mount correction
 		vec3_sub(&pp.pr[7], &pp.pr[7], dd->mount_rpy);
@@ -869,6 +870,7 @@ int baioLineDispatchInputLine(struct deviceData *dd, char *s, int n) {
 		break;
 	    case DT_MAGNETIC_HEADING_NMEA:
 		lprintf(0, "%s: Not yet implemented\n", PPREFIX());
+		r = 0;
 		break;
 	    case DT_GROUND_DISTANCE:
 		r = parseVector(&pp.pr[2], 1, tag, p, dd, ddd);
@@ -1056,7 +1058,7 @@ void enumNamesInit() {
     ENUM_NAME_SET(deviceDataTypeNames, DT_POSITION_VECTOR);
     ENUM_NAME_SET(deviceDataTypeNames, DT_GROUND_DISTANCE);
     ENUM_NAME_SET(deviceDataTypeNames, DT_ALTITUDE);
-    ENUM_NAME_SET(deviceDataTypeNames, DT_ORIENTATION_RPY_COMPASS);
+    ENUM_NAME_SET(deviceDataTypeNames, DT_ORIENTATION_RPY);
     ENUM_NAME_SET(deviceDataTypeNames, DT_ORIENTATION_QUATERNION);
     ENUM_NAME_SET(deviceDataTypeNames, DT_POSITION_NMEA);
     ENUM_NAME_SET(deviceDataTypeNames, DT_MAGNETIC_HEADING_NMEA);
@@ -1333,13 +1335,33 @@ void poseVectorSubstract(struct pose *res, struct pose *a, struct pose *b) {
     poseVectorResetQuatFromRpy(res);
 }
 
+void vec1TruncateToSize(double *r, double size, char *warningId) {
+    double s;
+    
+    s = fabs(*r);
+    if (s > size) {
+	*r = *r * size / s;
+	if (warningId != NULL) lprintf(0, "%s: Warning: vector %s had to be truncated from size %g to %g --> %g\n", PPREFIX(), warningId, s, size, *r);
+    }
+}
+
+void vec2TruncateToSize(vec2 r, double size, char *warningId) {
+    double s;
+    
+    s = vec2_len(r);
+    if (s > size) {
+	vec2_scale(r, r, size/s);
+	if (warningId != NULL) lprintf(0, "%s: Warning: vector %s had to be truncated from size %g to %g --> %s\n", PPREFIX(), warningId, s, size, vec2ToString_st(r));
+    }
+}
+
 void vec3TruncateToSize(vec3 r, double size, char *warningId) {
     double s;
     
     s = vec3_len(r);
     if (s > size) {
 	vec3_scale(r, r, size/s);
-	if (warningId != NULL) lprintf(0, "%s: Warning: vector %s had to be truncated to size %g.\n", PPREFIX(), warningId, size);
+	if (warningId != NULL) lprintf(0, "%s: Warning: vector %s had to be truncated from size %g to %g --> %s\n", PPREFIX(), warningId, s, size, vec3ToString_st(r));
     }
 }
 
@@ -1394,14 +1416,16 @@ double pidControllerStep(struct pidController *pp, double setpoint, double measu
 	if (fabs(cc->p * error) > 2.0 * cc->integralMax) {
 	    lprintf(0, "%s: Error: PID: %s: value of error (%g) is out of range, ignoring it.\n", PPREFIX(), pp->name, error);
 	    error = 0; // dd->previous_error / 2;
+	    newIntegral = dd->integral;
 	}
 	// Also restrict continuous growing of integral output over predefined max value.
 	if (fabs(cc->i * newIntegral) >= cc->integralMax) {
 	    lprintf(10, "%s: Error: PID: %s: Integral value %g grows out of range, restricting it.\n", PPREFIX(), pp->name, newIntegral);
 	    newIntegral = dd->integral;
 	}
-	dd->integral = newIntegral;
     }
+    
+    dd->integral = newIntegral;
 
     if (PID_USES_ERROR_BASED_DERIVATIVE) {
 	// The "standard" way of computing derivative.
@@ -1413,7 +1437,9 @@ double pidControllerStep(struct pidController *pp, double setpoint, double measu
 	derivative = (dd->previous_measured_value - measured_value) / dt;
     }
     output = cc->p * error + cc->i * dd->integral + cc->d * derivative + cc->ci;
-    lprintf(99, "%s:PID %s: %g == %g * %g   +   %g * %g   +  %g * %g (setpoint:%f, measured_value: %f)\n", PPREFIX(), pp->name, output, cc->p, error, cc->i, dd->integral, cc->d, derivative, setpoint, measured_value);
+    lprintf(22, "%s: PID %s: %g == P:%f (%g * %g)   +   I:%f (%g * %g)   +  D:%f (%g * %g) + CI:%g.", PPREFIX(), pp->name, output, cc->p * error, cc->p, error, cc->i * dd->integral, cc->i, dd->integral, cc->d * derivative, cc->d, derivative, cc->ci);
+    lprintf(9999, " (setpoint:%f, measured_value: %f)\n", setpoint, measured_value);
+    lprintf(22, "\n");
     dd->previous_error = error;
     dd->previous_output = output;
     dd->previous_setpoint = setpoint;
