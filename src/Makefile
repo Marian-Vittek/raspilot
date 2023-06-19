@@ -10,10 +10,10 @@ OBJS=main.o common.o expmem.o json.o baio.o config.o pilot.o mission.o
 ########################################################
 
 #dev
-DRONE=d250
+#DRONE=d250
 #DRONE=piw
 #DRONE=pc
-#DRONE=piz2
+DRONE=piz2
 ###
 
 #set IGNORE_BUILD_ERROR to true if you want to ignore build errors
@@ -33,7 +33,7 @@ raspilot: $(OBJS) $(INCLUDES)
 	gcc -c $(CFLAGS) $< -o $@
 
 # go recursively through '../tool' and make every directory containing Makefile.raspilot
-tools: toolfusion
+tools: libfusion
 	export RASPILOT_HOME=`dirname $$PWD`; find ../tool -name "Makefile.raspilot" -execdir make -f Makefile.raspilot \; || $(IGNORE_BUILD_ERROR)
 
 # go recursively through '../tool' and clean every directory containing Makefile.raspilot
@@ -41,8 +41,9 @@ toolsclean: always
 	export RASPILOT_HOME=`dirname $$PWD`; find ../tool -name "Makefile.raspilot" -execdir make -f Makefile.raspilot clean \; || $(IGNORE_BUILD_ERROR)
 
 # some libraries from tools are listed explicitly because they have to be built first before other tools using them
-toolfusion: always
-	make -C ../tool/Fusion/Fusion -f Makefile.raspilot || $(IGNORE_BUILD_ERROR)
+libfusion: always
+	(cd ../lib/Fusion/Fusion && cmake .)
+	make -C ../lib/Fusion/Fusion -f Makefile.raspilot || $(IGNORE_BUILD_ERROR)
 
 viz: always
 	make -C ../misc/pose-vizualization || $(IGNORE_BUILD_ERROR)

@@ -78,7 +78,7 @@ void setup() {
     // initialize device
     printf("Initializing I2C devices...\n");
     // Remove this
-    pi2cReset((char*)"/dev/i2c-1");
+    // pi2cInit((char*)"/dev/i2c-1", 1);
     mpu.initialize();
 
     // Is DLPF adding latency also with dmp?

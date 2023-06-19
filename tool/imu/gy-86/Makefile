@@ -1,5 +1,5 @@
-FUSION_DIR=$(RASPILOT_HOME)/tool/Fusion/Fusion
-PI2C_DIR=$(RASPILOT_HOME)/tool/pi2c
+FUSION_DIR=$(RASPILOT_HOME)/lib/Fusion/Fusion
+PI2C_DIR=$(RASPILOT_HOME)/lib/pi2c
 
 all: gy86
 

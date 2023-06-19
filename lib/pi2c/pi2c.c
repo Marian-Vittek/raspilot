@@ -29,7 +29,7 @@ struct fdStr {
 };
 
 
-
+static int		pi2cInitializedFlag = -1;
 static struct fdStr 	fdTab[MAX_OPEN_DEV];
 static int 		fdTabIndex = 0;
 static pthread_mutex_t	fdTabMutex = PTHREAD_MUTEX_INITIALIZER;
@@ -45,39 +45,32 @@ static void pi2cGetSemaphoreName(char *path, char semName[PATH_MAX]) {
     }
 }
 
-void pi2cReset(char *path) {
+void pi2cInit(char *path, int multiProcessSharingFlag) {
     char 	semName[PATH_MAX];
 
-    // printf("pi2cReset(%s)\n", path);
-    if (I2C_MULTIPROCESS_SHARING) {
-	pi2cGetSemaphoreName(path, semName);
-	sem_unlink(semName);
-    }
-    fdTabIndex = 0;
-}
-
-////////////////////////////////////////////////////////////////////////////
-
-void pi2cClose(int ifd) {
-    int 	fd;
-    
-    // printf("pi2cClose(%d)\n", ifd); fflush(stdout);
-
-    if (I2C_MULTIPROCESS_SHARING) {
-	sem_close(fdTab[ifd].sem);
-	fd = fdTab[ifd].fd;
-	fdTab[ifd].fd = -1;
+    if (pi2cInitializedFlag == -1) {
+	// printf("pi2cInit(%s, %d)\n", path, multiProcessSharingFlag);
+	if (I2C_MULTIPROCESS_SHARING && multiProcessSharingFlag == 0) {
+	    pi2cGetSemaphoreName(path, semName);
+	    sem_unlink(semName);
+	}
+	fdTabIndex = 0;
+	pi2cInitializedFlag = multiProcessSharingFlag;
     } else {
-	fd = ifd;
+	if (pi2cInitializedFlag != multiProcessSharingFlag) {
+	    fprintf(stderr, "%s:%d: pi2cInit called with different multiProcessSharingFlags\n", __FILE__, __LINE__);
+	}
     }
-    close(fd);
 }
+
 
 // path is usualy "/dev/i2c-1"
 int pi2cOpen(char *path, int devAddr) {
     int 	fd, ifd;
     char 	semName[PATH_MAX];
 
+    if (pi2cInitializedFlag == -1) pi2cInit(path, 0);
+	
     pthread_mutex_lock(&fdTabMutex);
     ifd = -1;
     
@@ -119,6 +112,22 @@ exitPoint:
     pthread_mutex_unlock(&fdTabMutex);
     return(ifd);
 }
+
+void pi2cClose(int ifd) {
+    int 	fd;
+    
+    // printf("pi2cClose(%d)\n", ifd); fflush(stdout);
+
+    if (I2C_MULTIPROCESS_SHARING) {
+	sem_close(fdTab[ifd].sem);
+	fd = fdTab[ifd].fd;
+	fdTab[ifd].fd = -1;
+    } else {
+	fd = ifd;
+    }
+    close(fd);
+}
+
 
 int pi2cReadBytes(int ifd, uint8_t regAddr, uint8_t length, uint8_t *data) {
     int r, count;
