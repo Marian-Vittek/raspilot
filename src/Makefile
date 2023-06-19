@@ -10,10 +10,10 @@ OBJS=main.o common.o expmem.o json.o baio.o config.o pilot.o mission.o
 ########################################################
 
 #dev
-#DRONE=d250
+DRONE=d250
 #DRONE=piw
 #DRONE=pc
-DRONE=piz2
+#DRONE=piz2
 ###
 
 #set IGNORE_BUILD_ERROR to true if you want to ignore build errors
@@ -23,28 +23,32 @@ else
 IGNORE_BUILD_ERROR=false
 endif
 
-
 all: tools raspilot
 
 raspilot: $(OBJS) $(INCLUDES)
 	gcc -o raspilot $(OBJS) $(LINKFLAGS)
 
-tools: always
-	export RASPILOT_HOME=`pwd`/..; find ../tool -name "Makefile.raspilot" -execdir make -f Makefile.raspilot \; || $(IGNORE_BUILD_ERROR)
+# generic raspilot src compile rule
+%.o : %.c $(INCLUDES)
+	gcc -c $(CFLAGS) $< -o $@
 
+# go recursively through '../tool' and make every directory containing Makefile.raspilot
+tools: toolfusion
+	export RASPILOT_HOME=`dirname $$PWD`; find ../tool -name "Makefile.raspilot" -execdir make -f Makefile.raspilot \; || $(IGNORE_BUILD_ERROR)
+
+# go recursively through '../tool' and clean every directory containing Makefile.raspilot
 toolsclean: always
-	export RASPILOT_HOME=`pwd`/..; find ../tool -name "Makefile.raspilot" -execdir make -f Makefile.raspilot clean \; || $(IGNORE_BUILD_ERROR)
+	export RASPILOT_HOME=`dirname $$PWD`; find ../tool -name "Makefile.raspilot" -execdir make -f Makefile.raspilot clean \; || $(IGNORE_BUILD_ERROR)
+
+# some libraries from tools are listed explicitly because they have to be built first before other tools using them
+toolfusion: always
+	make -C ../tool/Fusion/Fusion -f Makefile.raspilot || $(IGNORE_BUILD_ERROR)
 
 viz: always
 	make -C ../misc/pose-vizualization || $(IGNORE_BUILD_ERROR)
 
 librealsensecompile:
 	make -C ../tool/librealsense/build/examples/pose  || $(IGNORE_BUILD_ERROR)
-
-motor: always
-	make -C ../tool/motor/motor-pca9685 motor-pca9685  || $(IGNORE_BUILD_ERROR)
-	make -C ../tool/motor/motor-pigpio-pwm motor-pigpio  || $(IGNORE_BUILD_ERROR)
-	make -C ../tool/motor/motor-dshot motor-dshot  -f Makefile.raspilot || $(IGNORE_BUILD_ERROR)
 
 #######################################################
 
@@ -85,9 +89,6 @@ piall: picopy
 
 #######################################################
 
-
-%.o : %.c $(INCLUDES)
-	gcc -c $(CFLAGS) $< -o $@
 
 clean: always
 	rm -r -f *.o core raspilot a.out currentsubmsgs.txt
