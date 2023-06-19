@@ -2,6 +2,20 @@
 /*
 	All values here are in SI units, i.e. meters, seconds, meter/second, etc.
 	All angle related values are in radians, i.e. radians, radians/second, etc.
+
+        ordering of motors shall be:
+       
+        front side of the drone
+       
+          3       0
+           \     /
+            --^--
+            |   |
+            -----
+           /     \
+          2       1
+       
+
 */
 
 // This file is preprocessed by C preprocessor before being read by raspilot, this
@@ -10,7 +24,7 @@
 // comma can occur after the last field and constant expressions can be used instead of constants.
 
 #define PI 3.1415926
-#define RATE 1000
+#define RATE 500
 {
     motor_number:          4,
 
@@ -177,7 +191,7 @@
 	    name: "altimeter",
 	    connection : {
 		type: "DCT_COMMAND_BASH",
-		command: "killall altimeter; sleep 0.5; killall -q -9 altimeter; sleep 0.5; exec chrt -o 0 ../tool/altimeter/baro/bmp180/bmp180-master/src/altimeter /dev/i2c-11 100",
+		command: "killall altimeter; sleep 0.5; killall -q -9 altimeter; sleep 0.5; exec chrt -o 0 ../tool/imu/altimeter/baro/bmp180/bmp180-master/src/imu/altimeter /dev/i2c-11 100",
 	    },
 	    warming_time: 1.0,
 	    // positive roll makes left side up
@@ -244,7 +258,7 @@
 	    name: "compass-hmc5883l",
 	    connection : {
 		type: "DCT_COMMAND_BASH",
-		command: "killall -q -9 compass; sleep 0.5; exec chrt -o 0 ../tool/compass/HMC5883l/hmc5883l.c-master/compass /dev/i2c-4",
+		command: "killall -q -9 compass; sleep 0.5; exec chrt -o 0 ../tool/imu/compass/HMC5883l/hmc5883l.c-master/imu/compass /dev/i2c-4",
 	    },
 	    // compass - magnetometer
             data: [
