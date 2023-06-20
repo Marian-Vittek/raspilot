@@ -1,6 +1,6 @@
 LIBI2C=$(RASPILOT_HOME)/lib/pi2c
 LIBMPU=$(RASPILOT_HOME)/lib/mpu6050
-LIBFUSION=$(RASPILOT_HOME)/lib/Fusion/Fusion
+LIBFUSION=$(RASPILOT_HOME)/lib/FussionMagwick/Fusion
 
 all: fusion
 

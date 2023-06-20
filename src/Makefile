@@ -23,7 +23,7 @@ else
 IGNORE_BUILD_ERROR=false
 endif
 
-all: tools raspilot
+all: libs tools raspilot
 
 raspilot: $(OBJS) $(INCLUDES)
 	gcc -o raspilot $(OBJS) $(LINKFLAGS)
@@ -32,18 +32,18 @@ raspilot: $(OBJS) $(INCLUDES)
 %.o : %.c $(INCLUDES)
 	gcc -c $(CFLAGS) $< -o $@
 
-# go recursively through '../tool' and make every directory containing Makefile.raspilot
-tools: libfusion
+# go through '../tool' and make every directory containing Makefile.raspilot
+tools: libs
 	export RASPILOT_HOME=`dirname $$PWD`; find ../tool -name "Makefile.raspilot" -execdir make -f Makefile.raspilot \; || $(IGNORE_BUILD_ERROR)
 
-# go recursively through '../tool' and clean every directory containing Makefile.raspilot
-toolsclean: always
-	export RASPILOT_HOME=`dirname $$PWD`; find ../tool -name "Makefile.raspilot" -execdir make -f Makefile.raspilot clean \; || $(IGNORE_BUILD_ERROR)
+# go through '../lib' and make every directory containing Makefile.raspilot
+libs: always
+	export RASPILOT_HOME=`dirname $$PWD`; find ../lib -name "Makefile.raspilot" -execdir make -f Makefile.raspilot \; || $(IGNORE_BUILD_ERROR)
 
-# some libraries from tools are listed explicitly because they have to be built first before other tools using them
-libfusion: always
-	(cd ../lib/Fusion/Fusion && cmake .)
-	make -C ../lib/Fusion/Fusion -f Makefile.raspilot || $(IGNORE_BUILD_ERROR)
+# go recursively through '../tool' and '../lib' and clean every directory containing Makefile.raspilot
+dirsclean: always
+	export RASPILOT_HOME=`dirname $$PWD`; find ../tool -name "Makefile.raspilot" -execdir make -f Makefile.raspilot clean \; || $(IGNORE_BUILD_ERROR)
+	export RASPILOT_HOME=`dirname $$PWD`; find ../lib -name "Makefile.raspilot" -execdir make -f Makefile.raspilot clean \; || $(IGNORE_BUILD_ERROR)
 
 viz: always
 	make -C ../misc/pose-vizualization || $(IGNORE_BUILD_ERROR)
@@ -91,10 +91,10 @@ piall: picopy
 #######################################################
 
 
-clean: always
+clean: dirsclean
 	rm -r -f *.o core raspilot a.out currentsubmsgs.txt
 
-distclean: stop clean toolsclean
+distclean: stop clean
 	rm -f *~
 	find ../../raspilot -name "*~" | xargs rm -f
 	rm -f ../misc/pose-vizualization/{*.o,raspicam-april}
