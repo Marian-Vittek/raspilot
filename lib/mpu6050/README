@@ -1,0 +1,10 @@
+
+This is a collection of common files for accessing mpu6050 sensor in
+raspilot. Unfortunately I do not remember from where exactly this code
+comes but I think that credits shall go to Jeff Rowberg and Richard
+Hirst:
+
+https://github.com/richardghirst/PiBits/tree/master/MPU6050-Pi-Demo
+
+It was slightly modified to make it working with raspilot, in
+particular to use pi2c library to access i2c bus.

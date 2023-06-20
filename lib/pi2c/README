@@ -1,0 +1,6 @@
+
+I2C FOR RASPBERRY PI
+
+This is a simple library for accessing i2c bus used by raspilot. It
+solves major problems of accessing i2c in multithread and multiprocess
+environment.
