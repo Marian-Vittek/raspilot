@@ -24,7 +24,7 @@ int main(int argc, char **argv) {
     double 	t0, t1, samplePeriod;
     int		i, usleepTime;
     int		magFd;
-    int16_t	mm[3];
+    uint8_t	mm[6];
     int16_t 	AcX,AcY,AcZ,GyX,GyY,GyZ,MgX,MgY,MgZ;
 
     int		optSharedI2cFlag;
@@ -48,7 +48,7 @@ int main(int argc, char **argv) {
 	}
     }	
     
-    if (optSharedI2cFlag == 0) pi2cReset(optI2cPath);
+    if (optSharedI2cFlag == 0) pi2cInit(optI2cPath, 0);
 
     // Define calibration (replace with actual calibration data if available)
     const FusionMatrix gyroscopeMisalignment = {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f};
@@ -64,7 +64,7 @@ int main(int argc, char **argv) {
     FusionOffset offset;
     FusionAhrs ahrs;
 
-    FusionOffsetInitialise(&offset, SAMPLE_RATE);
+    FusionOffsetInitialise(&offset, optRate);
     FusionAhrsInitialise(&ahrs);
 
     // Set AHRS algorithm settings
@@ -73,7 +73,7 @@ int main(int argc, char **argv) {
             .gain = 0.5f,
             .accelerationRejection = 10.0f,
             .magneticRejection = 20.0f,
-            .rejectionTimeout = 5 * SAMPLE_RATE, /* 5 seconds */
+            .rejectionTimeout = (unsigned)(5 * optRate), /* 5 seconds */
     };
     FusionAhrsSetSettings(&ahrs, &settings);
 
@@ -85,9 +85,12 @@ int main(int argc, char **argv) {
     if (mpu.initialize() != 0) return(-1);
 
     // This allows magnetometer on mpu6050
-    MPU6050_write_reg (0x6A, 0);
-    MPU6050_write_reg (0x37, 2);
-    MPU6050_write_reg (0x6B, 0);
+    mpu.setI2CMasterModeEnabled(false);
+    mpu.setI2CBypassEnabled(true) ;
+    mpu.setSleepEnabled(false);
+    //mpu.MPU6050_write_reg (0x6A, 0);
+    //mpu.MPU6050_write_reg (0x37, 2);
+    //mpu.MPU6050_write_reg (0x6B, 0);
     
     signal(SIGINT, taskStop);
   
@@ -96,12 +99,18 @@ int main(int argc, char **argv) {
     mpu.setFullScaleGyroRange(MPU6050_GYRO_FS_250);
     mpu.setFullScaleAccelRange(MPU6050_ACCEL_FS_2);
 
+    usleep(1000);
+    
     // connect to magnetometer
-    magFd = pi2cOpen(optI2cPath, 0x17);
+    magFd = pi2cOpen(optI2cPath, 0x1e);
     if (magFd < 0) {
 	fprintf(stderr, "pi2c magnetometer connection failed\n");
 	return(-1);
     }
+    // 75Hz refresh rate
+    pi2cWriteByteToReg(magFd, 0x00, 0x14);
+    // continuous mode
+    pi2cWriteByteToReg(magFd, 0x02, 0x00);
 
     usleepTime = 1000000 / optRate;
     usleep(usleepTime);
@@ -111,6 +120,7 @@ int main(int argc, char **argv) {
     for(;;) {
         FusionVector gyroscope = {0.0f, 0.0f, 0.0f};     // replace this with actual gyroscope data in degrees/s
         FusionVector accelerometer = {0.0f, 0.0f, 1.0f}; // replace this with actual accelerometer data in g
+        FusionVector magnetometer = {1.0f, 0.0f, 0.0f}; // replace this with actual magnetometer data in arbitrary units
 	double temp;
 
 	mpu.getMotion6(&AcX, &AcY, &AcZ, &GyX, &GyY, &GyZ);
@@ -122,7 +132,11 @@ int main(int argc, char **argv) {
 	gyroscope.axis.z = GyZ / 131.0;
 
 	// read magnetometer
-	pi2cReadBytes(magFd, 0x00, 6, mm);
+	pi2cReadBytes(magFd, 0x03, 6, mm);
+	magnetometer.axis.x = ((int16_t)mm[0] << 8) | mm[1];
+	magnetometer.axis.y = ((int16_t)mm[2] << 8) | mm[3];
+	// No z axis, I am using magnetometer to correct yaw only
+	//magnetometer.axis.z = ((int16_t)mm[4] << 8) | mm[5];
 	
 	t1 = doubleGetTime();
 	samplePeriod = t1 - t0;
@@ -135,29 +149,17 @@ int main(int argc, char **argv) {
         // Update gyroscope offset correction algorithm
         gyroscope = FusionOffsetUpdate(&offset, gyroscope);
 
-        // Calculate delta time (in seconds) to account for gyroscope sample clock error
-        static clock_t previousTimestamp;
-        const float deltaTime = (float) (timestamp - previousTimestamp) / (float) CLOCKS_PER_SEC;
-        previousTimestamp = timestamp;
-
         // Update gyroscope AHRS algorithm
-        FusionAhrsUpdate(&ahrs, gyroscope, accelerometer, magnetometer, deltaTime);
+        FusionAhrsUpdate(&ahrs, gyroscope, accelerometer, magnetometer, samplePeriod);
 
         // Print algorithm outputs
         const FusionEuler euler = FusionQuaternionToEuler(FusionAhrsGetQuaternion(&ahrs));
-        const FusionVector earth = FusionAhrsGetEarthAcceleration(&ahrs);
 
-	if (1) {
-	    // Print rpy in drone coordinates. This depends on how precisely the sensor is mounted on drone.
-	    // TODO: Maybe print in sensor's coordinates and make translation inside raspilot.
-	    printf("rpy %7.5f %7.5f %7.5f\n", euler.angle.pitch*M_PI/180.0, euler.angle.roll*M_PI/180.0, euler.angle.yaw*M_PI/180.0);
-	    fflush(stdout);
-	} else {
-	    // The original stuff printed by fusion
-	    printf("T:%6.4f: Roll %7.2f, Pitch %7.2f, Yaw %7.2f\n", samplePeriod, euler.angle.roll, euler.angle.pitch, euler.angle.yaw);
-	    fflush(stdout);
-	}
-	
+	// Print rpy in drone coordinates. This depends on how precisely the sensor is mounted on drone.
+	// TODO: Maybe print in sensor's coordinates and make translation inside raspilot.
+	printf("rpy %7.5f %7.5f %7.5f\n", euler.angle.pitch*M_PI/180.0, euler.angle.roll*M_PI/180.0, euler.angle.yaw*M_PI/180.0);
+	fflush(stdout);
+
 	t0 = t1;
 
 	if (samplePeriod > 1.0/optRate && usleepTime > 0) usleepTime--;

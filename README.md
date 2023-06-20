@@ -88,18 +88,19 @@ and 400Hz.
 
 ### Hardware
 
-For the moment Raspilot supports T265 Intel intellisense positioning
-and orientation sensor; MPU-6050 family of gyroscopes; HC-SR04
-distance sensor; any NMEA GPS sensor and HMC5883 compass. It provides
-PWM and DSHOT 150 to control motor ESCs.  It is quite easy to add
-new hardware to Raspilot. All you need to do is to hack a demo example
-that comes with the sensor and make it print measurements to the
-standard output.
+Raspilot supports T265 Intel intellisense positioning and orientation
+sensor; MPU-6050 family of gyroscopes; HC-SR04 distance sensor; any
+NMEA GPS sensor and others. It implements PWM and DSHOT 150 protocols
+to control motor ESCs.  To see all supported hardware go through
+subdirectories under 'tool' directory. If your hardware is not there,
+it is quite easy to add new hardware to Raspilot. All you need to do
+is to hack a demo example that comes with the sensor and make it print
+measurements to the standard output.
 
 ### Getting Started
 
-To use Raspilot, you need to have at least a basic understanding of C
-programming. If you have the courage to try it then:
+You need to have at least a basic understanding of C programming in
+order to use Raspilot. If you have the courage to try it then:
 
 1.) Clone Raspilot to your Raspberry Pi
 

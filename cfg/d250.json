@@ -122,7 +122,7 @@
 	{
 	    name: "motors",
 	    connection : {
-	    	// direct PWM connection of ESC to raspberry pi pinouts
+	    	// direct dshot connection of ESC to raspberry pi pinouts
 		type: "DCT_COMMAND_BASH",
 		command: "killall motor-dshot; sleep 0.5; killall -q -9 motor-dshot; sleep 0.5; ulimit -c unlimited; exec chrt -f 99 ../tool/motor/motor-dshot/motor-dshot - - 6 13 19 26"
 	    },
@@ -138,6 +138,7 @@
 	    name: "gyroscope-mpu6050-magwick",
 	    connection : {
 		type: "DCT_COMMAND_BASH",
+		// magwick fusion at the rate 1000Hz from MPU6050 connected to i2c-1 interface
 		command: "killall -q -9 fusion; sleep 0.5; exec chrt -o 0 ../tool/imu/mpu6050/magwick-fusion/fusion -r 1000 /dev/i2c-1",
 	    },
 	    warming_time: 10.0,
@@ -153,7 +154,7 @@
 
 #if 0
 	{
-	    name: "gyroscope-mpu6050-rosberg",
+	    name: "gyroscope-mpu6050-rowberg",
 	    connection : {
 		type: "DCT_COMMAND_BASH",
 		command: "killall -q -9 demo_dmp; sleep 0.5; exec chrt -o 0 ../tool/imu/mpu6050/rowberg/demo_dmp",
