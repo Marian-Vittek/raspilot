@@ -146,7 +146,6 @@ int pi2cReadBytes(int ifd, uint8_t regAddr, uint8_t length, uint8_t *data) {
     r = write(fd, &regAddr, 1);
     if (r != 1) {
         fprintf(stderr, "%s:%d: Failed to write reg: %s\n", __FILE__, __LINE__, strerror(errno));
-abort();
         goto exitPoint;
     }
     count = 0;
