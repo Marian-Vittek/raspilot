@@ -48,7 +48,7 @@ int main(int argc, char **argv) {
 	}
     }	
     
-    if (optSharedI2cFlag == 0) pi2cInit(optI2cPath, 0);
+    if (optSharedI2cFlag) pi2cInit(optI2cPath, 1);
 
     // Define calibration (replace with actual calibration data if available)
     const FusionMatrix gyroscopeMisalignment = {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f};
@@ -135,8 +135,7 @@ int main(int argc, char **argv) {
 	pi2cReadBytes(magFd, 0x03, 6, mm);
 	magnetometer.axis.x = ((int16_t)mm[0] << 8) | mm[1];
 	magnetometer.axis.y = ((int16_t)mm[2] << 8) | mm[3];
-	// No z axis, I am using magnetometer to correct yaw only
-	//magnetometer.axis.z = ((int16_t)mm[4] << 8) | mm[5];
+	magnetometer.axis.z = ((int16_t)mm[4] << 8) | mm[5];
 	
 	t1 = doubleGetTime();
 	samplePeriod = t1 - t0;

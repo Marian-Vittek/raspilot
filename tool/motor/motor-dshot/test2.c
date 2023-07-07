@@ -26,7 +26,7 @@ int main() {
     for(i=0; i<N; i++) throttles[i] = 0;
     for(k=0;k<12;k++) {
 	// spin
-	throttles[k%4] = 0.02;
+	throttles[k%4] = 0.1;
 	for(i=0; i<100; i++) {
 	    motorImplementationSendThrottles(motorPins, N, throttles);
 	    usleep(10000);
@@ -38,7 +38,7 @@ int main() {
 	    usleep(10000);
 	}
 	// inverse spin
-	throttles[k%4] = -0.02;
+	throttles[k%4] = -0.1;
 	for(i=0; i<100; i++) {
 	    motorImplementationSendThrottles(motorPins, N, throttles);
 	    usleep(10000);

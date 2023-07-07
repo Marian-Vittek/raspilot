@@ -17,7 +17,8 @@ void missionLoiter(double loiterTime, double altitude) {
 
     lprintf(1, "%s: mission: End   loiter(%g, %g)!\n", PPREFIX(), loiterTime, altitude);
 
-    raspilotGotoWaypoint(0, 0, 0.03, 0);
+    // Hmm. if we are too low, it may hit the ground and fail roll,pitch goals
+    raspilotGotoWaypoint(0, 0, 0.10, 0);
     raspilotLand(0, 0);    
 }
 
@@ -79,7 +80,7 @@ void missionSquare(double squareSize, double altitude, double waitOnWaypoint, in
     lprintf(1, "%s: mission: End   square(%g, %g)!\n", PPREFIX(), squareSize, altitude);
 
     // Try "precise" landing.
-    raspilotGotoWaypoint(0, 0, 0.03, 0);
+    raspilotGotoWaypoint(0, 0, 0.10, 0);
     raspilotLand(0, 0);
     
 }
@@ -114,12 +115,12 @@ void missionProcessInteractiveInput(int c) {
 	break;
     case 'w':
 	uu->pidAltitude.constant.ci += tinc;
-	uu->pidAltitude.constant.ci = truncateToRange(uu->pidAltitude.constant.ci, 0, 1);
+	uu->pidAltitude.constant.ci = truncateToRange(uu->pidAltitude.constant.ci, 0, 1, NULL);
 	printf("%s: Interactive: thrust == %f\n", PPREFIX(), uu->pidAltitude.constant.ci);
 	break;
     case 's':
 	uu->pidAltitude.constant.ci -= tinc;
-	uu->pidAltitude.constant.ci = truncateToRange(uu->pidAltitude.constant.ci, 0, 1);
+	uu->pidAltitude.constant.ci = truncateToRange(uu->pidAltitude.constant.ci, 0, 1, NULL);
 	printf("%s: Interactive: thrust == %f\n", PPREFIX(), uu->pidAltitude.constant.ci);
 	break;
     case 'l':
@@ -235,7 +236,7 @@ void mission() {
     } else {
 	raspilotPreLaunchSequence();
 	
-	missionLoiter(3.0, 0.20);
+	missionLoiter(30.0, 0.15);
 	// missionJoystick(10.0);
 	// missionTestYawLoiter(0.10);
 	// missionSquare(0.10, 0.10, 1.0, 1);

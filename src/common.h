@@ -27,6 +27,7 @@
 
 #include "expmem.h"
 #include "sglib.h"
+#include "pi2c.h"
 
 // we are using linmath library for quaternions.
 // where q[0] == x; q[1] == y; q[2] == z; q[3] == w;
@@ -56,9 +57,9 @@
 
 #define PILOT_PRELAUNCH_FREQUENCY_HZ		50
 
-#define PILOT_WARMING_WARNING_ROTATION_TIME		0.5
+#define PILOT_WARMING_WARNING_ROTATION_TIME		1.0
 #define PILOT_WARMING_WARNING_ROTATIONS_DELAY		3.0
-#define PILOT_WARMING_WARNING_ROTATIONS_TO_LAUNCH	2.0
+#define PILOT_WARMING_WARNING_ROTATIONS_TO_LAUNCH	5.0
 
 // Whether D action in PID is based on error or PV
 #define PID_USES_ERROR_BASED_DERIVATIVE 	0
@@ -75,7 +76,8 @@
 #define fflush(...) (checkTimeLimit("", 0, 0), checkTimeLimit("fflush", 0.001, fflush(__VA_ARGS__)))
 #endif
 
-#define DEFAULT_DEBUG_LEVEL		10
+#define DEFAULT_DEBUG_LEVEL		5
+#define DEFAULT_LOG_LEVEL		10
 #define MOTOR_MAX			16
 #define DEVICE_MAX			64
 #define DEVICE_DATA_MAX			32
@@ -101,7 +103,14 @@
 #define POSE_HISTORY_LAST(hh) (&(hh)->a[(hh)->ailast])
 #define POSE_HISTORY_PREVIOUS(hh) (&(hh)->a[(hh)->aiprev])
 
+#define REGRESSION_BUFFER_LAST(hh) (&(hh)->a[(hh)->ailast * (hh)->vectorsize])
+
 /////////////////////////////////////////////////////////////////////////////////////////////
+
+#define lprintf(level, ...) {					\
+	if ((level) < debugLevel) stdbaioPrintf(level, __VA_ARGS__);	\
+	if ((level) < logLevel) logbaioPrintf(level, __VA_ARGS__);	\
+    }
 
 #define MAGIC_CHECK(uu)				(assert((uu)->magicNumber == MAGIC_NUMBER))
 #define MIN(x,y)                        	((x)<(y)?(x):(y))
@@ -134,12 +143,12 @@
 #define TLINE_UTIME_AFTER_MSEC(n)       (currentTimeLineTimeUsec + 1000LL*(n))
 #define TLINE_UTIME_AFTER_USEC(n)       (currentTimeLineTimeUsec + (n))
 
-#define PPREFIX()            (printPrefix_st(uu, __FILE__, __LINE__))
-#define STR_ERRNO()               (strerror(errno))
-#define STRINGIFY(x)		  #x
-#define FILE_LINE_ID_STR()	  __FILE__ ":" STRINGIFY(__LINE__) 
+#define PPREFIX()            		(printPrefix_st(uu, __FILE__, __LINE__))
+#define STR_ERRNO()               	(strerror(errno))
+#define STRINGIFY(x)		  	#x
+#define FILE_LINE_ID_STR()	  	__FILE__ ":" STRINGIFY(__LINE__) 
 
-#define DEBUG_HERE_I_AM()         {printf("%s: H.I.AM: %s:%d\n", PRINT_PREFIX(), __FILE__, __LINE__); fflush(stdout);}
+#define DEBUG_HERE_I_AM()         	{printf("%s: H.I.AM: %s:%d\n", PPREFIX(), __FILE__, __LINE__); fflush(stdout);}
 
 #define ENUM_NAME_SET(e, x) {assert(x<DIM(e)); e[x] = #x;}
 #define ENUM_NAME_NO_NULL_CHECK(names, i) {if (names[i] == NULL) {printf("%s:%s:%d: Internal error: Enumeration \"%s\" name item %d is not filled! Did you add an item and not updated names? Fatal, exiting!\n", PPREFIX(), __FILE__, __LINE__, #names, i); exit(-1);}}
@@ -274,7 +283,6 @@ enum deviceDataTypes {
 enum deviceConnectionTypeEnum {
     DCT_NONE,
     DCT_INTERNAL_ZEROPOSE,
-    DCT_INTERNAL_GYROPOSE,
     DCT_COMMAND_BASH,
     DCT_COMMAND_EXEC,
     DCT_NAMED_PIPES,
@@ -556,6 +564,32 @@ struct pidController {
 //////////////////////////////////////////////////////////////////////////////////////////////
 // configuration
 
+struct regressionBuffer {
+    char		name[256];	// for debug output only, to be removed or replaced by char *name;
+    int			size;
+    int			vectorsize;
+    int			ai;		// index where next elem will be stored
+    int			ailast;		// index where last elem was added, i.e.  (ai-1) % size
+    int			aiprev;		// index where previous last elem was added, i.e. (ai-2)%size
+    int			n;		// number of total inserted elements, not only currently stored (ai == n%size)
+
+    // the actual data stored in the buffer
+    double		*time;		// time[size]
+    double		*a;		// a[size][vectorsize]
+
+    // sums used for least square method (from elements currently hold in a)
+    double		sumsTimeOffset;
+    double		sumTime;
+    double		sumTimeSquare;
+    double		*sumPr;		// sumPr[vectorsize];
+    double		*sumPrMulTime;	// sumPrMulTime[vectorsize];
+
+    // sums used for flight statistics
+    // sums from all elements inserted since the launch time, not only currently stored
+    double		*totalSumForStatistics;	// totalSumForStatistics[vectorsize];
+    int			totalElemsForStatistics;    
+};
+
 // first 3 values are position then 4 values are orientation quaternion, then 3 are eulers
 #define POSE_VECTOR_LENGTH 10
 #define GET_ROLL_PITCH_YAW_FROM_POSE_VECTOR(pr, roll, pitch, yaw) {(roll)=(pr)[7]; (pitch)=(pr)[8]; (yaw)=(pr)[9];}
@@ -578,25 +612,20 @@ struct poseHistory {
     int			ai;		// index where next elem will be stored
     int			ailast;		// index where last elem was added, i.e.  (ai-1) % size
     int			aiprev;		// index where previous last elem was added, i.e. (ai-2)%size
-    int			n;		// number of total inserted elements (not only the stored elems)
+    int			n;		// number of total inserted elements, not only currently stored (ai == n%size)
     int			size;
 
-    // sums used for least square method
+    // sums used for least square method (from elements currently hold in a)
     double		sumsTimeOffset;
     double		sumTime;
     double		sumTimeSquare;
     double		sumPr[POSE_VECTOR_LENGTH];
     double		sumPrMulTime[POSE_VECTOR_LENGTH];
 
-    // sums used for total statistics
+    // sums used for flight statistics
+    // sums from all elements inserted since the launch time, not only currently stored
     double		totalSumForStatistics[POSE_VECTOR_LENGTH];    
-};
-
-union deviceDataDataUnion {
-    // basically all devices provide some vector of doubles,
-    // however, keep this union for case you will need to implement
-    // some special devices which do not fit
-    double			v[DEVICE_DATA_VECTOR_MAX];
+    int			totalElemsForStatistics;    
 };
 
 struct deviceDataData {
@@ -610,7 +639,7 @@ struct deviceDataData {
     double			timeout;	// if last value is more then timeout old, sensor is ignored
     double			min_range;	// minimal valid range for radar
     double			max_range;	// minimal valid range for radar
-    vec3			weight;		// weight is per axis in GBASE
+    vec4			weight;		// weight is per axis in GBASE, or rpy per quat elem for quat
     uint8_t			mandatory;	// whether device has to be active before launch
     int				history_size;   // the size of the history saved for linear interpolation, rename to regression_points or similar
     int				debug_level;
@@ -618,8 +647,8 @@ struct deviceDataData {
     // run time values
     struct deviceData		*dd;		// "back" point to device data where I belong
 
-    // history of last received data
-    struct poseHistory   	history;
+    // received data are stored in a buffer to be extrapolated using linear regression as needed
+    struct regressionBuffer	dataHistory;
     
     // maybe confidence shall be per sample and stored in history? Then the average confidence will be used.
     double			confidence;	
@@ -631,6 +660,7 @@ struct deviceDataData {
     // This is the pose the device reported before drone launch
     // It is used to translate device poses to actual poses of GBASE coordinate system during the flight
     struct pose   		launchPose;
+    double   			launchData[DEVICE_DATA_VECTOR_MAX];
     uint8_t			launchPoseSetFlag;	// whether we have yet stored the launch pose
 
     struct deviceDataData 	*nextWithSameType;
@@ -684,6 +714,7 @@ struct waypoint {
 };
 
 struct config {
+    uint8_t 			motor_bidirectional;		// do not set this. It breaks the stabilization.
     double			motor_thrust_min_spin;
     double			pilot_reach_goal_orientation_time;
     double			pilot_reach_goal_position_time;
@@ -701,9 +732,11 @@ struct universe {
     // configuration
     char			*cfgFileName;
     
+    // TODO: put all this to "struct config"
     // if non NULL, ping to the controllingHostIp to check if we are connected to it
     // if not, initiate landing or return to home
     char			*pingToHost;
+    char			*logFileName;
     
     double			stabilization_loop_Hz;
     int 			motor_number;
@@ -711,6 +744,8 @@ struct universe {
     double			motor_pitch_forces[MOTOR_MAX];
     double			motor_yaw_forces[MOTOR_MAX];
 
+    struct config		config;
+    
     struct pidController	pidRoll;
     struct pidController	pidPitch;
     struct pidController	pidYaw;
@@ -718,16 +753,14 @@ struct universe {
     struct pidController	pidY;
     struct pidController	pidAltitude;
 
-    // TODO: put all this to some "struct config" which i can save and overwrite during start
-    struct config		config;
-    
     struct waypoint 		currentWaypoint;
     
     
     struct deviceData		*device[DEVICE_MAX];
     int				deviceMax;
     int				deviceMotors;
-    
+
+    // Following optimizes sensor fusion
     struct deviceDataData	*deviceDataDataByType[DT_MAX];	// lists by data types
     
     // run time values
@@ -741,9 +774,18 @@ struct universe {
     double			motorFirstSendTime;		// when we lastly send a command to motors
     double			motorLastSendTime;		// when we lastly send a command to motors
 
-    struct poseHistory		shortHistoryPose;
-    struct poseHistory		shortHistoryVelo;
+    // Short history buffer is used to smooth position and velo from sensor fusion
+    struct regressionBuffer	shortHistoryPosition;
+    struct regressionBuffer	shortHistoryRpy;
 
+    // Those values may be used as the current position, orientation and velocity of the drone
+    vec3			droneLastPosition;
+    vec3			droneLastRpy;
+    vec3			droneLastVelocity;
+    vec3			droneLastRpyRotationSpeed;
+    // The time when previous values were updated
+    double			droneLastTickTime;
+    
     // end of universe
     unsigned			magicNumber;
 };
@@ -754,6 +796,7 @@ typedef int deviceDataParseFunction(char *tag, char *p, struct deviceData *dd, s
 //
 // common.c
 extern int 			debugLevel;
+extern int 			logLevel;
 extern struct universe		*uu;
 extern struct globalTimeInfo	currentTime;
 extern struct timeLineEvent     *timeLine;
@@ -762,6 +805,7 @@ extern int64_t 			nextStabilizationTickUsec;
 extern int			shutDownInProgress;
 extern struct jsonnode 		dummyJsonNode;
 extern char 			*signalInterruptNames[258];
+extern int 			deviceDataTypeLength[DT_MAX];
 extern char 			*deviceDataTypeNames[DT_MAX+2];
 extern char 			*coordinateSystemNames[CS_MAX+2];
 extern char			*deviceConnectionTypeNames[DCT_MAX+2];
@@ -782,7 +826,7 @@ double angleSubstract(double a1, double a2) ;
 char *fileLoadToNewlyAllocatedString(char *path, int useCppFlag) ;
 double normalizeAngle(double omega, double min, double max) ;
 double normalizeToRange(double value, double min, double max) ;
-double truncateToRange(double x, double min, double max) ;
+double truncateToRange(double x, double min, double max, char *warningTag) ;
 void vec2Rotate(double *res, double *v, double theta) ;
 
 char *currentLocalTime_st() ;
@@ -814,7 +858,7 @@ void terminalResume() ;
 int stdbaioStdinMaybeGetPendingChar() ;
 void stdbaioStdinClearBuffer();
 void poseHistoryAddElem(struct poseHistory *hh, struct pose *pp) ;
-void poseHistoryInit(struct poseHistory *hh, int size) ;
+void poseHistoryInit(struct poseHistory *hh, int size, char *namefmt, ...) ;
 int poseHistoryGetRegressionCoefficients(struct poseHistory *hh, int i, double *k0, double *k1) ;
 void poseVectorAssign(struct pose *res, struct pose *a) ;
 void poseVectorScale(struct pose *res, struct pose *a, double factor) ;
@@ -822,9 +866,20 @@ void poseVectorAdd(struct pose *res, struct pose *a, struct pose *b) ;
 void poseVectorSubstract(struct pose *res, struct pose *a, struct pose *b) ;
 void poseHistoryGetMean(struct poseHistory *hh, struct pose *res) ;
 int poseHistoryEstimatePoseForTimeByLinearRegression(struct poseHistory *hh, double time, struct pose *res) ;
-void vec1TruncateToSize(double *r, double size, char *warningId) ;
-void vec2TruncateToSize(vec2 r, double size, char *warningId) ;
-void vec3TruncateToSize(vec3 r, double size, char *warningId) ;
+
+void regressionBufferPrintSums(struct regressionBuffer *hh) ;
+void regressionBufferAddToSums(struct regressionBuffer *hh, double time, double *vec) ;
+void regressionBufferSubstractFromSums(struct regressionBuffer *hh, double time, double *vec) ;
+void regressionBufferRecalculateSums(struct regressionBuffer *hh) ;
+void regressionBufferAddElem(struct regressionBuffer *hh, double time, double *vec) ;
+void regressionBufferInit(struct regressionBuffer *hh, int vectorSize, int bufferSize, char *namefmt, ...) ;
+int regressionBufferGetRegressionCoefficients(struct regressionBuffer *hh, int i, double *k0, double *k1) ;
+void regressionBufferGetMean(struct regressionBuffer *hh, double *time, double *res) ;
+int regressionBufferEstimatePoseForTimeByLinearRegression(struct regressionBuffer *hh, double time, double *res) ;
+
+int vec1TruncateToSize(double *r, double size, int warningFlag, char *warningId) ;
+int vec2TruncateToSize(vec2 r, double size, int warningFlag, char *warningId) ;
+int vec3TruncateToSize(vec3 r, double size, int warningFlag, char *warningId) ;
 void pidControllerReset(struct pidController *pp) ;
 char *pidControllerStatistics(struct pidController *pp, int showProposedCiFlag) ;
 double pidControllerStep(struct pidController *pp, double setpoint, double measured_value, double dt) ;
@@ -832,7 +887,10 @@ void quatToYpr(quat qq, double *yaw, double *pitch, double *roll);
 void yprToQuat(double yaw, double pitch, double roll, quat q) ;
 void stdbaioInit() ;
 void stdbaioClose() ;
-int lprintf(int level, char *fmt, ...);
+void logbaioInit() ;
+void logbaioClose() ;
+int stdbaioPrintf(int level, char *fmt, ...) ;
+int logbaioPrintf(int level, char *fmt, ...) ;
 void trajectoryLogInit() ;
 int trajectoryLogPrintf(char *fmt, ...) ;
 void trajectoryLogClose() ;
@@ -888,6 +946,7 @@ void pilotRegularStabilizationLoopTick(void *d) ;
 int pilotAreAllDevicesReady() ;
 void pilotStoreLaunchPose(void *d) ;
 void pilotRegularStabilizationLoopRescheduleToSoon() ;
+void pilotSetMotors3dMode(void *d) ;
 void pilotRegularMotorPing(void *d) ;
 void pilotRegularSaveTrajectory(void *d) ;
 void pilotRegularWaitForDevicesAndStartPilot(void *d) ;

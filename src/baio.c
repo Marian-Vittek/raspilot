@@ -908,7 +908,7 @@ pid_t popen2(char *command, int *in_fd, int *out_fd, int useBashFlag) {
     }
 
     if (pid == 0) {
-
+	// new task 
         if (out_fd != NULL) {
             close(pin[1]);
             dup2(pin[0], 0);
@@ -926,7 +926,7 @@ pid_t popen2(char *command, int *in_fd, int *out_fd, int useBashFlag) {
         if (in_fd != NULL) {
             close(pout[0]);
             dup2(pout[1], 1);
-            close(pin[1]);
+            close(pout[1]);
         } else {
             // if there is no pipe for stdout, join stderr.
             dup2(2, 1);

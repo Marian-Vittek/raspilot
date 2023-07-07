@@ -3,7 +3,7 @@
 #include "common.h"
 
 #define CANT_LOAD_CONFIGURATION_FILE_FATAL(path) {			\
-	printf("%s: Error: can't load file %s!\n", PPREFIX(), path); \
+	lprintf(0, "%s: Error: can't load file %s!\n", PPREFIX(), path); \
 	raspilotShutDownAndExit();			\
     }
 
@@ -19,7 +19,7 @@
 
 #define LOAD_CONFIG_ASSERT(s) {						\
 	if (!(s)) {							\
-	    printf("%s: Error: %s is not valid for configuration file %s.\n", PPREFIX(), #s, path); \
+	    lprintf(0, "%s: Error: %s is not valid for configuration file %s.\n", PPREFIX(), #s, path); \
 	    CANT_LOAD_CONFIGURATION_FILE_FATAL(path);			\
 	}								\
     }
@@ -28,12 +28,12 @@
 
 #define LOAD_CONFIG_ERROR_ON_WRONG_TYPE(cc, path, context, id, jsonType) {	\
 	if (cc == NULL) {						\
-	    printf("%s: Error: %s.%s is NULL in %s.\n", PPREFIX(), context, id, path); \
+	    lprintf(0, "%s: Error: %s.%s is NULL in %s.\n", PPREFIX(), context, id, path); \
 	    CANT_LOAD_CONFIGURATION_FILE_FATAL(path);			\
 	    cc = &dummyJsonNode;					\
 	}								\
 	if (cc->type != jsonType) {					\
-	    printf("%s: Error: %s.%s is not of type %s in %s.\n", PPREFIX(), context, id, jsonNodeTypeEnumNames[jsonType], path); \
+	    lprintf(0, "%s: Error: %s.%s is not of type %s in %s.\n", PPREFIX(), context, id, jsonNodeTypeEnumNames[jsonType], path); \
 	    CANT_LOAD_CONFIGURATION_FILE_FATAL(path);			\
 	}								\
     }
@@ -44,7 +44,7 @@
 	if (LOAD_CONFIG_TYPE_OK(node, JSON_NODE_TYPE_STRING)) {		\
 	    (d)->name = strSafeDuplicate(node->u.s);			\
 	    node->used = 1;						\
-	    if (debugLevel > 10) lprintf(0,"%s: Info: parameter %s.%-40s: %s\n", PPREFIX(), context, #name, (d)->name); \
+	    lprintf(10,"%s: Info: parameter %s.%-40s: %s\n", PPREFIX(), context, #name, (d)->name); \
 	} else {							\
 	    LOAD_CONFIG_ERROR_ON_WRONG_TYPE(node, path, context, #name, JSON_NODE_TYPE_STRING); \
 	}								\
@@ -55,11 +55,11 @@
 	node = jsonFindObjectField(cc, #name);				\
 	if (node == NULL) {	\
 	    (d)->name = strDuplicate(defaultValue);			\
-	    if (debugLevel > 10) lprintf(0,"%s: Info: parameter %s.%-40s: %s\n", PPREFIX(), context, #name, (d)->name); \
+	    lprintf(10,"%s: Info: parameter %s.%-40s: %s\n", PPREFIX(), context, #name, (d)->name); \
 	} else if (LOAD_CONFIG_TYPE_OK(node, JSON_NODE_TYPE_STRING)) {	\
 	    (d)->name = strSafeDuplicate(node->u.s);			\
 	    node->used = 1;						\
-	    if (debugLevel > 10) lprintf(0,"%s: Info: parameter %s.%-40s: %s\n", PPREFIX(), context, #name, (d)->name); \
+	    lprintf(10,"%s: Info: parameter %s.%-40s: %s\n", PPREFIX(), context, #name, (d)->name); \
 	} else {			\
 	    LOAD_CONFIG_ERROR_ON_WRONG_TYPE(node, path, context, #name, JSON_NODE_TYPE_STRING); \
 	}								\
@@ -78,7 +78,7 @@
 		CANT_LOAD_CONFIGURATION_FILE_FATAL(path);		\
 	    }								\
 	    node->used = 1;						\
-	    if (debugLevel > 10) lprintf(0,"%s: Info: parameter %s.%-40s: %s\n", PPREFIX(), context, #name, enumnames[(d)->name]); \
+	    lprintf(10,"%s: Info: parameter %s.%-40s: %s\n", PPREFIX(), context, #name, enumnames[(d)->name]); \
 	} else {			\
 	    LOAD_CONFIG_ERROR_ON_WRONG_TYPE(node, path, context, #name, JSON_NODE_TYPE_STRING); \
 	}								\
@@ -89,7 +89,7 @@
         node = jsonFindObjectField(cc, #name);				\
 	if (node == NULL) {	\
 	    (d)->name = (defaultValue);					\
-	    if (debugLevel > 10) lprintf(0,"%s: Info: parameter %s.%-40s: %s\n", PPREFIX(), context, #name, enumnames[(d)->name]); \
+	    lprintf(10,"%s: Info: parameter %s.%-40s: %s\n", PPREFIX(), context, #name, enumnames[(d)->name]); \
 	} else {							\
 	    LOAD_CONFIG_ENUM_STRING_OPTION(cc, context, d, enumnames, name); \
 	}								\
@@ -100,7 +100,7 @@
         if (LOAD_CONFIG_TYPE_OK(node, JSON_NODE_TYPE_NUMBER)) {		\
 	    (d)->name = node->u.n;					\
 	    node->used = 1;						\
-	    if (debugLevel > 10) lprintf(0,"%s: Info: parameter %s.%-40s: %g\n", PPREFIX(), context, #name, (double)(d)->name); \
+	    lprintf(10,"%s: Info: parameter %s.%-40s: %g\n", PPREFIX(), context, #name, (double)(d)->name); \
 	} else {			\
 	    LOAD_CONFIG_ERROR_ON_WRONG_TYPE(node, path, context, #name, JSON_NODE_TYPE_NUMBER); \
 	}								\
@@ -110,11 +110,11 @@
         node = jsonFindObjectField(cc, #name);                                \
 	if (node == NULL) {	\
 	    (d)->name = (defaultValue);					\
-	    if (debugLevel > 10) lprintf(0,"%s: Info: parameter %s.%-40s: %g\n", PPREFIX(), context, #name, (double)(d)->name); \
+	    lprintf(10,"%s: Info: parameter %s.%-40s: %g\n", PPREFIX(), context, #name, (double)(d)->name); \
 	} else if (LOAD_CONFIG_TYPE_OK(node, JSON_NODE_TYPE_NUMBER)) {	\
 	    (d)->name = node->u.n;					\
 	    node->used = 1;						\
-	    if (debugLevel > 10) lprintf(0,"%s: Info: parameter %s.%-40s: %g\n", PPREFIX(), context, #name, (double)(d)->name); \
+	    lprintf(10,"%s: Info: parameter %s.%-40s: %g\n", PPREFIX(), context, #name, (double)(d)->name); \
 	} else {			\
 	    LOAD_CONFIG_ERROR_ON_WRONG_TYPE(node, path, context, #name, JSON_NODE_TYPE_NUMBER); \
 	}								\
@@ -126,7 +126,7 @@
 	if (LOAD_CONFIG_TYPE_OK(node, JSON_NODE_TYPE_BOOL)) {		\
 	    (d)->name = node->u.b;					\
 	    node->used = 1;						\
-	    if (debugLevel > 10) lprintf(0,"%s: Info: parameter %s.%-40s: %d\n", PPREFIX(), context, #name, (int)(d)->name); \
+	    lprintf(10,"%s: Info: parameter %s.%-40s: %d\n", PPREFIX(), context, #name, (int)(d)->name); \
 	} else {			\
 	    LOAD_CONFIG_CHECK_TYPE(node, context, #name,  JSON_NODE_TYPE_BOOL);	\
 	}								\
@@ -137,11 +137,11 @@
 	node = jsonFindObjectField(cc, #name);				\
 	if (node == NULL) {	\
 	    (d)->name = (defaultValue);					\
-	    if (debugLevel > 10) lprintf(0,"%s: Info: parameter %s.%-40s: %d\n", PPREFIX(), context, #name, (int)(d)->name); \
+	    lprintf(10,"%s: Info: parameter %s.%-40s: %d\n", PPREFIX(), context, #name, (int)(d)->name); \
 	} else if (LOAD_CONFIG_TYPE_OK(node, JSON_NODE_TYPE_BOOL)) {	\
 	    (d)->name = node->u.b;					\
 	    node->used = 1;						\
-	    if (debugLevel > 10) lprintf(0,"%s: Info: parameter %s.%-40s: %d\n", PPREFIX(), context, #name, (int)(d)->name); \
+	    lprintf(10,"%s: Info: parameter %s.%-40s: %d\n", PPREFIX(), context, #name, (int)(d)->name); \
 	} else {			\
 	    LOAD_CONFIG_ERROR_ON_WRONG_TYPE(node, path, context, #name, JSON_NODE_TYPE_BOOL); \
 	}								\
@@ -187,7 +187,7 @@ static int configMaybeLoadVector(struct jsonnode *cc, double *vv, int length, ch
 	    c = ll->val;
 	    LOAD_CONFIG_ERROR_ON_WRONG_TYPE(c, path, context, "", JSON_NODE_TYPE_NUMBER);
 	    vv[i] = c->u.n;
-	    if (debugLevel > 10) lprintf(0,"%s: Info: parameter %.*s: %f\n", PPREFIX(), 40, context, vv[i]);
+	    lprintf(10,"%s: Info: parameter %.*s: %f\n", PPREFIX(), 40, context, vv[i]);
 	    LOAD_CONFIG_CONTEXT_POP(context);
 	}
 	i ++;
@@ -202,13 +202,13 @@ void configLoadVectorWithDefaultValue(struct jsonnode *cc, double *vv, int lengt
 
     i = configMaybeLoadVector(cc, vv, length, fieldname, path, context);
     if (i != length) {
-	if (i != 0 || warnOnMiss) {
+	if (i != 0 && warnOnMiss) {
 	    lprintf(0,"%s: Warning: %s.%s shall be an array of %d elements!\n", PPREFIX(), context, fieldname, length);
 	}
 	for(; i<length; i++) {
 	    LOAD_CONFIG_CONTEXT_PUSH(context, "%s[%d]", fieldname, i);
 	    vv[i] = defaultFill;
-	    if (debugLevel > 10) lprintf(0,"%s: Info: parameter %.*s: %f\n", PPREFIX(), 40, context, vv[i]);
+	    lprintf(10,"%s: Info: parameter %.*s: %f\n", PPREFIX(), 40, context, vv[i]);
 	    LOAD_CONFIG_CONTEXT_POP(context);
 	}
     }
@@ -277,12 +277,11 @@ void configLoadDeviceData(struct jsonnode *c, struct deviceData	*dl, char *path,
 		dweight = ww->u.n;
 		ww->used = 1;
 	    }
-	    configLoadVectorWithDefaultValue(d, ddl->weight, 3, "weight", dweight, path, context, 0);
-	    if (ddl->weight[0] != ddl->weight[1]) {
-		lprintf(0,"%s: Warning: different weight for X and Y axis! Not yet implemented!\n", PPREFIX());
-	    }
-	    poseHistoryInit(&ddl->history, ddl->history_size);
-	    sprintf(ddl->history.name, "%s.%s poses", dl->name, ddl->name);
+	    configLoadVectorWithDefaultValue(d, ddl->weight, 4, "weight", dweight, path, context, 0);
+	    //if (ddl->weight[0] != ddl->weight[1]) {
+	    //lprintf(0,"%s: Warning: different weight for X and Y axis! Not yet implemented!\n", PPREFIX());
+	    //}
+	    regressionBufferInit(&ddl->dataHistory, deviceDataTypeLength[ddl->type], ddl->history_size, "%s.%s poses", dl->name, ddl->name);
 	    memset(&ddl->launchPose, 0, sizeof(ddl->launchPose));  ddl->launchPose.pr[6] = 1.0;
 	    ddl->nextWithSameType = uu->deviceDataDataByType[ddl->type];
 	    uu->deviceDataDataByType[ddl->type] = ddl;
@@ -324,7 +323,6 @@ void configLoadDeviceConnection(struct jsonnode *cc, struct deviceData *dl, char
     LOAD_CONFIG_ENUM_STRING_OPTION(c, context, &dl->connection, deviceConnectionTypeNames, type);
     switch (dl->connection.type) {
     case DCT_INTERNAL_ZEROPOSE:
-    case DCT_INTERNAL_GYROPOSE:
 	break;
     case DCT_COMMAND_BASH:
     case DCT_COMMAND_EXEC:
@@ -379,9 +377,9 @@ void configLoadDevices(struct jsonnode *cc, char *path, char *context) {
 	uu->config.short_history_seconds = 2.0/uu->stabilization_loop_Hz;
     }
     LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(cc, context, uu, motor_number, 4);
-    
+
+    LOAD_CONFIG_BOOL_OPTION_WITH_DEFAULT_VALUE(cc, context, cfg, motor_bidirectional, 0);
     LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(cc, context, cfg, motor_thrust_min_spin, 0.01);
-    
     LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(cc, context, cfg, pilot_reach_goal_orientation_time, 0.2);
     LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(cc, context, cfg, pilot_reach_goal_position_time, cfg->pilot_reach_goal_orientation_time*2+0.5);
     if (cfg->pilot_reach_goal_position_time < 2*cfg->pilot_reach_goal_orientation_time) {

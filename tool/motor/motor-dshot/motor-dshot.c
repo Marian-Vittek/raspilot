@@ -35,12 +35,21 @@ https://stackoverflow.com/questions/69425540/execute-mmap-on-linux-kernel
 // make ESC not to recognize the protocol.
 #ifndef DSHOT_AD_HOC_OFFSET
 #define DSHOT_AD_HOC_OFFSET     (DSHOT_T0H_ns / 5)
+// #define DSHOT_AD_HOC_OFFSET     (10)
+#endif
+
+// Which clocks to use for timing. Standard CLOCK_... from time.h can
+// be used as well as a special value "DSHOT_USE_CPU_CLOCK" which
+// we have added. "DSHOT_USE_CPU_CLOCK" will work on ARM only and
+// will use internal cpu clock.
+#ifndef DSHOT_USE_CLOCK
+#define DSHOT_USE_CLOCK     	CLOCK_MONOTONIC_RAW
 #endif
 
 //////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////
-
+#define DSHOT_USE_CPU_CLOCK	4242
 
 #if DSHOT_VERSION == 150
 
@@ -70,11 +79,10 @@ https://stackoverflow.com/questions/69425540/execute-mmap-on-linux-kernel
 
 #define DSHOT_MAX_TIMING_ERROR_ns       2000
 // how many times we retry to send dshot frame if previous was not timed well
-#define DSHOT_MAX_RETRY                 3
+#define DSHOT_MAX_RETRY                 5
 #define USLEEP_BEFORE_REBROADCAST       100
 
-//#define DSHOT_USE__CLOCK              CLOCK_REALTIME
-#define DSHOT_USE__CLOCK                CLOCK_MONOTONIC_RAW 
+
 #define TIMESPEC_TO_INT(tt)             (tt.tv_sec * 1000000000LL + tt.tv_nsec)
 /////////
 
@@ -134,15 +142,14 @@ static int dshot3dMode = 0;
 
 
 static inline uint64_t dshotGetNanoseconds() {
-#if 0 && defined(__ARM_ARCH)
-  unsigned cc;
-  asm volatile ("mrc p15, 0, %0, c15, c12, 1" : "=r" (cc));
-  // ??? how to translate to nanoseconds?
-  return (cc / ticksPerNanosecond);
+#if 0 && DSHOT_USE_CLOCK == DSHOT_USE_CPU_CLOCK
+    uint32_t cc = 0;
+    __asm__ volatile ("mrc p15, 0, %0, c9, c13, 0":"=r" (cc));
+    return cc;
 #else
-  struct timespec tt;
-  clock_gettime(DSHOT_USE__CLOCK, &tt);
-  return(TIMESPEC_TO_INT(tt));
+    struct timespec tt;
+    clock_gettime(DSHOT_USE_CLOCK, &tt);
+    return(TIMESPEC_TO_INT(tt));
 #endif
 }
 
@@ -327,34 +334,14 @@ static void dshotRepeatSendCommand(int motorPins[], int motorMax, int cmd, int t
 // Main exported functions of the module implementing raspilot motor instance.
 //////////////////////////////////////////////////////////////////////////////////////////////
 
-void motorImplementationInitialize(int motorPins[], int motorMax) {
-    int         i, pin;
-    
-    dshotSetupIo();
-    
-    for(i=0; i<motorMax; i++) {
-        pin = motorPins[i];
-        INP_GPIO(pin);          // must use INP_GPIO before we can use OUT_GPIO
-        OUT_GPIO(pin);
-        GPIO_CLR = 1<<pin;
-    }
-
-    // send zero throttle for 5 seconds to initialize ESCs
-    dshotRepeatSendCommand(motorPins, motorMax, DSHOT_CMD_MOTOR_STOP, 0, 5000);
-}
-
-void motorImplementationFinalize(int motorPins[], int motorMax) {
-    munmap(dshotGpioMap, BLOCK_SIZE);
-}
-
 // This function allows to set bidirectional rotation (mode3dFlag!=0) and reverse rotation logic (reverseDirectionFlag!=0).
 // Changing 3D mode is interfering with rotation direction (at least on my ESC), so always reset the direction when changing 3D.
 void motorImplementationSet3dModeAndSpinDirection(int motorPins[], int motorMax, int mode3dFlag, int reverseDirectionFlag) {
     int         repeatMsec;
 
     // Repeat the command for some time to take effect. Do it longer in our case as we are not sure to send 
-    // all the frames correctly. If repeatMsec == 20, then this function will take 4*20 msec.
-    repeatMsec = 20;
+    // all the frames correctly. If repeatMsec == 25, then this function will take 4*25 msec.
+    repeatMsec = 25;
     
     dshot3dMode = mode3dFlag;
     if (dshot3dMode) {
@@ -372,6 +359,28 @@ void motorImplementationSet3dModeAndSpinDirection(int motorPins[], int motorMax,
     dshotRepeatSendCommand(motorPins, motorMax, DSHOT_CMD_SAVE_SETTINGS, 0, repeatMsec);
 }
 
+void motorImplementationInitialize(int motorPins[], int motorMax) {
+    int         i, pin;
+
+    dshotSetupIo();
+    
+    for(i=0; i<motorMax; i++) {
+        pin = motorPins[i];
+        INP_GPIO(pin);          // must use INP_GPIO before we can use OUT_GPIO
+        OUT_GPIO(pin);
+        GPIO_CLR = 1<<pin;
+    }
+
+    // Maybe by default set to normal direction and no reverse spin
+    // motorImplementationSet3dModeAndSpinDirection(motorPins, motorMax, 0, 0);
+    // Arm motors by sending DSHOT_CMD_MOTOR_STOP (aka 0) for 5 seconds
+    dshotRepeatSendCommand(motorPins, motorMax, DSHOT_CMD_MOTOR_STOP, 0, 5000);
+}
+
+void motorImplementationFinalize(int motorPins[], int motorMax) {
+    munmap(dshotGpioMap, BLOCK_SIZE);
+}
+
 void motorImplementationSendThrottles(int motorPins[], int motorMax, double motorThrottle[]) {
     int         i;
     unsigned    frame[NUM_PINS+1];
@@ -382,8 +391,8 @@ void motorImplementationSendThrottles(int motorPins[], int motorMax, double moto
     for(i=0; i<motorMax; i++) {
         if (dshot3dMode) {
             // translate double throttles ranging <-1, 1> to dshot frames.
-            if (motorThrottle[i] > 0) {
-                val = motorThrottle[i] * 998 + 1049;
+            if (motorThrottle[i] >= 0) {
+                val = motorThrottle[i] * 999 + 1048;
             } else {
                 val = -motorThrottle[i] * 999 + 48;
             }
@@ -392,7 +401,8 @@ void motorImplementationSendThrottles(int motorPins[], int motorMax, double moto
             val = motorThrottle[i] * 1999 + 48;
         }
         // we use command 0 for zero thrust which should be used as arming sequence as well.
-        if (motorThrottle[i] == 0 || val < 48 || val >= 2048) val = DSHOT_CMD_MOTOR_STOP;
+	// in 3d mode be carefull here it seems to reset the motor.
+        if (/*motorThrottle[i] == 0 || */ val < 48 || val >= 2048) val = DSHOT_CMD_MOTOR_STOP;
         frame[i] = dshotAddChecksumAndTelemetry(val, 0);
     }
 

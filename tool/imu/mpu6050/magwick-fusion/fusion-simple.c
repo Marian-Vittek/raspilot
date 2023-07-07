@@ -47,7 +47,7 @@ int main(int argc, char **argv) {
 	}
     }	
     
-    if (optSharedI2cFlag == 0) pi2cInit(optI2cPath, 1);
+    if (optSharedI2cFlag) pi2cInit(optI2cPath, 1);
 
     // create mpu connection
     MPU6050 	mpu(optI2cPath, 0x68);

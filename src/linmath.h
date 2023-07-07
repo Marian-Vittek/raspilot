@@ -34,6 +34,18 @@ LINMATH_H_FUNC void vec##n##_scale(vec##n r, vec##n const v, double const s) \
 	for(i=0; i<n; ++i) \
 		r[i] = v[i] * s; \
 } \
+LINMATH_H_FUNC int vec##n##_has_zero(vec##n const v) \
+{ \
+	int i; \
+	for(i=0; i<n; ++i) if (v[i] == 0) return(1);	\
+	return(0); \
+} \
+LINMATH_H_FUNC void vec##n##_mul_elem(vec##n r, vec##n const a, vec##n const b) \
+{ \
+	int i; \
+	for(i=0; i<n; ++i) \
+		r[i] = b[i]*a[i]; \
+} \
 LINMATH_H_FUNC double vec##n##_mul_inner(vec##n const a, vec##n const b) \
 { \
 	double p = 0.; \

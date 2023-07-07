@@ -60,6 +60,7 @@ void mainStatisticsPoseSensors(int action) {
 	    for(j=0; j<dd->ddtMax; j++) {
 		ddd = dd->ddt[j];
 		if (ddd != NULL) {
+		    if (action == STATISTIC_INIT) ddd->totalNumberOfRecordsReceivedForStatistics = 0;
 		    if (action == STATISTIC_PRINT) lprintf(0, "%s:   %30s: ", PPREFIX(), ddd->name);
 		    switch (ddd->type) {
 		    case DT_VOID:
@@ -70,17 +71,17 @@ void mainStatisticsPoseSensors(int action) {
 			if (action == STATISTIC_PRINT) lprintf(0, "%d records received", ddd->totalNumberOfRecordsReceivedForStatistics);
 			break;
 		    case DT_PONG:
+			if (action == STATISTIC_INIT) ddd->pongTotalTimeForStatistics = 0;
 			if (action == STATISTIC_PRINT) lprintf(0, "average round trip latency: %g ms from %d pings", 1000.0*ddd->pongTotalTimeForStatistics/ddd->totalNumberOfRecordsReceivedForStatistics, ddd->totalNumberOfRecordsReceivedForStatistics);
 			break;
 		    default:
 			sep = "average: [";
-			for(k=0; k<DIM(ddd->history.totalSumForStatistics); k++) {
-			    if (action == STATISTIC_INIT) ddd->history.totalSumForStatistics[k]=0;
-			    if (action == STATISTIC_PRINT && ddd->history.n != 0) lprintf(0, "%s%g", sep, ddd->history.totalSumForStatistics[k] / ddd->history.n);
+			for(k=0; k<ddd->dataHistory.vectorsize; k++) {
+			    if (action == STATISTIC_INIT) ddd->dataHistory.totalSumForStatistics[k]=0;
+			    if (action == STATISTIC_PRINT && ddd->dataHistory.totalElemsForStatistics != 0) lprintf(0, "%s%g", sep, ddd->dataHistory.totalSumForStatistics[k] / ddd->dataHistory.totalElemsForStatistics);
 			    sep = ", ";
 			}
-			// Do not do this. It would clear current position and orientation
-			// if (action == STATISTIC_INIT) ddd->history.n = 0;
+			if (action == STATISTIC_INIT) ddd->dataHistory.totalElemsForStatistics = 0;
 			if (action == STATISTIC_PRINT) lprintf(0, "]");
 			break;
 		    }
@@ -158,6 +159,7 @@ void mainStandardShutdown(void *d) {
     if (1) mainStatistics(STATISTIC_PRINT);
     trajectoryLogClose();
     pingToHostClose();
+    logbaioClose();
     stdbaioClose();
     fflush(stdout);
     shutDownInProgress = 1;
@@ -228,13 +230,17 @@ int mainProcessCommandLineArgs(int argc, char **argv) {
     if (argc > 0 && strlen(argv[0]) >= 4 && strcmp(argv[0]+strlen(argv[0])-4, "stop") == 0) {
 	// if invoked as stop engine, stop the engine
 	lprintf(0, "%s: Stopping engine!\n", PPREFIX());
-	debugLevel = 0;
+	motorsEmmergencyShutdown();
+	stdbaioClose();
+	exit(0);
     } else {
 	// otherwise execute mission
 	debugLevel = DEFAULT_DEBUG_LEVEL;
+	logLevel = DEFAULT_LOG_LEVEL;
     }
 
-    for(i=1; i<argc && argv[i][0] == '-'; i++) {
+    for(i=1; i<argc; i++) {
+	// printf("Checking %s\n", argv[i]);
 	if (strcmp(argv[i], "-c") == 0) {
 	    // cfg file 
 	    if (i+1 >= argc) {
@@ -244,14 +250,32 @@ int mainProcessCommandLineArgs(int argc, char **argv) {
 		uu->cfgFileName = strDuplicate(argv[i]);
 		lprintf(0, "%s: Info: Configuration file is %s\n", PPREFIX(), uu->cfgFileName);
 	    }
-	} else if (strcmp(argv[i], "-d") == 0) {
+	} else if (strcmp(argv[i], "-d") == 0 || strcmp(argv[i], "-dl") == 0) {
 	    // debug level
 	    if (i+1 >= argc) {
-		lprintf(0, "%s: Error: Command line: -d shall be followed by debug level argument\n", PPREFIX());
+		lprintf(0, "%s: Error: Command line: -d and -dl shall be followed by debug level argument\n", PPREFIX());
 	    } else {
 		i++;
 		debugLevel = atoi(argv[i]);
-		if (debugLevel > 0) lprintf(0, "%s: Info: debug level: %d\n", PPREFIX(), debugLevel);
+		lprintf(0, "%s: Info: debug level: %d\n", PPREFIX(), debugLevel);
+	    }
+	} else if (strcmp(argv[i], "-ll") == 0) {
+	    // log level
+	    if (i+1 >= argc) {
+		lprintf(0, "%s: Error: Command line: -ll shall be followed by log level argument\n", PPREFIX());
+	    } else {
+		i++;
+		logLevel = atoi(argv[i]);
+		if (logLevel > 0) lprintf(0, "%s: Info: log level: %d\n", PPREFIX(), logLevel);
+	    }
+	} else if (strcmp(argv[i], "-l") == 0) {
+	    // log file
+	    if (i+1 >= argc) {
+		lprintf(0, "%s: Error: Command line: -l shall be followed by log file name\n", PPREFIX());
+	    } else {
+		i++;
+		uu->logFileName = argv[i];
+		lprintf(0, "%s: Info: log file: %s\n", PPREFIX(), uu->logFileName);
 	    }
 	} else if (strcmp(argv[i], "-p") == 0) {
 	    // ping to host
@@ -261,7 +285,7 @@ int mainProcessCommandLineArgs(int argc, char **argv) {
 	    } else {
 		i++;
 		uu->pingToHost = argv[i];
-		if (1 || debugLevel > 0) lprintf(0, "%s: Info: ping to host %s\n", PPREFIX(), uu->pingToHost);
+		lprintf(0, "%s: Info: ping to host %s\n", PPREFIX(), uu->pingToHost);
 	    }
 	} else {
 	    if (argv[i][1] != 'h') {
@@ -277,10 +301,10 @@ int mainProcessCommandLineArgs(int argc, char **argv) {
 	mainPrintUsage();
 	exit(0);
     }
-    
+
     return(i);
 }
-	
+
 static void initTask() {
     int i;
 
@@ -290,6 +314,27 @@ static void initTask() {
     enumNamesInit();
     setCurrentTime();
     uu->pilotStartingTime = currentTime.dtime;
+
+    for(i=0; i<DT_MAX; i++) deviceDataTypeLength[i] = -1;
+    deviceDataTypeLength[DT_NONE] = 0;
+    deviceDataTypeLength[DT_VOID] = 0;
+    deviceDataTypeLength[DT_DEBUG] = 0;
+    deviceDataTypeLength[DT_PONG] = 0;
+    deviceDataTypeLength[DT_POSITION_VECTOR] = 3;
+    deviceDataTypeLength[DT_GROUND_DISTANCE] = 1;
+    deviceDataTypeLength[DT_ALTITUDE] = 1;
+    deviceDataTypeLength[DT_ORIENTATION_RPY] = 3;
+    deviceDataTypeLength[DT_ORIENTATION_QUATERNION] = 4;
+    deviceDataTypeLength[DT_POSITION_NMEA] = 3;
+    deviceDataTypeLength[DT_MAGNETIC_HEADING_NMEA] = 1;
+    deviceDataTypeLength[DT_JSTEST] = 5;
+    // deviceDataTypeLength[DT_MAX] = 0;
+    for(i=0; i<DT_MAX; i++) {
+	if (deviceDataTypeLength[i] == -1) {
+	    fprintf(stderr, "%s: Internal Error: deviceDataTypeLength[%d] not set. Exiting!\n", PPREFIX(), i);
+	}
+    }
+
     baioLibraryInit(0);
 
     signal(SIGABRT, pilotInterruptHandler);
@@ -302,6 +347,8 @@ static void initTask() {
     signal(SIGPIPE, sigPipeHandler);				// ignore SIGPIPE Signals
     signal(SIGCHLD, zombieHandler);				// avoid system of keeping child zombies
 
+    // init pi2c
+    pi2cInit("/dev/i2c-1", 0);
 }
 
 static void initConfiguredPilot() {
@@ -310,10 +357,8 @@ static void initConfiguredPilot() {
     struct deviceData	*dd;
 
     uu->pilotLaunchTime = currentTime.dtime;
-    poseHistoryInit(&uu->shortHistoryPose, uu->config.short_history_seconds * uu->stabilization_loop_Hz);
-    sprintf(uu->shortHistoryPose.name, "short pose history");
-    poseHistoryInit(&uu->shortHistoryVelo, uu->config.short_history_seconds * uu->stabilization_loop_Hz);
-    sprintf(uu->shortHistoryPose.name, "short velo history");
+    regressionBufferInit(&uu->shortHistoryPosition, 3, uu->config.short_history_seconds * uu->stabilization_loop_Hz + 0.5, "short pose history");
+    regressionBufferInit(&uu->shortHistoryRpy, 3, uu->config.short_history_seconds * uu->stabilization_loop_Hz + 0.5, "short orientation history");
     
     for(i=0; i<uu->motor_number; i++) {
 	uu->motor[i].thrust = 0.0;
@@ -331,7 +376,8 @@ static void initConfiguredPilot() {
 	fprintf(stderr, "%s: \"motors\" device not found. Exiting.\n", PPREFIX());
 	exit(-1);
     }
-    
+
+    // The main launch/initialization of all configured devices.
     for(i=0; i<uu->deviceMax; i++) {
 	deviceInitiate(i);
     }
@@ -370,6 +416,7 @@ int raspilotInit(int argc, char **argv) {
     stdbaioInit();
     initTask();
     mainProcessCommandLineArgs(argc, argv);
+    logbaioInit();
     configloadFile();
     initConfiguredPilot();
 
@@ -377,6 +424,7 @@ int raspilotInit(int argc, char **argv) {
     if (uu->pingToHost != NULL) pingToHostInit();
     
 
+    if (uu->config.motor_bidirectional) timeLineInsertEvent(UTIME_AFTER_MSEC(1000), pilotSetMotors3dMode, NULL);
     // the first ping wakes up motors
     timeLineInsertEvent(UTIME_AFTER_MSEC(5000), pilotRegularMotorPing, NULL);
     // read standard input for interactive commands
@@ -385,7 +433,7 @@ int raspilotInit(int argc, char **argv) {
     timeLineInsertEvent(UTIME_AFTER_MSEC(30), pilotRegularSaveTrajectory, NULL);
 
     // check that ping to master host is still alive, give him some time before the first check
-    if (uu->pingToHost != NULL) timeLineInsertEvent(UTIME_AFTER_SECONDS(5), pingToHostRegularCheck, NULL);
+    if (uu->pingToHost != NULL) timeLineInsertEvent(UTIME_AFTER_SECONDS(50), pingToHostRegularCheck, NULL);
 
     // Sleep at leat 1 second. It is the usual time for killing subprocesses and restarting new one in config
     // file
@@ -398,7 +446,7 @@ void raspilotPreLaunchSequence() {
     int		i, n;
     int64_t	nextTickUsec;
     double 	tt, td;
-    double 	thrust_base;
+    double 	thrust_warning_spin;
     
     sendToAllDevices("info: init\n");
     timeLineInsertEvent(UTIME_AFTER_MSEC(1), pilotRegularPreLaunchTick, NULL);
@@ -411,22 +459,24 @@ void raspilotPreLaunchSequence() {
     motorsThrustSet(0);
     raspilotBusyWait(PILOT_WARMING_WARNING_ROTATIONS_TO_LAUNCH);
     lprintf(1, "%s: Warning: First warning motor rotation!\n", PPREFIX());
-    motorsThrustSet(uu->config.motor_thrust_min_spin);
+    thrust_warning_spin = uu->config.motor_thrust_min_spin;
+    motorsThrustSet(thrust_warning_spin);
     raspilotBusyWait(PILOT_WARMING_WARNING_ROTATION_TIME);
     motorsThrustSet(0);
     raspilotBusyWait(PILOT_WARMING_WARNING_ROTATIONS_DELAY);
-    pilotStoreLaunchPose(NULL);
+
     lprintf(1, "%s: Warning: Second warning rotation!\n", PPREFIX());
-    motorsThrustSet(uu->config.motor_thrust_min_spin);
+    if (uu->config.motor_bidirectional) thrust_warning_spin = - thrust_warning_spin;
+    motorsThrustSet(thrust_warning_spin);
     raspilotBusyWait(PILOT_WARMING_WARNING_ROTATION_TIME);
     motorsThrustSet(0);
     raspilotBusyWait(PILOT_WARMING_WARNING_ROTATIONS_TO_LAUNCH);
     
-    lprintf(1, "%s: Info: Prefly rotation!\n", PPREFIX());
+    pilotStoreLaunchPose(NULL);
 
+    lprintf(1, "%s: Info: Prefly rotation!\n", PPREFIX());
     // start flying motor rotation
-    // rotate up to 80% of loitering rotation. Do not rotate until 100%, because you may start flying here
-    // which would be a disaster without doing any correction.
+    // Maybe a bit more than min rotation would be ok
     motorsThrustSet(uu->config.motor_thrust_min_spin);
     raspilotBusyWait(PILOT_WARMING_WARNING_ROTATION_TIME);
 
@@ -440,7 +490,7 @@ void raspilotPreLaunchSequence() {
 }
 
 void raspilotLaunch(double altitude) {
-    struct pose 	cc, *cpose;
+    vec3		cpose;
     double 		tt;
     struct config	savedConfig;
     struct waypoint     savedWaypoint;
@@ -460,14 +510,9 @@ void raspilotLaunch(double altitude) {
     savedConfig = uu->config;
     savedWaypoint = uu->currentWaypoint;
     
-#if 1
-    poseHistoryEstimatePoseForTimeByLinearRegression(&uu->shortHistoryPose, currentTime.dtime, &cc);
-    cpose = &cc;
-#else    
-    cpose = POSE_HISTORY_LAST(&uu->shortHistoryPose);
-#endif
-    
-    memcpy(uu->currentWaypoint.position, cpose->pr, sizeof(uu->currentWaypoint.position));
+    regressionBufferEstimatePoseForTimeByLinearRegression(&uu->shortHistoryPosition, currentTime.dtime, cpose);
+
+    vec3_assign(uu->currentWaypoint.position, cpose);
 
     // set a bit higher altitude, so that we do not stop there
     if (altitude == 0) {
@@ -563,22 +608,24 @@ void raspilotWaypointSet(double x, double y, double z, double yaw) {
 }
 
 double raspilotCurrentAltitude() {
-    struct pose		cpose;
-    poseHistoryEstimatePoseForTimeByLinearRegression(&uu->shortHistoryPose, currentTime.dtime, &cpose);
-    return(cpose.pr[2]);
+    vec3		cpose;
+    regressionBufferEstimatePoseForTimeByLinearRegression(&uu->shortHistoryPosition, currentTime.dtime, cpose);
+    return(cpose[2]);
 }
 
 int raspilotWaypointReached() {
-    vec3		dv;
-    double		distance, distanceYaw;
-    struct pose 	cpose;
+    vec3	dv;
+    double	distance, distanceYaw;
+    vec3 	cpose;
+    vec3 	crpy;
 
-    poseHistoryEstimatePoseForTimeByLinearRegression(&uu->shortHistoryPose, currentTime.dtime, &cpose);
-    vec3_sub(dv, uu->currentWaypoint.position, &cpose.pr[0]);
+    regressionBufferEstimatePoseForTimeByLinearRegression(&uu->shortHistoryPosition, currentTime.dtime, cpose);
+    regressionBufferEstimatePoseForTimeByLinearRegression(&uu->shortHistoryRpy, currentTime.dtime, crpy);
+    vec3_sub(dv, uu->currentWaypoint.position, cpose);
     distance = vec3_len(dv);
     if (distance > uu->config.drone_waypoint_reached_range) return(0);
     // TODO: Correct this
-    distanceYaw = fabs(uu->currentWaypoint.yaw - cpose.pr[9]);
+    distanceYaw = fabs(uu->currentWaypoint.yaw - crpy[2]);
     // TODO: Uncomment me
     // if (distanceYaw > uu->config.drone_target_reached_angle) return(0);
     
@@ -589,10 +636,10 @@ void raspilotGotoWaypoint(double x, double y, double z, double yaw) {
     lprintf(1, "%s: Info: next    waypoint (%7.2g,%7.2g,%7.2g ), yaw %5.2g\n", PPREFIX(), x, y, z, yaw);
     raspilotWaypointSet(x, y, z, yaw);
     while (! raspilotWaypointReached()) raspilotPoll();
-    if (debugLevel > 10)  lprintf(1, "\n\n\n");
+    lprintf(10, "\n\n\n");
     lprintf(1, "%s: Info: reached waypoint (%7.2g,%7.2g,%7.2g ), yaw %5.2g !\n", PPREFIX(), x, y, z, yaw);
     // lprintf(1, "%s: Warning: reached waypoint (%7.2g,%7.2g,%7.2g ), yaw %5.2g !\n", PPREFIX(), x, y, z, yaw);
-    if (debugLevel > 10)  lprintf(1, "\n\n\n");
+    lprintf(10, "\n\n\n");
 }
 
 int raspilotShutDownAndExit() {

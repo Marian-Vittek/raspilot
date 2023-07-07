@@ -285,6 +285,14 @@ int readThrustFromInputPipe() {
 	} else if (q[0] == 'i' && q[1] == 'n' && q[2] == 'f' && q[3] == 'o') {
 	    // raspilot status information, ignore
 	    res |= 0;
+	} else if (q[0] == '3' && q[1] == 'd' && q[2] == '0') {
+	    // no 3d mode
+	    motorImplementationSet3dModeAndSpinDirection(motorPins, motorMax, 0, 0);
+	    res |= 0;
+	} else if (q[0] == '3' && q[1] == 'd' && q[2] == '1') {
+	    // set 3d mode
+	    motorImplementationSet3dModeAndSpinDirection(motorPins, motorMax, 1, 0);
+	    res |= 0;
 	} else if (q[0] == 0) {
 	    // empty line, ignore
 	    res |= 0;
@@ -372,7 +380,6 @@ int main(int argc, char *argv[]) {
     while (! motorShutdownInProgress && !motorEmergencyLandingInProgress) {
 	r = readThrustFromInputPipe();
 	if (r) motorSendThrottles();
-	// usleep(1000);
     }
 
     if (motorEmergencyLandingInProgress) sleep(MOTOR_EMERGENCY_LANDING_TIME_SECONDS);

@@ -79,10 +79,10 @@ flight.
 
 The physics that Raspilot uses to stabilise drones is very
 rudimentary. Only inertia rules are taken into account. Changes in
-rotation and speed of movement are controlled by PID controllers. This
-model is able to stabilise the drone very well at 100Hz (main loop
-frequency). We were able to fly drones with frequencies between 20Hz
-and 400Hz.
+rotation and speed of movement are controlled by PID
+controllers. Frequency at which the main loop is executed is
+configurable. Usual frequencies are between between 50Hz and
+5000Hz. Smaller drones require higher frequency.
 
 
 
@@ -94,8 +94,8 @@ NMEA GPS sensor and others. It implements PWM and DSHOT 150 protocols
 to control motor ESCs.  To see all supported hardware go through
 subdirectories under 'tool' directory. If your hardware is not there,
 it is quite easy to add new hardware to Raspilot. All you need to do
-is to hack a demo example that comes with the sensor and make it print
-measurements to the standard output.
+is to hack a demo example that comes with the sensor and make it to
+print measurements to the standard output.
 
 ### Getting Started
 

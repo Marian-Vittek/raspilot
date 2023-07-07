@@ -24,26 +24,25 @@
 // comma can occur after the last field and constant expressions can be used instead of constants.
 
 #define PI 3.1415926
-#define RATE 500
+#define RATE 1000
 {
-    motor_number:          4,
-
     // So far the lowest frequency with stable drone is 20Hz.
     // Safe values seems to be between 50 and 400Hz.
     stabilization_loop_Hz: RATE,
     
+    motor_number:          4,
     motor_yaw_forces:	   [-1,  1, -1,  1],
     motor_pitch_forces:	   [ 1, -1, -1,  1],
     motor_roll_forces:	   [-1, -1,  1,  1],
-
+    
     // What we call "short history" is the buffer of poses from which we compute supposed position of the drone.
     // The main reason why we do that is that sensors may be noisy and the buffer is used to "smooth" or "average"
     // some noise spikes. We use linear regression of buffered values to get current pose.
     // The size of short history buffer is in seconds. If you have good sensors you can put smaller numbers.
     // If you sensors are noisy you have to put larger value.
-    // The short history must be larger than 1 tick which is 1/stabilization_loop_Hz. The default (recommended) value
-    // is around 5/stabilization_loop_Hz.
-    short_history_seconds:	   5/RATE,
+    // The short history must be larger than 1 tick which is 1/stabilization_loop_Hz. The best value
+    // is 2/stabilization_loop_Hz.
+    short_history_seconds:	   4/RATE,
 
     // waypoint shall not be lower than this altitude
     drone_min_altitude:            0.01,
@@ -59,10 +58,10 @@
     // Smaller values make drone more "nervous" more precise but you may reach drone physical
     // limits. Check that your drone can stabilize with "nearly empty" battery with your value.
     // Smaller value may also drain your battery.
-    pilot_reach_goal_orientation_time:	0.5,
+    pilot_reach_goal_orientation_time:	0.4,
     
     // This is the time in which autopilots wants to reach target position.
-    // This time must be at least double of pilot_reach_goal_orientation_time because in our simple model
+    // This time must be at least double of "pilot_reach_goal_orientation_time" because in our simple model
     // the drone first gets "go to target" orientation, then it moves to the half way, then it gets "braking"
     // orientation and makes another half way while braking to zero velocity at target position.
     pilot_reach_goal_position_time:	1.0,
@@ -93,16 +92,16 @@
     // That are PidRoll, PidPitch and PidYaw controllers.
     // The "Integral" part of those controlers accumulates value representing unbalancing of the drone or its motors.
     // It is supposed that during a flight, the Integral part will accumulate the same value for the same drone
-    // no matter the flight conditions. However, under some circumstances the I part of those controllers may "push"
+    // no matter the flight conditions. However, under some circumstances the Interal part may "push"
     // against pidX and pidY controllers and all those controllers may diverge.
-    // This is why we recommend to set the I factor to zero and we allow to use a so called "constant integral" value "CI" representing
-    // the average I*Integral specific to your drone. See the manual to learn how to determine CI value.
+    // This is why we suppose to set the I factor to zero and we allow to use a so called "constant integral" value "CI" representing
+    // the average I*Integral specific to your drone.
 
-#define RPB 0.06
+#define RPB 0.10
 
-    pidRoll:     { p:RPB,  i:RPB/10,  d:0, ci: 0.0000 },
-    pidPitch:    { p:RPB,  i:RPB/10,  d:0, ci: 0.00 },
-    pidYaw:      { p:0.03,  i:0.01,  d:0.00, ci: 0 },
+    pidRoll:     { p:RPB,  i:RPB/100,  d:RPB/1e10, ci: 0 },
+    pidPitch:    { p:RPB,  i:RPB/100,  d:RPB/1e10, ci: 0 },
+    pidYaw:      { p:0.05,  i:0.02,  d:0.00, ci: 0 },
 
     // The last sort of PID controller is pidAltitude. It translates desired vertical speed (usually 0)
     // to motor thrust. It shall have P factor large enough to launch and stabilize the drone altitude.
@@ -112,10 +111,10 @@
     // charged and "nearly empty" batteries.
 
     // pidAltitude: { p:0.1,  i:0.01,  d:0, ci:0.13 },
-    pidAltitude: { p:0.05,  i:0.05,  d:0, ci:0.13 },
+    pidAltitude: { p:0.01,  i:0.02,  d:0.00001, ci:0.14 },
 
     //////////////////////////////////////////////
-    // sensors and other devices installed on the drone and connected through pipes
+    // sensors and other devices installed on the drone and usually connected through pipes
 
     device: [
 
@@ -129,24 +128,25 @@
 	    shutdownExit: true,
 	    data: [
 		{ type:"DT_PONG",  tag: "pong",  debug_level: 10},
-		{ type:"DT_DEBUG", tag: "debug", debug_level: 90},
+		{ type:"DT_DEBUG", tag: "debug", debug_level: 100},
 	    ],
 	},
 
 #if 1
 	{
-	    name: "gyroscope-mpu6050-magwick",
+	    name: "gyro-mpu-magwick",
 	    connection : {
 		type: "DCT_COMMAND_BASH",
-		// magwick fusion at the rate 1000Hz from MPU6050 connected to i2c-1 interface
-		command: "killall -q -9 fusion; sleep 0.5; exec chrt -o 0 ../tool/imu/mpu6050/magwick-fusion/fusion -r 1000 /dev/i2c-1",
+		// magwick fusion at the rate 1000Hz from MPU6050 connected to shared i2c-1 interface
+		command: "killall -q -9 fusion; sleep 0.5; exec chrt -o 0 ../tool/imu/mpu6050/magwick-fusion/fusion -r 1000 -s /dev/i2c-1",
 	    },
-	    warming_time: 10.0,
+	    warming_time: 6.0,
 	    // positive pitch makes nose up
 	    // positive roll makes left side up
-	    mount_pry: [-0.185, -0.03, 0],
+	    mount_rpy: [-0.02, 0.19, 0],
             data: [
-		{ type: "DT_ORIENTATION_RPY", tag: "rpy", weight: 1.0, mandatory:1, history_size:2, debug_level: 88},
+	    	// Note the very small yaw weight. It is supposed we get yaw from other sources
+		{ type: "DT_ORIENTATION_RPY", tag: "rpy", weight: [1.0, 1.0, 1e-10], mandatory:1, history_size:2, debug_level: 88},
 		{ type: "DT_DEBUG",           tag: "debug", debug_level: 1},
             ],
 	},
@@ -154,7 +154,7 @@
 
 #if 0
 	{
-	    name: "gyroscope-mpu6050-rowberg",
+	    name: "gyro-mpu-rowberg",
 	    connection : {
 		type: "DCT_COMMAND_BASH",
 		command: "killall -q -9 demo_dmp; sleep 0.5; exec chrt -o 0 ../tool/imu/mpu6050/rowberg/demo_dmp",
@@ -162,7 +162,7 @@
 	    warming_time: 30.0,
 	    // positive pitch makes nose up
 	    // positive roll makes left side up
-	    mount_pry: [-0.09, -0.04, 0],
+	    mount_rpy: [-0.02, 0.18, 0],
             data: [
 		{ type: "DT_ORIENTATION_QUATERNION", tag: "quat", weight: 1.0, mandatory:1, history_size:2, debug_level: 88},
 		{ type: "DT_DEBUG",                  tag: "debug", debug_level: 1},
@@ -181,8 +181,29 @@
 	    mount_position: [0, 0, 0.10],
 	    warming_time: 1.0,
             data: [
-		{ type: "DT_POSITION_VECTOR",      tag: "pose:",  mandatory:1, weight: 1.0, history_size:5, latency: 0.2, debug_level: 88},
+		{ type: "DT_POSITION_VECTOR",      tag: "pose:",  mandatory:1, weight: 1.0, history_size:2, latency: 0.1, debug_level: 88},
+		{ type: "DT_POSITION_VECTOR",      tag: "pose:",  mandatory:1, weight: [0.0001, 0.0001, 1000.0], history_size:20, latency: 0.10, debug_level: 88},
+		{ type: "DT_ORIENTATION_RPY", 	   tag: "rpy:", weight: [1e-10, 1e-10, 1.0], mandatory:1, history_size:2, latency: 0.10, debug_level: 88},
+		{ type: "DT_VOID",                 tag: "lat:", debug_level: 1},
 		{ type: "DT_DEBUG",                tag: "debug", debug_level: 1},
+            ],
+	},
+#endif
+
+#if 0
+	{
+	    name: "compass-hmc5883l",
+	    connection : {
+		type: "DCT_COMMAND_BASH",
+		command: "killall -q -9  hmc5883l; sleep 0.5; exec chrt -o 0 ../tool/imu/gy86/hmc5883l -r 50 -s /dev/i2c-1",
+	    },
+	    warming_time: 2.0,
+	    // positive pitch makes nose up
+	    // positive roll makes left side up
+	    mount_rpy: [-0.00, 0.14, -0.79],
+            data: [
+		{ type: "DT_ORIENTATION_RPY", tag: "rpy", weight: 0.1, mandatory:0, history_size:2, debug_level: 88},
+		{ type: "DT_DEBUG",           tag: "debug", debug_level: 1},
             ],
 	},
 #endif

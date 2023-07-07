@@ -11,6 +11,7 @@
 #define quatToString_st(x) arrayWithDimToStr_st((x), 4)
 #define vec2ToString_st(x) arrayWithDimToStr_st((x), 2)
 #define vec3ToString_st(x) arrayWithDimToStr_st((x), 3)
+#define vec4ToString_st(x) arrayWithDimToStr_st((x), 4)
 #define PRINT_VEC_ARRAY(x, size) {printf("%s[%d]:\n", #x, size);int _i; for(_i=0;_i<size;_i++) {printf("%s\n", vecToString_st(x[_i]));} printf("\n");}
 
 typedef vec3 mat3x3[3];

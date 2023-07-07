@@ -1,6 +1,7 @@
 #include "common.h"
 
 int 			debugLevel;
+int 			logLevel;
 struct universe		uuu;
 struct universe		*uu = &uuu;
 struct timeLineEvent    *timeLine = NULL;
@@ -10,15 +11,18 @@ int			shutDownInProgress = 0;
 struct jsonnode 	dummyJsonNode;
 int64_t 		nextStabilizationTickUsec;
 int			stdbaioBaioMagic = 0;
+int			logbaioBaioMagic = 0;
 int			trajectoryLogBaioMagic = 0;
 int			pingToHostBaioMagic = 0;
 double			pingToHostLastAnswerTime = 0;
 
 // enumeration names
 char 			*signalInterruptNames[258];
+int 			deviceDataTypeLength[DT_MAX];
 char 			*deviceDataTypeNames[DT_MAX+2];
 char 			*coordinateSystemNames[CS_MAX+2];
 char			*deviceConnectionTypeNames[DCT_MAX+2];
+
 
 ////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -107,10 +111,11 @@ void writeToFd(int fd, char *buf, int bufsize) {
 char *printPrefix_st(struct universe *uu, char *file, int line) {
     int		i, r;
     char	*res;
-	
+
+    // Hmm. BTW this is a costly function if there is a lot of debug output. Maybe optimized a bit.
     res = getTemporaryStringPtrFromStaticStringRing();
     r = snprintf(res, TMP_STRING_SIZE-1, "%s: %s:%d", currentLocalTime_st(), file, line);
-    for(i=r; i<40; i++) res[i] = ' ';
+    for(i=r; i>=0 && i<40; i++) res[i] = ' ';
     res[i] = 0;
     return(res);
 }
@@ -202,9 +207,15 @@ double normalizeAngle(double omega, double min, double max) {
     return(res);
 }
 
-double truncateToRange(double x, double min, double max) {
-    if (x < min) return(min);
-    if (x > max) return(max);
+double truncateToRange(double x, double min, double max, char *warningTag) {
+    if (x < min) {
+	if (warningTag) lprintf(10, "%s: Warning: %s has been truncated from %f to %f.\n", PPREFIX(), warningTag, x, min);
+	return(min);
+    }
+    if (x > max) {
+	if (warningTag) lprintf(10, "%s: Warning: %s has been truncated from %f to %f.\n", PPREFIX(), warningTag, x, max);
+	return(max);
+    }
     return(x);
 }
 
@@ -808,52 +819,61 @@ static int baioLineInputDevCallBackOnError(struct baio *b) {
     return(0);
 }
 
-int baioLineDispatchInputLine(struct deviceData *dd, char *s, int n) {	
+void baioLineDispatchInputLine(struct deviceData *dd, char *s, int n) {	
     struct deviceDataData 		*ddd;
     struct receivedDataHistory		*hh;
-    struct pose			pp;			
+    struct pose				pp;
+    double				vv[DEVICE_DATA_VECTOR_MAX];
+    double				sampletime;
     struct deviceDataDataHistoryElem	*ee;
-    char				*p, *tag;
-    int					i, taglen, r;
+    char				*p, *t, *tag;
+    int					i, taglen, r, tagFoundFlag;
 
     lprintf( 66, "%s: %s: Parsing line: %*.*s\n", PPREFIX(), dd->name, n, n, s);
 
     p = s;
     SKIP_SPACE(p);
 
-    // TODO: maybe do it better, do some hash or something from the first identifier of the line
-    // for now, there are 3,4 tags per device, so it's ok.
+    tagFoundFlag = 0;
+    // TODO: Do this better, do some hash or something for tags !!! 
     for(i=0; i<dd->ddtMax; i++) {
 	ddd = dd->ddt[i];
 	assert(ddd != NULL);
 	tag = ddd->tag;
 	taglen = strlen(tag);
-	if (strncmp(p, tag, taglen) == 0) {	
-	    p += taglen;
+	if (strncmp(p, tag, taglen) == 0) {
+	    tagFoundFlag = 1;
+	    t = p + taglen;
 	    memset(&pp, 0, sizeof(pp));
-	    pp.time = currentTime.dtime - ddd->latency;
+	    memset(vv, 0, ddd->dataHistory.vectorsize * sizeof(double));
+	    sampletime = currentTime.dtime - ddd->latency;
+	    pp.time = sampletime;
 	    switch(ddd->type) {
 	    case DT_VOID:
 		r = 0;
 		break;
 	    case DT_DEBUG:
-		r = parseDeviceDebugPrint(tag, p, dd, ddd);
+		r = parseDeviceDebugPrint(tag, t, dd, ddd);
 		break;
 	    case DT_PONG:
-		r = parsePong(tag, p, dd, ddd);
+		r = parsePong(tag, t, dd, ddd);
 		break;
 	    case DT_POSITION_VECTOR:
-		r = parseVector(&pp.pr[0], 3, tag, p, dd, ddd);
+		r = parseVector(&pp.pr[0], 3, tag, t, dd, ddd);
+		r = parseVector(vv, 3, tag, t, dd, ddd);
 		break;
 	    case DT_ORIENTATION_RPY:
-		r = parseVector(&pp.pr[7], 3, tag, p, dd, ddd);
+		r = 0;
+		r = parseVector(&pp.pr[7], 3, tag, t, dd, ddd);
 		// apply mount correction
 		vec3_sub(&pp.pr[7], &pp.pr[7], dd->mount_rpy);
 		if (r == 0) yprToQuat(pp.pr[9], pp.pr[8], pp.pr[7], &pp.pr[3]);
+		r = parseVector(vv, 3, tag, t, dd, ddd);
+		vec3_sub(vv, vv, dd->mount_rpy);
 		break;		    
 	    case DT_ORIENTATION_QUATERNION:
 		// read as quaternion, store both as quaternion and roll-pitch-yaw
-		r = parseVector(&pp.pr[3], 4, tag, p, dd, ddd);
+		r = parseVector(&pp.pr[3], 4, tag, t, dd, ddd);
 		if (r == 0) {
 		    // Add mount RPY.
 		    // TODO: maybe I shall convert mount rpy to quaternion and multipy quats here!
@@ -864,22 +884,40 @@ int baioLineDispatchInputLine(struct deviceData *dd, char *s, int n) {
 		    // lprintf(1, "%s: debug after sub mount %s\n", PPREFIX(), vec3ToString_st(&pp.pr[7]));
 		    yprToQuat(pp.pr[9], pp.pr[8], pp.pr[7], &pp.pr[3]);
 		}
+		r = parseVector(vv, 4, tag, t, dd, ddd);
+		if (r == 0) {
+		    double y,p,r;
+		    // Add mount RPY.
+		    // TODO: maybe I shall convert mount rpy to quaternion and multipy quats here!
+		    quatToYpr(vv, &y, &p, &r);
+		    // lprintf(1, "%s: debug got orientation rpy %f %f %f\n", PPREFIX(), r, p, y);
+		    // apply mount correction
+		    r -= dd->mount_rpy[0];
+		    p -= dd->mount_rpy[1];
+		    y -= dd->mount_rpy[2];
+		    // lprintf(1, "%s: debug after sub mount %s\n", PPREFIX(), vec3ToString_st(&pp.pr[7]));
+		    yprToQuat(y, p, r, vv);
+		}
 		break;
 	    case DT_POSITION_NMEA:
-		r = parseNmeaPosition(&pp.pr[0], tag, p, dd, ddd);
+		r = parseNmeaPosition(&pp.pr[0], tag, t, dd, ddd);
+		r = parseNmeaPosition(vv, tag, t, dd, ddd);
 		break;
 	    case DT_MAGNETIC_HEADING_NMEA:
 		lprintf(0, "%s: Not yet implemented\n", PPREFIX());
 		r = 0;
 		break;
 	    case DT_GROUND_DISTANCE:
-		r = parseVector(&pp.pr[2], 1, tag, p, dd, ddd);
+		r = parseVector(&pp.pr[2], 1, tag, t, dd, ddd);
+		r = parseVector(vv, 1, tag, t, dd, ddd);
 		break;
 	    case DT_ALTITUDE:
-		r = parseVector(&pp.pr[2], 1, tag, p, dd, ddd);
+		r = parseVector(&pp.pr[2], 1, tag, t, dd, ddd);
+		r = parseVector(vv, 1, tag, t, dd, ddd);
 		break;
 	    case DT_JSTEST:
-		r = parseJstestJoystickSetWaypoint(&pp.pr[0], tag, p, dd, ddd);
+		r = parseJstestJoystickSetWaypoint(&pp.pr[0], tag, t, dd, ddd);
+		r = parseJstestJoystickSetWaypoint(vv, tag, t, dd, ddd);
 		break;
 	    default:
 		if (! dd->data_ignore_unknown_tags) printf("%s: %s: Error: Tag %s not implemented!\n", PPREFIX(), dd->name, tag);
@@ -887,15 +925,14 @@ int baioLineDispatchInputLine(struct deviceData *dd, char *s, int n) {
 	    }
 	    if (r == 0) {
 		ddd->totalNumberOfRecordsReceivedForStatistics ++;
-		poseHistoryAddElem(&ddd->history, &pp);
+		regressionBufferAddElem(&ddd->dataHistory, sampletime, vv);
 	    } else {
-		if (! dd->data_ignore_unknown_tags) printf("%s:  %s: Error %d when parsing line: %*.*s\n", PPREFIX(), dd->name, r, n, n, s);
+		printf("%s:  %s: Error %d when parsing line: %*.*s\n", PPREFIX(), dd->name, r, n, n, s);
 	    }
-	    return(r);
 	}
     }
-    lprintf( 22, "%s:  %s: Warning: No data tag found in line: %*.*s\n", PPREFIX(), dd->name, n, n, s);
-    return(0);
+    if (tagFoundFlag == 0 && ! dd->data_ignore_unknown_tags) lprintf( 22, "%s:  %s: Warning: No data tag found in line: %*.*s\n", PPREFIX(), dd->name, n, n, s);
+    return;
 }
 
 static int baioLineInputDevCallBackOnRead(struct baio *bb, int fromj, int num) {
@@ -961,7 +998,6 @@ void deviceInitiate(int i) {
 
     switch (dd->connection.type) {
     case DCT_INTERNAL_ZEROPOSE:
-    case DCT_INTERNAL_GYROPOSE:
 	bb = NULL;
 	dd->enabled = 1;
 	return;
@@ -1078,7 +1114,6 @@ void enumNamesInit() {
 
     ENUM_NAME_SET(deviceConnectionTypeNames, DCT_NONE);
     ENUM_NAME_SET(deviceConnectionTypeNames, DCT_INTERNAL_ZEROPOSE);
-    ENUM_NAME_SET(deviceConnectionTypeNames, DCT_INTERNAL_GYROPOSE);
     ENUM_NAME_SET(deviceConnectionTypeNames, DCT_COMMAND_BASH);
     ENUM_NAME_SET(deviceConnectionTypeNames, DCT_COMMAND_EXEC);
     ENUM_NAME_SET(deviceConnectionTypeNames, DCT_NAMED_PIPES);
@@ -1101,6 +1136,7 @@ int enumNamesStringToInt(char *s, char **names) {
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////
 
 void poseHistoryPrintSums(struct poseHistory *hh) {
     int i;
@@ -1120,7 +1156,6 @@ void poseHistoryAddToSums(struct poseHistory *hh, struct pose *pp) {
     hh->sumTimeSquare += tt * tt;
     for(i=0; i<DIM(pp->pr); i++) {
 	hh->sumPr[i] += pp->pr[i];
-	hh->totalSumForStatistics[i] += pp->pr[i];
 	hh->sumPrMulTime[i] += pp->pr[i] * tt;
     }
 
@@ -1165,6 +1200,7 @@ void poseHistoryRecalculateSums(struct poseHistory *hh) {
 }
 
 void poseHistoryAddElem(struct poseHistory *hh, struct pose *pp) {
+    int i;
     lprintf(40, "%s: poseHistoryAddElem: %s: %f:  %s\n", PPREFIX(), hh->name, pp->time, vecToString_st(pp->pr));
     
     if (hh->n >= hh->size) poseHistorySubstractFromSums(hh, &hh->a[hh->ai]);
@@ -1176,17 +1212,31 @@ void poseHistoryAddElem(struct poseHistory *hh, struct pose *pp) {
     hh->ai = (hh->ai + 1) % hh->size;
     // from time to time, recalculate sums to avoid cumulative errors due to floating point arithmetics
     if (hh->n % 10000 == 0) poseHistoryRecalculateSums(hh);
+
+    // for statistics
+    for(i=0; i<DIM(pp->pr); i++) {
+    	hh->totalSumForStatistics[i] += pp->pr[i];
+	hh->totalElemsForStatistics ++;
+    }
 }
 
-void poseHistoryInit(struct poseHistory *hh, int size) {
-    assert(size > 0);
+void poseHistoryInit(struct poseHistory *hh, int size, char *namefmt, ...) {
+    va_list     ap;
+
+    va_start(ap, namefmt);
     memset(hh, 0, sizeof(*hh));
+    vsnprintf(hh->name, sizeof(hh->name)-1, namefmt, ap);
+    assert(size > 0);
+    if (size == 1) {
+	lprintf(0, "%s: Warning: history buffer %s has size %d!\n", PPREFIX(), hh->name, size);
+    }
     hh->sumsTimeOffset = uu->pilotStartingTime;
     hh->ai = hh->ailast = hh->aiprev = 0;
     hh->n = 0;
     hh->size = size;
     ALLOCC(hh->a, size, struct pose);
     memset(hh->a, 0, size * sizeof(struct pose));
+    va_end(ap);
 }
 
 static void poseVectorResetQuatFromRpy(struct pose *res) {
@@ -1301,6 +1351,201 @@ int poseHistoryEstimatePoseForTimeByLinearRegression(struct poseHistory *hh, dou
     return(rr);
 }
 
+//////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////
+// regressionBuffer
+
+void regressionBufferPrintSums(struct regressionBuffer *hh) {
+    int i;
+    lprintf(0, "regressionBufferSums: %f %f: ", hh->sumTime, hh->sumTimeSquare);
+    for(i=0; i<hh->vectorsize; i++) {
+	lprintf(0, "%f %f, ",  hh->sumPr[i],hh->sumPrMulTime[i]); 
+    }	
+    lprintf(0, "\n");
+}
+void regressionBufferAddToSums(struct regressionBuffer *hh, double time, double *vec) {
+    int 	i;
+    double	tt;
+    // In sums we store and count (time - hh->sumsTimeOffset). This avoids rounding errors when
+    // square of sums overflows over double precission range.
+    tt = time - hh->sumsTimeOffset;
+    hh->sumTime += tt;
+    hh->sumTimeSquare += tt * tt;
+    for(i=0; i<hh->vectorsize; i++) {
+	hh->sumPr[i] += vec[i];
+	hh->sumPrMulTime[i] += vec[i] * tt;
+    }
+}
+void regressionBufferSubstractFromSums(struct regressionBuffer *hh, double time, double *vec) {
+    int 	i;
+    double	tt;
+    tt = time - hh->sumsTimeOffset;
+    hh->sumTime -= tt;
+    hh->sumTimeSquare -= tt * tt;
+    for(i=0; i<hh->vectorsize; i++) {
+	hh->sumPr[i] -= vec[i];
+	hh->sumPrMulTime[i] -= vec[i] * tt;
+    }
+}
+
+void regressionBufferRecalculateSums(struct regressionBuffer *hh) {
+    int 	i,ii,j,n;
+
+    lprintf(10, "%s: Info: %s: recomputing sums.\n", PPREFIX(), hh->name);
+    hh->sumTime = 0;
+    hh->sumTimeSquare = 0;
+    for(i=0; i<hh->vectorsize; i++) {
+	hh->sumPr[i] = 0;
+	hh->sumPrMulTime[i] = 0;
+    }
+    n = hh->n;
+    if (n > hh->size) n = hh->size;
+    //lprintf(0, "Starting: sums: "); regressionBufferPrintSums(hh);
+    for(i=0; i<n; i++) {
+	ii = (hh->ai + hh->size - i - 1) % hh->size;
+	assert(ii >= 0 && ii < hh->size);
+	regressionBufferAddToSums(hh, hh->time[ii], &hh->a[ii*hh->vectorsize]);
+	//lprintf(0, "Adding line %d: sums: ", ii); regressionBufferPrintSums(hh);
+    }
+}
+
+void regressionBufferAddElem(struct regressionBuffer *hh, double time, double *vec) {
+    int i;
+    lprintf(40, "%s: regressionBufferAddElem: %s: %f:  %s\n", PPREFIX(), hh->name, time, arrayWithDimToStr_st(vec, hh->vectorsize));
+    
+    if (hh->n >= hh->size) regressionBufferSubstractFromSums(hh, hh->time[hh->ai], &hh->a[hh->ai*hh->vectorsize]);
+    hh->time[hh->ai] = time;
+    memmove(&hh->a[hh->ai*hh->vectorsize], vec, hh->vectorsize * sizeof(double));
+    regressionBufferAddToSums(hh, time, &hh->a[hh->ai*hh->vectorsize]);
+    hh->n ++;
+    hh->aiprev = hh->ailast;
+    hh->ailast = hh->ai;
+    hh->ai = (hh->ai + 1) % hh->size;
+    // from time to time, recalculate sums to avoid cumulative errors due to floating point arithmetics
+    if (hh->n % 10000 == 0) regressionBufferRecalculateSums(hh);
+
+    // for statistics
+    for(i=0; i<hh->vectorsize; i++) {
+    	hh->totalSumForStatistics[i] += vec[i];
+	hh->totalElemsForStatistics ++;
+    }
+}
+
+void regressionBufferInit(struct regressionBuffer *hh, int vectorSize, int bufferSize, char *namefmt, ...) {
+    int		i;
+    va_list     ap;
+
+    va_start(ap, namefmt);
+    memset(hh, 0, sizeof(*hh));
+    vsnprintf(hh->name, sizeof(hh->name)-1, namefmt, ap);
+    assert(bufferSize > 0);
+    if (bufferSize == 1) {
+	lprintf(0, "%s: Warning: history buffer %s has size %d!\n", PPREFIX(), hh->name, (bufferSize));
+    }
+    // In sums we store and count (time - hh->sumsTimeOffset). This avoids rounding errors when
+    // square of sums overflows over double precission range.
+    hh->sumsTimeOffset = uu->pilotStartingTime;
+    hh->ai = hh->ailast = hh->aiprev = 0;
+    hh->n = 0;
+    hh->size = bufferSize;
+    hh->vectorsize = vectorSize;
+    CALLOCC(hh->time,  bufferSize, double);
+    if (vectorSize > 0) {
+	CALLOCC(hh->a, bufferSize*vectorSize, double);
+	CALLOCC(hh->sumPr, vectorSize, double);
+	CALLOCC(hh->sumPrMulTime, vectorSize, double);
+	CALLOCC(hh->totalSumForStatistics, vectorSize, double);
+    }
+    va_end(ap);
+}
+
+// res = k1 * time + k0
+int regressionBufferGetRegressionCoefficients(struct regressionBuffer *hh, int i, double *k0, double *k1) {
+    int 	n;
+    double	d, deviation;
+
+    n = hh->n;
+    if (n > hh->size) n = hh->size;
+
+    // It is useless to recalculate d for each i, TODO: make it better, maybe move it to addtosums
+    d = n * hh->sumTimeSquare - hh->sumTime * hh->sumTime ;
+    // I know that d can not be negative, but to be sure, use fabs
+    deviation = fabs(d/n);
+    // Hmm. what is the necessary deviation to proceed the regression?
+    // lprintf(0, "dev: %f\n", deviation);
+    if (deviation <= 1e-6) {
+	// lprintf(0, "%s: Warning: no or wrong value for linear regression\n", PPREFIX());
+	*k0 = *k1 = 0;
+	return(-1);
+    }
+    *k1 = ( n * hh->sumPrMulTime[i] - hh->sumTime * hh->sumPr[i] ) / d ;
+    *k0 = ( hh->sumTimeSquare * hh->sumPr[i] - hh->sumTime * hh->sumPrMulTime[i] ) / d ;
+    return(0);
+}
+
+void regressionBufferGetMean(struct regressionBuffer *hh, double *time, double *res) {
+    int 	i, n;
+
+    n = hh->n;
+    if (n > hh->size) n = hh->size;
+
+    *time = hh->sumTime / n + hh->sumsTimeOffset;
+    for(i=0; i<hh->vectorsize; i++) {
+	res[i] = hh->sumPr[i] / n;
+    }
+}
+
+// TODO: rename to regressionBufferEstimateVectorForTime
+int regressionBufferEstimatePoseForTimeByLinearRegression(struct regressionBuffer *hh, double time, double *res) {
+    int 		i, j, n, r, rr;
+    double 		k0, k1;
+    double		mtime;
+    
+#if 0
+    //lprintf(0, "Starting regression %s:\n", hh->name);
+    regressionBufferPrintSums(hh);
+    //regressionBufferRecalculateSums(hh);
+    //regressionBufferPrintSums(hh);
+#endif
+    
+    rr = 0;
+    n = hh->vectorsize;
+    for(i=0; i<n; i++) {
+	r = regressionBufferGetRegressionCoefficients(hh, i, &k0, &k1);
+	if (r != 0) break;
+	res[i] = (time - hh->sumsTimeOffset) * k1 + k0;
+    }
+
+    if (i<n) {
+	// if something went wrong during computation of regression coefs return mean
+	regressionBufferGetMean(hh, &mtime, res);
+	rr = -1;
+    }
+
+    
+#if 0
+    lprintf(0, "Doing regression, total added values %d:\n", hh->n);
+    for(j=0; j<hh->size; j++) {
+	lprintf(0, "%18.5f: ", hh->time[j]);
+        for(i=0; i<n; i++) {
+	    lprintf(0, "%7.3f ",  hh->a[j*hh->vectorsize+i]);
+	}
+	lprintf(0, "\n");
+    }
+    lprintf(0, "----------------------------------------------\n");
+    lprintf(0, "%18.5f: ", time);
+    for(i=0; i<n; i++) {
+	lprintf(0, "%7.3f ",  res[i]);
+    }
+    lprintf(0, "\n");
+#endif
+
+    return(rr);
+}
+
+/////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////
+
 void poseVectorAssign(struct pose *res, struct pose *a) {
     int 	i;
 
@@ -1335,34 +1580,46 @@ void poseVectorSubstract(struct pose *res, struct pose *a, struct pose *b) {
     poseVectorResetQuatFromRpy(res);
 }
 
-void vec1TruncateToSize(double *r, double size, char *warningId) {
-    double s;
-    
+int vec1TruncateToSize(double *r, double size, int warningFlag, char *warningId) {
+    double 	s;
+    int 	res;
+
+    res = 0;
     s = fabs(*r);
     if (s > size) {
 	*r = *r * size / s;
-	if (warningId != NULL) lprintf(0, "%s: Warning: vector %s had to be truncated from size %g to %g --> %g\n", PPREFIX(), warningId, s, size, *r);
+	res = 1;
+	if (warningFlag) lprintf(0, "%s: Warning: vector %s had to be truncated from size %g to %g --> %g\n", PPREFIX(), warningId, s, size, *r);
     }
+    return(res);
 }
 
-void vec2TruncateToSize(vec2 r, double size, char *warningId) {
-    double s;
+int vec2TruncateToSize(vec2 r, double size, int warningFlag, char *warningId) {
+    double 	s;
+    int 	res;
     
+    res = 0;
     s = vec2_len(r);
     if (s > size) {
 	vec2_scale(r, r, size/s);
-	if (warningId != NULL) lprintf(0, "%s: Warning: vector %s had to be truncated from size %g to %g --> %s\n", PPREFIX(), warningId, s, size, vec2ToString_st(r));
+	res = 1;
+	if (warningFlag) lprintf(0, "%s: Warning: vector %s had to be truncated from size %g to %g --> %s\n", PPREFIX(), warningId, s, size, vec2ToString_st(r));
     }
+    return(res);
 }
 
-void vec3TruncateToSize(vec3 r, double size, char *warningId) {
-    double s;
+int vec3TruncateToSize(vec3 r, double size, int warningFlag, char *warningId) {
+    double 	s;
+    int 	res;
     
+    res = 0;
     s = vec3_len(r);
     if (s > size) {
 	vec3_scale(r, r, size/s);
-	if (warningId != NULL) lprintf(0, "%s: Warning: vector %s had to be truncated from size %g to %g --> %s\n", PPREFIX(), warningId, s, size, vec3ToString_st(r));
+	res = 1;
+	if (warningFlag) lprintf(0, "%s: Warning: vector %s had to be truncated from size %g to %g --> %s\n", PPREFIX(), warningId, s, size, vec3ToString_st(r));
     }
+    return(res);
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////
@@ -1437,7 +1694,7 @@ double pidControllerStep(struct pidController *pp, double setpoint, double measu
 	derivative = (dd->previous_measured_value - measured_value) / dt;
     }
     output = cc->p * error + cc->i * dd->integral + cc->d * derivative + cc->ci;
-    lprintf(22, "%s: PID %s: %g == P:%f (%g * %g)   +   I:%f (%g * %g)   +  D:%f (%g * %g) + CI:%g.", PPREFIX(), pp->name, output, cc->p * error, cc->p, error, cc->i * dd->integral, cc->i, dd->integral, cc->d * derivative, cc->d, derivative, cc->ci);
+    lprintf(22, "%s: PID %10s: %g == P:%f (%g * %g)   +   I:%f (%g * %g)   +  D:%f (%g * %g) + CI:%g.", PPREFIX(), pp->name, output, cc->p * error, cc->p, error, cc->i * dd->integral, cc->i, dd->integral, cc->d * derivative, cc->d, derivative, cc->ci);
     lprintf(9999, " (setpoint:%f, measured_value: %f)\n", setpoint, measured_value);
     lprintf(22, "\n");
     dd->previous_error = error;
@@ -1641,25 +1898,84 @@ int stdbaioStdinMaybeGetPendingChar() {
 
 // log
 
-int lprintf(int level, char *fmt, ...) {
+void logbaioInit() {
+    char	cmd[TMP_STRING_SIZE];
+    struct baio	*bb;
+    int		r;
+
+    if (uu->logFileName == NULL) {
+	snprintf(cmd, TMP_STRING_SIZE,
+		 "../log/log-%04d-%02d-%02d---%02d:%02d:%02d.txt",
+		 1900+currentTime.lcltm.tm_year, currentTime.lcltm.tm_mon+1, currentTime.lcltm.tm_mday, 
+		 currentTime.lcltm.tm_hour, currentTime.lcltm.tm_min, currentTime.lcltm.tm_sec
+	    );	
+	cmd[TMP_STRING_SIZE-1] = 0;
+	uu->logFileName = strDuplicate(cmd);
+	// printf("logfilename == %s\n", uu->logFileName);
+    }
+
+    if (logbaioBaioMagic == 0) {
+	snprintf(cmd, TMP_STRING_SIZE, "cat > %s\n", uu->logFileName);
+	cmd[TMP_STRING_SIZE-1] = 0;
+	bb = baioNewPipedCommand(cmd, BAIO_IO_DIRECTION_WRITE, 1, 0);
+	if (bb == NULL) {
+	    printf("%s: Error: can't open log file! Fatal!\n", PPREFIX());
+	    exit(-1);
+	}
+	bb->initialWriteBufferSize = (1<<22);
+	logbaioBaioMagic = bb->baioMagic;
+	// Create symbolic link
+	usleep(100000);
+	snprintf(cmd, TMP_STRING_SIZE, "ln -f -s %s currentlog.txt\n", uu->logFileName);
+	cmd[TMP_STRING_SIZE-1] = 0;
+	// printf("cmd == %s\n", cmd);
+	r = system(cmd);
+	if (r < 0) {
+	    printf("%s: Error: can't create symbolic link for currentlog.txt!\n", PPREFIX());
+	}
+    }
+}
+
+void logbaioClose() {
+    baioCloseMagic(logbaioBaioMagic);
+    logbaioBaioMagic = 0;
+}
+
+int stdbaioPrintf(int level, char *fmt, ...) {
     int		r;
     va_list     ap;
     struct baio	*bb;
 
-    if (debugLevel < level) return(0);
-    
-    va_start(ap, fmt);
-    bb = baioFromMagic(stdbaioBaioMagic);
-    if (bb == NULL) {
-	printf("!");
-	if (strncmp(fmt, "2023-", 4) == 0) printf("%02d: ", debugLevel);
-	r = vprintf(fmt, ap);
-    } else {
-	baioPrintfToBuffer(bb, " ");
-	if (strncmp(fmt, "2023-", 4) == 0) baioPrintfToBuffer(bb, "%02d: ", debugLevel);
-	r = baioVprintfToBuffer(bb, fmt, ap);
+    r = 0;
+    if (level < debugLevel) {
+	va_start(ap, fmt);
+	bb = baioFromMagic(stdbaioBaioMagic);
+	if (bb == NULL) {
+	    printf("!");
+	    r = vprintf(fmt, ap);
+	} else {
+	    baioPrintfToBuffer(bb, " ");
+	    r = baioVprintfToBuffer(bb, fmt, ap);
+	}
+	va_end(ap);
     }
-    va_end(ap);
+    return(r);
+}
+
+int logbaioPrintf(int level, char *fmt, ...) {
+    int		r;
+    va_list     ap;
+    struct baio	*bb;
+
+    r = 0;
+    if (level < logLevel) {
+	va_start(ap, fmt);
+	bb = baioFromMagic(logbaioBaioMagic);
+	if (bb != NULL) {
+	    r = baioVprintfToBuffer(bb, fmt, ap);
+	}
+	va_end(ap);
+    }
     return(r);
 }
 
@@ -1709,18 +2025,19 @@ static int pingToHostOnRead(struct baio *bb) {
     // I think I can do this
     assert(b->j >= b->i && b->j >= 0 && b->j < b->size);
     b->b[b->j] = 0;
+    // printf("Warning: Got Pong %s\n", b->b+b->i);fflush(stdout);
     // succesfull ping reports time, search for it
     p = strstr(b->b+b->i, "time=");
     if (p != NULL) pingToHostLastAnswerTime = currentTime.dtime;
     // empty read buffer
-    bb->readBuffer.i = bb->readBuffer.j;
+    b->i = b->j;
     return(0);
 }
 
 void pingToHostInit() {
     struct baio		*bb;
     char		ttt[TMP_STRING_SIZE];
-    
+
     if (pingToHostBaioMagic == 0) {
 	snprintf(ttt, TMP_STRING_SIZE-1, "exec ping %s", uu->pingToHost);
 	bb = baioNewPipedCommand(ttt, BAIO_IO_DIRECTION_READ, 1, 0);
@@ -1730,6 +2047,7 @@ void pingToHostInit() {
 	}
 	bb->initialReadBufferSize = (1<<10);
 	bb->minFreeSizeAtEndOfReadBuffer = 2;
+	// printf("%s: Executing %s\n", PPREFIX(), ttt);fflush(stdout);
 	callBackAddToHook(&bb->callBackOnRead, (callBackHookFunArgType) pingToHostOnRead);
 	pingToHostBaioMagic = bb->baioMagic;
     }

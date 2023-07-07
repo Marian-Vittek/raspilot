@@ -33,7 +33,7 @@ int main(int argc, char **argv) {
 	}
     }	
     
-    if (optSharedI2cFlag == 0) pi2cInit(optI2cPath, 0);
+    if (optSharedI2cFlag) pi2cInit(optI2cPath, 1);
 
 
     if (!ms5611.begin(optI2cPath)) {

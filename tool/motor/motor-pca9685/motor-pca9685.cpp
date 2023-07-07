@@ -40,6 +40,13 @@ void motorImplementationFinalize(int motorPins[], int motorMax) {
       pwm.end();
 }
 
+void motorImplementationSet3dModeAndSpinDirection(int motorPins[], int motorMax, int mode3dFlag, int reverseDirectionFlag) {
+    if (mode3dFlag || reverseDirectionFlag) {
+	printf("debug Error: This motor does not support 3d mode and/or reverseDirection.\n");
+	fflush(stdout);	
+    }
+}
+
 void motorImplementationSendThrottles(int motorPins[], int motorMax, double motorThrottle[]) {
   int i;
   for(i=0; i<motorMax; i++) pwm.setPin(motorPins[i], THROTTLE_TO_ACTIVE_TICKS(motorThrottle[i]), false);
