@@ -69,72 +69,90 @@ float ypr[3];           // [yaw, pitch, roll]   yaw/pitch/roll container and gra
 // packet structure for InvenSense teapot demo
 uint8_t teapotPacket[14] = { '$', 0x02, 0,0, 0,0, 0,0, 0,0, 0x00, 0x00, '\r', '\n' };
 
+// command line options
+uint8_t	printRpy = 0;
+uint8_t	printQuaternion = 1;
 
 // ================================================================
 // ===                      INITIAL SETUP                       ===
 // ================================================================
 
-void setup() {
-    // initialize device
-    printf("Initializing I2C devices...\n");
-    // Remove this
-    // pi2cInit((char*)"/dev/i2c-1", 1);
-    mpu.initialize();
-
-    // Is DLPF adding latency also with dmp?
-    mpu.setDLPFMode(0);
-    usleep(10000);
-    
-    // verify connection
-    printf("Testing device connections...\n");
-    printf(mpu.testConnection() ? "MPU6050 connection successful\n" : "MPU6050 connection failed\n");
-
-    // load and configure the DMP
-    printf("Initializing DMP...\n");
-    devStatus = mpu.dmpInitialize();
-
-    // how to get those values?
-    // gx_offset=-mean_gx/4;
-    // gy_offset=-mean_gy/4;
-    // gz_offset=-mean_gz/4;
-
-    // 50 10 1
-    mpu.setXGyroOffset(-50/4);
-    mpu.setYGyroOffset(10/4);
-    mpu.setZGyroOffset(-1/4);
-
-    // ax_offset=-mean_ax/8;
-    // ay_offset=-mean_ay/8;
-    // az_offset=(16384-mean_az)/8;
-    // -996 280 16828
-    //mpu.setXAccelOffset(); 
-    //mpu.setYAccelOffset(); 
-    //mpu.setZAccelOffset(); 
-    
-    // make sure it worked (returns 0 if so)
-    if (devStatus == 0) {
-        // turn on the DMP, now that it's ready
-        printf("Enabling DMP...\n");
-        mpu.setDMPEnabled(true);
-
-        // enable Arduino interrupt detection
-        //Serial.println(F("Enabling interrupt detection (Arduino external interrupt 0)..."));
-        //attachInterrupt(0, dmpDataReady, RISING);
-        mpuIntStatus = mpu.getIntStatus();
-
-        // set our DMP Ready flag so the main loop() function knows it's okay to use it
-        printf("DMP ready!\n");
-        dmpReady = true;
-
-        // get expected DMP packet size for later comparison
-        packetSize = mpu.dmpGetFIFOPacketSize();
-    } else {
-        // ERROR!
-        // 1 = initial memory load failed
-        // 2 = DMP configuration updates failed
-        // (if it's going to break, usually the code will be 1)
-        printf("DMP Initialization failed (code %d)\n", devStatus);
+static void setup(int argc, char **argv) {
+  int i;
+  
+  // TODO: get also i2c device path from command line!
+  for(i=1; i<argc; i++) {
+    if (strcmp(argv[i], "-rpy") == 0) {
+      printRpy = 1;
+    } else if (strcmp(argv[i], "--rpy") == 0) {
+      printRpy = 0;
+    } else if (strcmp(argv[i], "-quat") == 0) {
+      printQuaternion = 1;
+    } else if (strcmp(argv[i], "--quat") == 0) {
+      printQuaternion = 0;
     }
+  }
+  
+  // initialize device
+  printf("Initializing I2C devices...\n");
+  // Remove this
+  // pi2cInit((char*)"/dev/i2c-1", 1);
+  mpu.initialize();
+
+  // Is DLPF adding latency also with dmp?
+  mpu.setDLPFMode(0);
+  usleep(10000);
+    
+  // verify connection
+  printf("Testing device connections...\n");
+  printf(mpu.testConnection() ? "MPU6050 connection successful\n" : "MPU6050 connection failed\n");
+
+  // load and configure the DMP
+  printf("Initializing DMP...\n");
+  devStatus = mpu.dmpInitialize();
+
+  // how to get those values?
+  // gx_offset=-mean_gx/4;
+  // gy_offset=-mean_gy/4;
+  // gz_offset=-mean_gz/4;
+
+  // 50 10 1
+  mpu.setXGyroOffset(-50/4);
+  mpu.setYGyroOffset(10/4);
+  mpu.setZGyroOffset(-1/4);
+
+  // ax_offset=-mean_ax/8;
+  // ay_offset=-mean_ay/8;
+  // az_offset=(16384-mean_az)/8;
+  // -996 280 16828
+  //mpu.setXAccelOffset(); 
+  //mpu.setYAccelOffset(); 
+  //mpu.setZAccelOffset(); 
+    
+  // make sure it worked (returns 0 if so)
+  if (devStatus == 0) {
+    // turn on the DMP, now that it's ready
+    printf("Enabling DMP...\n");
+    mpu.setDMPEnabled(true);
+
+    // enable Arduino interrupt detection
+    //Serial.println(F("Enabling interrupt detection (Arduino external interrupt 0)..."));
+    //attachInterrupt(0, dmpDataReady, RISING);
+    mpuIntStatus = mpu.getIntStatus();
+
+    // set our DMP Ready flag so the main loop() function knows it's okay to use it
+    printf("DMP ready!\n");
+    dmpReady = true;
+
+    // get expected DMP packet size for later comparison
+    packetSize = mpu.dmpGetFIFOPacketSize();
+  } else {
+    // ERROR!
+    // 1 = initial memory load failed
+    // 2 = DMP configuration updates failed
+    // (if it's going to break, usually the code will be 1)
+    printf("DMP Initialization failed (code %d)\n", devStatus);
+  }
 }
 
 
@@ -144,7 +162,7 @@ void setup() {
 
 static int ncount = 0;
 
-int loop() {
+static int loop() {
   // if programming failed, don't try to do anything
   if (!dmpReady) return(0);
   // get current FIFO count
@@ -175,33 +193,35 @@ int loop() {
     // original
     //printf("quat %9.7f %9.7f %9.7f %9.7f\n", q.w,q.x,q.y,q.z);
 
-    // translated to drone orientation
-    // translation discovered by pure experimentation
+    if (printQuaternion) {
+      // translated to drone orientation
+      // translation discovered by pure experimentation
 #if 0    
-    // This is for the following orientation of MPU development board:
-    //    front of the drone
-    //     ^
-    //   o   I
-    //       I
-    //   o   I
-    //holes  pins     
-    printf("quat %9.7f %9.7f %9.7f %9.7f\n", -q.y, q.x, q.z, q.w);
+      // This is for the following orientation of MPU development board:
+      //    front of the drone
+      //     ^
+      //   o   I
+      //       I
+      //   o   I
+      //holes  pins     
+      printf("quat %9.7f %9.7f %9.7f %9.7f\n", -q.y, q.x, q.z, q.w);
 #elif 1
-    // This is for the following orientation of MPU development board:
-    //    front of the drone
-    //     ^
-    //   I   o
-    //   I   
-    //   I   o
-    // pins holes
-    printf("quat %9.7f %9.7f %9.7f %9.7f\n", q.y, -q.x, q.z, q.w);
+      // This is for the following orientation of MPU development board:
+      //    front of the drone
+      //     ^
+      //   I   o
+      //   I   
+      //   I   o
+      // pins holes
+      printf("quat %9.7f %9.7f %9.7f %9.7f\n", q.y, -q.x, q.z, q.w);
 #endif
-
-#if 0
-    mpu.dmpGetGravity(&gravity, &q);
-    mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
-    printf("rpy %9.7f %9.7f %9.7f\n", ypr[2], ypr[1], ypr[0]);
-#endif    
+    }
+    
+    if (printRpy) {
+      mpu.dmpGetGravity(&gravity, &q);
+      mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
+      printf("rpy %9.7f %9.7f %9.7f\n", ypr[2], ypr[1], ypr[0]);
+    }    
     
     
     fflush(stdout);
@@ -218,7 +238,7 @@ long long getTimeMsec() {
     return(tv.tv_sec * 1000 + tv.tv_usec / 1000);
 }
 
-int main() {
+int main(int argc, char **argv) {
   int r;
   int shortSleepCount;
   int sleepUsec;
@@ -226,7 +246,7 @@ int main() {
   long long startTime;
 
   
-  setup();
+  setup(argc, argv);
   usleep(100000);
   
 #if DDDEBUG

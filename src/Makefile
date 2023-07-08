@@ -10,10 +10,10 @@ OBJS=main.o common.o expmem.o json.o baio.o config.o pilot.o mission.o ../lib/pi
 ########################################################
 
 #dev
-DRONE=d250
+#DRONE=d250
 #DRONE=piw
 #DRONE=pc
-#DRONE=piz2
+DRONE=piz2
 ###
 
 #set IGNORE_BUILD_ERROR to true if you want to ignore build errors

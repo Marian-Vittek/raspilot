@@ -146,7 +146,7 @@
             data: [
 	    	// Note the very small yaw weight. It is supposed we get yaw from other sources
 		{ type: "DT_ORIENTATION_RPY", tag: "rpy", weight: [1.0, 1.0, 1e-10], mandatory:1, history_size:2, debug_level: 88},
-		{ type: "DT_DEBUG",           tag: "debug", debug_level: 1},
+		{ type: "DT_DEBUG",           tag: "debug", debug_level: 100},
             ],
 	},
 #endif
@@ -164,7 +164,7 @@
 	    mount_rpy: [-0.02, 0.18, 0],
             data: [
 		{ type: "DT_ORIENTATION_QUATERNION", tag: "quat", weight: 1.0, mandatory:1, history_size:2, debug_level: 88},
-		{ type: "DT_DEBUG",                  tag: "debug", debug_level: 1},
+		{ type: "DT_DEBUG",                  tag: "debug", debug_level: 100},
             ],
 	},
 #endif
@@ -184,7 +184,7 @@
 		{ type: "DT_POSITION_VECTOR",      tag: "pose:",  mandatory:1, weight: [0.0001, 0.0001, 1000.0], history_size:20, latency: 0.10, debug_level: 88},
 		{ type: "DT_ORIENTATION_RPY", 	   tag: "rpy:", weight: [1e-10, 1e-10, 1.0], mandatory:1, history_size:2, latency: 0.10, debug_level: 88},
 		{ type: "DT_VOID",                 tag: "lat:", debug_level: 1},
-		{ type: "DT_DEBUG",                tag: "debug", debug_level: 1},
+		{ type: "DT_DEBUG",                tag: "debug", debug_level: 100},
             ],
 	},
 #endif
@@ -198,8 +198,9 @@
 	    },
 	    mount_position: [0, 0.01, 0.04],
             data: [
-		{ type: "DT_GROUND_DISTANCE",   tag: "dist", weight: 1.0, mandatory:1, history_size:15, debug_level: 88},
-		{ type: "DT_DEBUG",             tag: "debug", debug_level: 110},
+		{ type: "DT_GROUND_DISTANCE",   tag: "range", weight: 0.01, mandatory:1, history_size:2, debug_level: 100},
+		{ type: "DT_FLOW_XY",           tag: "motion", weight: 0.00001, mandatory:1, history_size:2, debug_level: 100},
+		{ type: "DT_DEBUG",             tag: "debug", debug_level: 100},
             ],
 	},
 #endif
