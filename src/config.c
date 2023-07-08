@@ -282,7 +282,7 @@ void configLoadDeviceData(struct jsonnode *c, struct deviceData	*dl, char *path,
 	    //lprintf(0,"%s: Warning: different weight for X and Y axis! Not yet implemented!\n", PPREFIX());
 	    //}
 	    regressionBufferInit(&ddl->dataHistory, deviceDataTypeLength[ddl->type], ddl->history_size, "%s.%s poses", dl->name, ddl->name);
-	    memset(&ddl->launchPose, 0, sizeof(ddl->launchPose));  ddl->launchPose.pr[6] = 1.0;
+	    memset(&ddl->launchData, 0, sizeof(ddl->launchData));
 	    ddl->nextWithSameType = uu->deviceDataDataByType[ddl->type];
 	    uu->deviceDataDataByType[ddl->type] = ddl;
 	    LOAD_CONFIG_CONTEXT_POP(context);

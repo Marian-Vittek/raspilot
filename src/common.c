@@ -822,7 +822,6 @@ static int baioLineInputDevCallBackOnError(struct baio *b) {
 void baioLineDispatchInputLine(struct deviceData *dd, char *s, int n) {	
     struct deviceDataData 		*ddd;
     struct receivedDataHistory		*hh;
-    struct pose				pp;
     double				vv[DEVICE_DATA_VECTOR_MAX];
     double				sampletime;
     struct deviceDataDataHistoryElem	*ee;
@@ -844,10 +843,8 @@ void baioLineDispatchInputLine(struct deviceData *dd, char *s, int n) {
 	if (strncmp(p, tag, taglen) == 0) {
 	    tagFoundFlag = 1;
 	    t = p + taglen;
-	    memset(&pp, 0, sizeof(pp));
 	    memset(vv, 0, ddd->dataHistory.vectorsize * sizeof(double));
 	    sampletime = currentTime.dtime - ddd->latency;
-	    pp.time = sampletime;
 	    switch(ddd->type) {
 	    case DT_VOID:
 		r = 0;
@@ -859,31 +856,15 @@ void baioLineDispatchInputLine(struct deviceData *dd, char *s, int n) {
 		r = parsePong(tag, t, dd, ddd);
 		break;
 	    case DT_POSITION_VECTOR:
-		r = parseVector(&pp.pr[0], 3, tag, t, dd, ddd);
 		r = parseVector(vv, 3, tag, t, dd, ddd);
 		break;
 	    case DT_ORIENTATION_RPY:
 		r = 0;
-		r = parseVector(&pp.pr[7], 3, tag, t, dd, ddd);
-		// apply mount correction
-		vec3_sub(&pp.pr[7], &pp.pr[7], dd->mount_rpy);
-		if (r == 0) yprToQuat(pp.pr[9], pp.pr[8], pp.pr[7], &pp.pr[3]);
 		r = parseVector(vv, 3, tag, t, dd, ddd);
+		// apply mount correction
 		vec3_sub(vv, vv, dd->mount_rpy);
 		break;		    
 	    case DT_ORIENTATION_QUATERNION:
-		// read as quaternion, store both as quaternion and roll-pitch-yaw
-		r = parseVector(&pp.pr[3], 4, tag, t, dd, ddd);
-		if (r == 0) {
-		    // Add mount RPY.
-		    // TODO: maybe I shall convert mount rpy to quaternion and multipy quats here!
-		    quatToYpr(&pp.pr[3], &pp.pr[9], &pp.pr[8], &pp.pr[7]);
-		    // lprintf(1, "%s: debug got orientation rpy %s\n", PPREFIX(), vec3ToString_st(&pp.pr[7]));
-		    // apply mount correction
-		    vec3_sub(&pp.pr[7], &pp.pr[7], dd->mount_rpy);
-		    // lprintf(1, "%s: debug after sub mount %s\n", PPREFIX(), vec3ToString_st(&pp.pr[7]));
-		    yprToQuat(pp.pr[9], pp.pr[8], pp.pr[7], &pp.pr[3]);
-		}
 		r = parseVector(vv, 4, tag, t, dd, ddd);
 		if (r == 0) {
 		    double y,p,r;
@@ -900,7 +881,6 @@ void baioLineDispatchInputLine(struct deviceData *dd, char *s, int n) {
 		}
 		break;
 	    case DT_POSITION_NMEA:
-		r = parseNmeaPosition(&pp.pr[0], tag, t, dd, ddd);
 		r = parseNmeaPosition(vv, tag, t, dd, ddd);
 		break;
 	    case DT_MAGNETIC_HEADING_NMEA:
@@ -908,15 +888,12 @@ void baioLineDispatchInputLine(struct deviceData *dd, char *s, int n) {
 		r = 0;
 		break;
 	    case DT_GROUND_DISTANCE:
-		r = parseVector(&pp.pr[2], 1, tag, t, dd, ddd);
 		r = parseVector(vv, 1, tag, t, dd, ddd);
 		break;
 	    case DT_ALTITUDE:
-		r = parseVector(&pp.pr[2], 1, tag, t, dd, ddd);
 		r = parseVector(vv, 1, tag, t, dd, ddd);
 		break;
 	    case DT_JSTEST:
-		r = parseJstestJoystickSetWaypoint(&pp.pr[0], tag, t, dd, ddd);
 		r = parseJstestJoystickSetWaypoint(vv, tag, t, dd, ddd);
 		break;
 	    default:
@@ -1137,229 +1114,13 @@ int enumNamesStringToInt(char *s, char **names) {
 
 //////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////
-
-void poseHistoryPrintSums(struct poseHistory *hh) {
-    int i;
-    lprintf(0, "poseHistorySums: %f %f: ", hh->sumTime, hh->sumTimeSquare);
-    for(i=0; i<DIM(hh->a[0].pr); i++) {
-	lprintf(0, "%f %f, ",  hh->sumPr[i],hh->sumPrMulTime[i]); 
-    }	
-    lprintf(0, "\n");
-}
-void poseHistoryAddToSums(struct poseHistory *hh, struct pose *pp) {
-    int 	i;
-    double	tt;
-    // in sums we count time - hh->sumsTimeOffset in order to avoid too much different values and
-    // floating point rounding errors.
-    tt = pp->time - hh->sumsTimeOffset;
-    hh->sumTime += tt;
-    hh->sumTimeSquare += tt * tt;
-    for(i=0; i<DIM(pp->pr); i++) {
-	hh->sumPr[i] += pp->pr[i];
-	hh->sumPrMulTime[i] += pp->pr[i] * tt;
-    }
-
-#if 0
-    if (fabs(pp->pr[7]) > 1.0 || fabs(pp->pr[8]) > 1.0 || fabs(pp->pr[9]) > 1.0) {
-	// Hmm. why is this there?
-	lprintf(0, "%s: Warning: angles in %s too large, regression for such angles not yet implemented!\n", PPREFIX(), hh->name);
-    }
-#endif    
-}
-void poseHistorySubstractFromSums(struct poseHistory *hh, struct pose *pp) {
-    int 	i;
-    double	tt;
-    tt = pp->time - hh->sumsTimeOffset;
-    hh->sumTime -= tt;
-    hh->sumTimeSquare -= tt * tt;
-    for(i=0; i<DIM(pp->pr); i++) {
-	hh->sumPr[i] -= pp->pr[i];
-	hh->sumPrMulTime[i] -= pp->pr[i] * tt;
-    }
-}
-
-void poseHistoryRecalculateSums(struct poseHistory *hh) {
-    int 	i,ii,j,n;
-
-    lprintf(10, "%s: Info: %s: recomputing sums.\n", PPREFIX(), hh->name);
-    hh->sumTime = 0;
-    hh->sumTimeSquare = 0;
-    for(i=0; i<DIM(hh->a[0].pr); i++) {
-	hh->sumPr[i] = 0;
-	hh->sumPrMulTime[i] = 0;
-    }
-    n = hh->n;
-    if (n > hh->size) n = hh->size;
-    //lprintf(0, "Starting: sums: "); poseHistoryPrintSums(hh);
-    for(i=0; i<n; i++) {
-	ii = (hh->ai + hh->size - i - 1) % hh->size;
-	assert(ii >= 0 && ii < hh->size);
-	poseHistoryAddToSums(hh, &hh->a[ii]);
-	//lprintf(0, "Adding line %d: sums: ", ii); poseHistoryPrintSums(hh);
-    }
-}
-
-void poseHistoryAddElem(struct poseHistory *hh, struct pose *pp) {
-    int i;
-    lprintf(40, "%s: poseHistoryAddElem: %s: %f:  %s\n", PPREFIX(), hh->name, pp->time, vecToString_st(pp->pr));
-    
-    if (hh->n >= hh->size) poseHistorySubstractFromSums(hh, &hh->a[hh->ai]);
-    memmove(&hh->a[hh->ai], pp, sizeof(struct pose));
-    poseHistoryAddToSums(hh, &hh->a[hh->ai]);
-    hh->n ++;
-    hh->aiprev = hh->ailast;
-    hh->ailast = hh->ai;
-    hh->ai = (hh->ai + 1) % hh->size;
-    // from time to time, recalculate sums to avoid cumulative errors due to floating point arithmetics
-    if (hh->n % 10000 == 0) poseHistoryRecalculateSums(hh);
-
-    // for statistics
-    for(i=0; i<DIM(pp->pr); i++) {
-    	hh->totalSumForStatistics[i] += pp->pr[i];
-	hh->totalElemsForStatistics ++;
-    }
-}
-
-void poseHistoryInit(struct poseHistory *hh, int size, char *namefmt, ...) {
-    va_list     ap;
-
-    va_start(ap, namefmt);
-    memset(hh, 0, sizeof(*hh));
-    vsnprintf(hh->name, sizeof(hh->name)-1, namefmt, ap);
-    assert(size > 0);
-    if (size == 1) {
-	lprintf(0, "%s: Warning: history buffer %s has size %d!\n", PPREFIX(), hh->name, size);
-    }
-    hh->sumsTimeOffset = uu->pilotStartingTime;
-    hh->ai = hh->ailast = hh->aiprev = 0;
-    hh->n = 0;
-    hh->size = size;
-    ALLOCC(hh->a, size, struct pose);
-    memset(hh->a, 0, size * sizeof(struct pose));
-    va_end(ap);
-}
-
-static void poseVectorResetQuatFromRpy(struct pose *res) {
-    yprToQuat(res->pr[9], res->pr[8], res->pr[7], &res->pr[3]);
-}
-
-// res = k1 * time + k0
-int poseHistoryGetRegressionCoefficients(struct poseHistory *hh, int i, double *k0, double *k1) {
-    int 	n;
-    double	d, deviation;
-
-    n = hh->n;
-    if (n > hh->size) n = hh->size;
-
-    // It is useless to recalculate d for each i, TODO: make it better, maybe move it to addtosums
-    d = n * hh->sumTimeSquare - hh->sumTime * hh->sumTime ;
-    // I know that d can not be negative, but to be sure, use fabs
-    deviation = fabs(d/n);
-    // Hmm. what is the necessary deviation to proceed the regression?
-    // lprintf(0, "dev: %f\n", deviation);
-    if (deviation <= 1e-6) {
-	// lprintf(0, "%s: Warning: no or wrong value for linear regression\n", PPREFIX());
-	*k0 = *k1 = 0;
-	return(-1);
-    }
-    *k1 = ( n * hh->sumPrMulTime[i] - hh->sumTime * hh->sumPr[i] ) / d ;
-    *k0 = ( hh->sumTimeSquare * hh->sumPr[i] - hh->sumTime * hh->sumPrMulTime[i] ) / d ;
-    return(0);
-}
-
-void poseHistoryGetMean(struct poseHistory *hh, struct pose *res) {
-    int 	i, n;
-
-    n = hh->n;
-    if (n > hh->size) n = hh->size;
-
-    res->time = hh->sumTime / n + hh->sumsTimeOffset;
-    for(i=0; i<DIM(hh->a[0].pr); i++) {
-	res->pr[i] = hh->sumPr[i] / n;
-    }
-    quat_safe_norm(&res->pr[3], &res->pr[3]);
-    // For mean, it is probably better to use quaternion and recalculate mean RPY from it
-    quatToYpr(&res->pr[3], &res->pr[9], &res->pr[8], &res->pr[7]);
-}
-
-int poseHistoryEstimatePoseForTimeByLinearRegression(struct poseHistory *hh, double time, struct pose *res) {
-    int 		i, j, n, r, rr;
-    double 		k0, k1;
-    struct pose 	mean;
-
-#if 0
-    //lprintf(0, "Starting regression %s:\n", hh->name);
-    poseHistoryPrintSums(hh);
-    //poseHistoryRecalculateSums(hh);
-    //poseHistoryPrintSums(hh);
-#endif
-    
-    rr = 0;
-    n = DIM(hh->a[0].pr);
-    res->time = time;
-    for(i=0; i<n; i++) {
-	r = poseHistoryGetRegressionCoefficients(hh, i, &k0, &k1);
-	if (r != 0) break;
-	res->pr[i] = (time - hh->sumsTimeOffset) * k1 + k0;
-    }
-
-    if (i<n) {
-	// if something went wrong during computation of regression coefs return mean
-	poseHistoryGetMean(hh, &mean);
-	memcpy(res->pr, mean.pr, sizeof(res->pr));
-	rr = -1;
-    }
-
-    
-#if 0
-    lprintf(0, "Doing regression, total added values %d:\n", hh->n);
-    for(j=0; j<hh->size; j++) {
-	lprintf(0, "%18.5f: ", hh->a[j].time);
-        for(i=0; i<n; i++) {
-	    lprintf(0, "%7.3f ",  hh->a[j].pr[i]);
-	}
-	lprintf(0, "\n");
-    }
-    lprintf(0, "----------------------------------------------\n");
-    lprintf(0, "%18.5f: ", res->time);
-    for(i=0; i<n; i++) {
-	lprintf(0, "%7.3f ",  res->pr[i]);
-    }
-    lprintf(0, "\n");
-#endif
-
-    if (0) {
-	// quaternion here: mpuYprToQuat(&res->pr[3], &res->pr[9], &res->pr[8], &res->pr[7]);
-	// ! always do the translation in order to hold valid quaternion
-	quat_safe_norm(&res->pr[3], &res->pr[3]);
-    } else {
-	// Take regression made on RPY, normalize to range <-Pi, Pi> then
-	// translate RPY to quanternion
-	for(i=7; i<=9; i++) res->pr[i] = normalizeToRange(res->pr[i], -M_PI, M_PI);
-	poseVectorResetQuatFromRpy(res);
-    }
-
-    
-#if 0
-    lprintf(0, "%18.5f: ", res->time);
-    for(i=0; i<n; i++) {
-	lprintf(0, "%7.3f ",  res->pr[i]);
-    }
-    lprintf(0, "\n\n");
-#endif
-    
-    return(rr);
-}
-
-//////////////////////////////////////////////////////////////////////////////////////////////
-//////////////////////////////////////////////////////////////////////////////////////////////
 // regressionBuffer
 
 void regressionBufferPrintSums(struct regressionBuffer *hh) {
     int i;
     lprintf(0, "regressionBufferSums: %f %f: ", hh->sumTime, hh->sumTimeSquare);
     for(i=0; i<hh->vectorsize; i++) {
-	lprintf(0, "%f %f, ",  hh->sumPr[i],hh->sumPrMulTime[i]); 
+	lprintf(0, "%f %f, ",  hh->suma[i],hh->sumaMulTime[i]); 
     }	
     lprintf(0, "\n");
 }
@@ -1372,8 +1133,8 @@ void regressionBufferAddToSums(struct regressionBuffer *hh, double time, double 
     hh->sumTime += tt;
     hh->sumTimeSquare += tt * tt;
     for(i=0; i<hh->vectorsize; i++) {
-	hh->sumPr[i] += vec[i];
-	hh->sumPrMulTime[i] += vec[i] * tt;
+	hh->suma[i] += vec[i];
+	hh->sumaMulTime[i] += vec[i] * tt;
     }
 }
 void regressionBufferSubstractFromSums(struct regressionBuffer *hh, double time, double *vec) {
@@ -1383,8 +1144,8 @@ void regressionBufferSubstractFromSums(struct regressionBuffer *hh, double time,
     hh->sumTime -= tt;
     hh->sumTimeSquare -= tt * tt;
     for(i=0; i<hh->vectorsize; i++) {
-	hh->sumPr[i] -= vec[i];
-	hh->sumPrMulTime[i] -= vec[i] * tt;
+	hh->suma[i] -= vec[i];
+	hh->sumaMulTime[i] -= vec[i] * tt;
     }
 }
 
@@ -1395,8 +1156,8 @@ void regressionBufferRecalculateSums(struct regressionBuffer *hh) {
     hh->sumTime = 0;
     hh->sumTimeSquare = 0;
     for(i=0; i<hh->vectorsize; i++) {
-	hh->sumPr[i] = 0;
-	hh->sumPrMulTime[i] = 0;
+	hh->suma[i] = 0;
+	hh->sumaMulTime[i] = 0;
     }
     n = hh->n;
     if (n > hh->size) n = hh->size;
@@ -1452,8 +1213,8 @@ void regressionBufferInit(struct regressionBuffer *hh, int vectorSize, int buffe
     CALLOCC(hh->time,  bufferSize, double);
     if (vectorSize > 0) {
 	CALLOCC(hh->a, bufferSize*vectorSize, double);
-	CALLOCC(hh->sumPr, vectorSize, double);
-	CALLOCC(hh->sumPrMulTime, vectorSize, double);
+	CALLOCC(hh->suma, vectorSize, double);
+	CALLOCC(hh->sumaMulTime, vectorSize, double);
 	CALLOCC(hh->totalSumForStatistics, vectorSize, double);
     }
     va_end(ap);
@@ -1478,8 +1239,8 @@ int regressionBufferGetRegressionCoefficients(struct regressionBuffer *hh, int i
 	*k0 = *k1 = 0;
 	return(-1);
     }
-    *k1 = ( n * hh->sumPrMulTime[i] - hh->sumTime * hh->sumPr[i] ) / d ;
-    *k0 = ( hh->sumTimeSquare * hh->sumPr[i] - hh->sumTime * hh->sumPrMulTime[i] ) / d ;
+    *k1 = ( n * hh->sumaMulTime[i] - hh->sumTime * hh->suma[i] ) / d ;
+    *k0 = ( hh->sumTimeSquare * hh->suma[i] - hh->sumTime * hh->sumaMulTime[i] ) / d ;
     return(0);
 }
 
@@ -1491,7 +1252,7 @@ void regressionBufferGetMean(struct regressionBuffer *hh, double *time, double *
 
     *time = hh->sumTime / n + hh->sumsTimeOffset;
     for(i=0; i<hh->vectorsize; i++) {
-	res[i] = hh->sumPr[i] / n;
+	res[i] = hh->suma[i] / n;
     }
 }
 
@@ -1545,40 +1306,6 @@ int regressionBufferEstimatePoseForTimeByLinearRegression(struct regressionBuffe
 
 /////////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////////
-
-void poseVectorAssign(struct pose *res, struct pose *a) {
-    int 	i;
-
-    res->time = a->time;
-    for(i=0; i<DIM(a->pr); i++) res->pr[i] = a->pr[i];
-}
-
-void poseVectorScale(struct pose *res, struct pose *a, double factor) {
-    int 	i;
-    
-    // simple substraction for position and angles
-    res->time = a->time;
-    for(i=0; i<DIM(a->pr); i++) res->pr[i] = a->pr[i] * factor;
-    poseVectorResetQuatFromRpy(res);
-}
-
-void poseVectorAdd(struct pose *res, struct pose *a, struct pose *b) {
-    int 	i;
-    
-    res->time = a->time + b->time;
-    // simple substraction for position and angles
-    for(i=0; i<DIM(a->pr); i++) res->pr[i] = a->pr[i] + b->pr[i];
-    poseVectorResetQuatFromRpy(res);
-}
-
-void poseVectorSubstract(struct pose *res, struct pose *a, struct pose *b) {
-    int 	i;
-    
-    res->time = a->time - b->time;
-    // simple substraction for position and angles
-    for(i=0; i<DIM(a->pr); i++) res->pr[i] = a->pr[i] - b->pr[i];
-    poseVectorResetQuatFromRpy(res);
-}
 
 int vec1TruncateToSize(double *r, double size, int warningFlag, char *warningId) {
     double 	s;

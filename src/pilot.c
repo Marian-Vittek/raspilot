@@ -159,7 +159,6 @@ static int pilotCheckDeviceForTimeout(struct deviceDataData *gg) {
 }
 
 static void pilotAddCurrentQuatOrientationFromSensorToSum(quat qqsum, vec4 weightsum, struct deviceDataData *gg) {
-    struct pose			vv;
     quat			qq;
     int				r;
     vec4			ww;
@@ -210,7 +209,6 @@ static void pilotAddCurrentRpyOrientationFromSensorToSum(vec3 sinsum, vec3 cossu
 }
 
 static void pilotAddCurrentPositionFromSensorToSum(vec3 ppsum, vec3 weightsum, struct deviceDataData *gg, quat droneOrientation) {
-    struct pose		vv;
     double		*devicePos;
     vec3		mm, ww, dronepos, pbase;
     quat		ii;

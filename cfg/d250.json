@@ -19,15 +19,14 @@
 */
 
 // This file is preprocessed by C preprocessor before being read by raspilot, this
-// allows us to use some of preprocessor directives like #define and #if.
+// allows to use preprocessor directives like #define and #if.
 // File format is an "extended" JSON which is JSON format where field names can be used without quotes,
 // comma can occur after the last field and constant expressions can be used instead of constants.
 
 #define PI 3.1415926
 #define RATE 1000
 {
-    // So far the lowest frequency with stable drone is 20Hz.
-    // Safe values seems to be between 50 and 400Hz.
+    // Safe values for small drones seems to be between 500 and 5000Hz.
     stabilization_loop_Hz: RATE,
     
     motor_number:          4,
@@ -186,6 +185,21 @@
 		{ type: "DT_ORIENTATION_RPY", 	   tag: "rpy:", weight: [1e-10, 1e-10, 1.0], mandatory:1, history_size:2, latency: 0.10, debug_level: 88},
 		{ type: "DT_VOID",                 tag: "lat:", debug_level: 1},
 		{ type: "DT_DEBUG",                tag: "debug", debug_level: 1},
+            ],
+	},
+#endif
+
+#if 0
+	{
+	    name: "matek-3901-l0x",
+	    connection : {
+		type: "DCT_COMMAND_BASH",
+		command: "killall matek-3901-l0x; sleep 0.5; killall -q -9 matek-3901-l0x; sleep 0.5; exec chrt -o 0 ../tool/flow/matek-3901-L0X/matek-3901-l0x /dev/serial0",
+	    },
+	    mount_position: [0, 0.01, 0.04],
+            data: [
+		{ type: "DT_GROUND_DISTANCE",   tag: "dist", weight: 1.0, mandatory:1, history_size:15, debug_level: 88},
+		{ type: "DT_DEBUG",             tag: "debug", debug_level: 110},
             ],
 	},
 #endif

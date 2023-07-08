@@ -31,7 +31,7 @@
     motor_number:          4,
 
     // So far the lowest frequency with stable drone is 20Hz.
-    // Safe values seems to be between 50 and 400Hz.
+    // Safe values seems to be between 50 and 5000Hz.
     stabilization_loop_Hz: 50,
     
     motor_yaw_forces:	   [-1,  1, -1,  1],

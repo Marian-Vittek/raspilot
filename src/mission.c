@@ -102,7 +102,6 @@ void missionLandImmediately() {
 void missionProcessInteractiveInput(int c) {
     static double 	tinc = 0;
     int			r;
-    struct pose 	*cpose;
 
     // initialize increment to 10% if ci
     if (tinc == 0) tinc = uu->pidAltitude.constant.ci / 10;

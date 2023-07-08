@@ -100,9 +100,6 @@
 // special value for motor setting/testing function
 #define MOTORS_ALL			-1
 
-#define POSE_HISTORY_LAST(hh) (&(hh)->a[(hh)->ailast])
-#define POSE_HISTORY_PREVIOUS(hh) (&(hh)->a[(hh)->aiprev])
-
 #define REGRESSION_BUFFER_LAST(hh) (&(hh)->a[(hh)->ailast * (hh)->vectorsize])
 
 /////////////////////////////////////////////////////////////////////////////////////////////
@@ -564,6 +561,9 @@ struct pidController {
 //////////////////////////////////////////////////////////////////////////////////////////////
 // configuration
 
+// Regression buffer is a ring buffer storing vectors of size vectorsize in each cell.
+// It also maintains sums and sums of squares of stored elements. Those sums are used
+// for fast extrapolation (for given time) of values by linear regression.
 struct regressionBuffer {
     char		name[256];	// for debug output only, to be removed or replaced by char *name;
     int			size;
@@ -574,57 +574,19 @@ struct regressionBuffer {
     int			n;		// number of total inserted elements, not only currently stored (ai == n%size)
 
     // the actual data stored in the buffer
-    double		*time;		// time[size]
-    double		*a;		// a[size][vectorsize]
+    double		*time;		// time[size]          // time when the vector was added
+    double		*a;		// a[size][vectorsize] // the actual numbers stored in the buffer
 
-    // sums used for least square method (from elements currently hold in a)
+    // sums used for least square method (from times and elements currently hold in the 'a' array)
     double		sumsTimeOffset;
     double		sumTime;
     double		sumTimeSquare;
-    double		*sumPr;		// sumPr[vectorsize];
-    double		*sumPrMulTime;	// sumPrMulTime[vectorsize];
+    double		*suma;		// suma[vectorsize];
+    double		*sumaMulTime;	// sumaMulTime[vectorsize];
 
     // sums used for flight statistics
     // sums from all elements inserted since the launch time, not only currently stored
     double		*totalSumForStatistics;	// totalSumForStatistics[vectorsize];
-    int			totalElemsForStatistics;    
-};
-
-// first 3 values are position then 4 values are orientation quaternion, then 3 are eulers
-#define POSE_VECTOR_LENGTH 10
-#define GET_ROLL_PITCH_YAW_FROM_POSE_VECTOR(pr, roll, pitch, yaw) {(roll)=(pr)[7]; (pitch)=(pr)[8]; (yaw)=(pr)[9];}
-
-struct pose {
-    double			time;
-    // position vector: first 3 values are position then 4 values are orientation quaternion, then 3 are orientation in RPY
-    // i.e. pr[7] - roll; pr[8] - pitch; pr[9] - yaw
-    // roll  - negative == left wing down; positive == left wing up
-    // pitch - negative == nose down;      positive == nose up
-    // yaw   - positive == rotated counterclockwise (view from up down) (
-
-    double			pr[POSE_VECTOR_LENGTH];	
-};
-
-// TODO: rename to poseBuffer or something liket that
-struct poseHistory {
-    char		name[256];	// for debug output only, to be removed or replaced by char *name;
-    struct pose		*a;		// a[size]
-    int			ai;		// index where next elem will be stored
-    int			ailast;		// index where last elem was added, i.e.  (ai-1) % size
-    int			aiprev;		// index where previous last elem was added, i.e. (ai-2)%size
-    int			n;		// number of total inserted elements, not only currently stored (ai == n%size)
-    int			size;
-
-    // sums used for least square method (from elements currently hold in a)
-    double		sumsTimeOffset;
-    double		sumTime;
-    double		sumTimeSquare;
-    double		sumPr[POSE_VECTOR_LENGTH];
-    double		sumPrMulTime[POSE_VECTOR_LENGTH];
-
-    // sums used for flight statistics
-    // sums from all elements inserted since the launch time, not only currently stored
-    double		totalSumForStatistics[POSE_VECTOR_LENGTH];    
     int			totalElemsForStatistics;    
 };
 
@@ -650,19 +612,21 @@ struct deviceDataData {
     // received data are stored in a buffer to be extrapolated using linear regression as needed
     struct regressionBuffer	dataHistory;
     
-    // maybe confidence shall be per sample and stored in history? Then the average confidence will be used.
+    // maybe confidence shall be per sample and stored in dataHistory?
+    // Then the average (or extrapolated) confidence will be used.
     double			confidence;	
 
-    // for statistics
+    // something for final statistics
     double			pongTotalTimeForStatistics;
     int				totalNumberOfRecordsReceivedForStatistics;
     
-    // This is the pose the device reported before drone launch
-    // It is used to translate device poses to actual poses of GBASE coordinate system during the flight
-    struct pose   		launchPose;
+    // This is the value the device reported before drone launch
+    // It may or may not (depending on device type) be used to translate device
+    // poses to actual poses in GBASE coordinate system during the flight
     double   			launchData[DEVICE_DATA_VECTOR_MAX];
     uint8_t			launchPoseSetFlag;	// whether we have yet stored the launch pose
 
+    // devicedata are linked also by the type of data for faster fusion of sensors
     struct deviceDataData 	*nextWithSameType;
 };
 
@@ -857,15 +821,6 @@ int enumNamesStringToInt(char *s, char **names) ;
 void terminalResume() ;
 int stdbaioStdinMaybeGetPendingChar() ;
 void stdbaioStdinClearBuffer();
-void poseHistoryAddElem(struct poseHistory *hh, struct pose *pp) ;
-void poseHistoryInit(struct poseHistory *hh, int size, char *namefmt, ...) ;
-int poseHistoryGetRegressionCoefficients(struct poseHistory *hh, int i, double *k0, double *k1) ;
-void poseVectorAssign(struct pose *res, struct pose *a) ;
-void poseVectorScale(struct pose *res, struct pose *a, double factor) ;
-void poseVectorAdd(struct pose *res, struct pose *a, struct pose *b) ;
-void poseVectorSubstract(struct pose *res, struct pose *a, struct pose *b) ;
-void poseHistoryGetMean(struct poseHistory *hh, struct pose *res) ;
-int poseHistoryEstimatePoseForTimeByLinearRegression(struct poseHistory *hh, double time, struct pose *res) ;
 
 void regressionBufferPrintSums(struct regressionBuffer *hh) ;
 void regressionBufferAddToSums(struct regressionBuffer *hh, double time, double *vec) ;
