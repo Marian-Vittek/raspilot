@@ -1,0 +1,6 @@
+
+all: matek-3901-l0x
+
+matek-3901-l0x: matek-3901-l0x.c msp_protocol.h
+	gcc -DRASPILOT -O2 -o matek-3901-l0x matek-3901-l0x.c
+
