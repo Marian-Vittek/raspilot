@@ -100,10 +100,9 @@ and orientation sensor; MPU-6050 family of gyroscopes; BMI160
 gyroscope; HC-SR04 distance sensor; any NMEA GPS sensor and others. It
 implements PWM and DSHOT 150 protocols to control motor ESCs.  To see
 all supported hardware go through subdirectories under 'tool'
-directory. If your hardware is not there, it is quite easy to add new
-hardware to Raspilot. All you need to do is to hack a demo example
-that comes with the sensor and make it to print measurements to the
-standard output.
+directory. If your hardware is not there, it is quite easy to add it.
+All you need to do is to hack a demo example that comes with the
+sensor and make it to print measurements to the standard output.
 
 ### Getting Started
 
