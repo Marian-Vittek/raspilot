@@ -15,7 +15,7 @@ SRCS = demo_dmp.cpp $(LIBMPU)/I2Cdev.cpp $(LIBMPU)/MPU6050.cpp $(LIBI2C)/pi2c.c
 # DMP_FIFO_RATE=1 gives 100Hz
 # DMP_FIFO_RATE=0 gives 200Hz? // giving completely random values
 # If you change DMP_FIFO_RATE, do full recompile with "make clean" !!!!
-CXXFLAGS = -DDMP_FIFO_RATE=1 -DMPU6050_INCLUDE_DMP_MOTIONAPPS20=1 -Wall -g -I$(LIBMPU) -I$(LIBI2C)
+CXXFLAGS = -O2 -DDMP_FIFO_RATE=3 -DMPU6050_INCLUDE_DMP_MOTIONAPPS20=1 -Wall -g -I$(LIBMPU) -I$(LIBI2C)
 
 demo_dmp: $(HDRS) $(SRCS)
 	g++ -o demo_dmp $(SRCS) $(CXXFLAGS) -lm -pthread

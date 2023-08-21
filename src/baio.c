@@ -908,7 +908,8 @@ pid_t popen2(char *command, int *in_fd, int *out_fd, int useBashFlag) {
     }
 
     if (pid == 0) {
-	// new task 
+	// new task
+
         if (out_fd != NULL) {
             close(pin[1]);
             dup2(pin[0], 0);

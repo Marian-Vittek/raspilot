@@ -93,7 +93,7 @@ int main(int argc, char **argv) {
 	if (1) {
 	    // Print rpy in drone coordinates. This depends on how precisely the sensor is mounted on drone.
 	    // TODO: Maybe print in sensor's coordinates and make translation inside raspilot.
-	    printf("rpy %7.5f %7.5f %7.5f\n", euler.angle.pitch*M_PI/180.0, euler.angle.roll*M_PI/180.0, euler.angle.yaw*M_PI/180.0);
+	    printf("rpy %9.7f %9.7f %9.7f\n", euler.angle.pitch*M_PI/180.0, euler.angle.roll*M_PI/180.0, euler.angle.yaw*M_PI/180.0);
 	    fflush(stdout);
 	} else {
 	    // The original stuff printed by fusion

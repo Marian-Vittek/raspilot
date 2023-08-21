@@ -4,16 +4,16 @@
 CFLAGS= -g -DEDEBUG -Wall -Wno-format-truncation -Wno-unused-variable -Wno-pointer-sign -Wno-unused-but-set-variable -I../lib/pi2c -L/usr/local/lib
 LINKFLAGS= -lm -pthread -static
 
-INCLUDES=common.h expmem.h sglib.h linmath.h linmath2.h ../lib/pi2c/pi2c.h
-OBJS=main.o common.o expmem.o json.o baio.o config.o pilot.o mission.o ../lib/pi2c/pi2c.c
+INCLUDES=common.h raspilotshm.h expmem.h sglib.h linmath.h linmath2.h ../lib/pi2c/pi2c.h
+OBJS=main.o common.o expmem.o json.o baio.o config.o device.o pilot.o mission.o ../lib/pi2c/pi2c.c
 
 ########################################################
 
 #dev
 #DRONE=d250
 #DRONE=piw
-#DRONE=pc
-DRONE=piz2
+DRONE=pc
+#DRONE=piz2
 ###
 
 #set IGNORE_BUILD_ERROR to true if you want to ignore build errors
@@ -64,13 +64,13 @@ prestart: prestartchecks stop
 	sudo bash -c "sync; echo 3 > /proc/sys/vm/drop_caches"
 
 start: prestart
-	sudo bash -c "ulimit -c unlimited ; ./raspilot  -d 1 -ll 6 -p `echo $$SSH_CLIENT | awk '{ print $$1}'`"
+	sudo bash -c "ulimit -c unlimited ; chrt -r 20 taskset -c 0 ./raspilot  -d 1 -ll 6 -p `echo $$SSH_CLIENT | awk '{ print $$1}'`"
 
 starttolog: prestart
-	sudo bash -c "ulimit -c unlimited ; ./raspilot -d 6 -ll 33 -p `echo $$SSH_CLIENT | awk '{ print $$1}'`"
+	sudo bash -c "ulimit -c unlimited ; chrt -r 20 taskset -c 0 ./raspilot -d 6 -ll 33 -l10 -p `echo $$SSH_CLIENT | awk '{ print $$1}'`"
 
 startdebug: prestart
-	sudo bash -c "ulimit -c unlimited ; ./raspilot -d 11 -ll 33 -p `echo $$SSH_CLIENT | awk '{ print $$1}'`"
+	sudo bash -c "ulimit -c unlimited ; chrt -r 20 taskset -c 0 ./raspilot -d 66 -ll 33 -p `echo $$SSH_CLIENT | awk '{ print $$1}'`"
 
 replay: always
 	scp $(DRONE):dev/raspilot/src/trajectory.dat .
@@ -97,7 +97,7 @@ distclean: stop clean
 	rm -f ../misc/pose-vizualization/{*.o,raspicam-april}
 
 dist:   distclean
-	(cd ../.. && tar cfHz raspilot.tgz posix --exclude='raspilot/.git' --exclude='raspilot/misc' --exclude='raspilot/log' raspilot && cp raspilot.tgz raspilot-`date "+%Y-%m-%d"`.tgz)
+	(cd ../.. && tar cfHz raspilot.tgz posix --exclude='raspilot/.git' --exclude='raspilot/log' raspilot && cp raspilot.tgz raspilot-`date "+%Y-%m-%d"`.tgz)
 
 #######################################################
 

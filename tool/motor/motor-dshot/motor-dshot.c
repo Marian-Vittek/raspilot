@@ -79,7 +79,7 @@ https://stackoverflow.com/questions/69425540/execute-mmap-on-linux-kernel
 
 #define DSHOT_MAX_TIMING_ERROR_ns       2000
 // how many times we retry to send dshot frame if previous was not timed well
-#define DSHOT_MAX_RETRY                 5
+#define DSHOT_MAX_RETRY                 3
 #define USLEEP_BEFORE_REBROADCAST       100
 
 
@@ -400,8 +400,8 @@ void motorImplementationSendThrottles(int motorPins[], int motorMax, double moto
             // translate double throttles ranging <0, 1> to dshot frames.
             val = motorThrottle[i] * 1999 + 48;
         }
-        // we use command 0 for zero thrust which should be used as arming sequence as well.
-	// in 3d mode be carefull here it seems to reset the motor.
+        // we used command 0 for zero thrust which should be used as arming sequence as well.
+	// but in 3d mode we have to be carefull it seems to reset the motor.
         if (/*motorThrottle[i] == 0 || */ val < 48 || val >= 2048) val = DSHOT_CMD_MOTOR_STOP;
         frame[i] = dshotAddChecksumAndTelemetry(val, 0);
     }

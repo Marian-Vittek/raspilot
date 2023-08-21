@@ -158,7 +158,7 @@ static int configGetDeviceDataIndex(struct deviceData *dl, char *name) {
     // not found, create a new device
     if (i >= DEVICE_DATA_MAX) return(-1);
     dl->ddtMax ++;
-    CALLOC(dl->ddt[i], struct deviceDataData);
+    CALLOC(dl->ddt[i], struct deviceStreamData);
     dl->ddt[i]->name = name;
     return(i);
 }
@@ -232,15 +232,38 @@ void configLoadVectorNoDefaultValue(struct jsonnode *cc, double *vv, int length,
     }
 }
 
-void configLoadDeviceData(struct jsonnode *c, struct deviceData	*dl, char *path, char *context) {
+static void configInputBufferInit(struct deviceData *dl, struct deviceStreamData *ddl) {
+    int 	shmFlag, len;
+    int		bufferSize, vectorSize;
+    double	*memoryPool;
+    char	*mem;
+    
+    vectorSize = deviceDataStreamParsedVectorLength[ddl->type];
+    bufferSize = ddl->history_size;
+    len = sizeof(struct raspilotInputBuffer) + bufferSize * (vectorSize + 1) * sizeof(double);
+	
+    
+    if (deviceIsSharedMemoryDataStream(ddl)) {
+	// TODO: to be implemented !!!!
+	// Allocate/map shared memory struct raspilotInputBuffer
+	ddl->input = raspilotCreateSharedMemory(ddl);
+    } else {
+	CALLOCC(mem, RASPILOT_INPUT_BUFFER_SIZE(vectorSize, bufferSize), char);
+	ddl->input = (struct raspilotInputBuffer *) mem;
+	ddl->input->status = RIBS_NOT_SHARED;
+	raspilotRingBufferInit(&ddl->input->buffer, vectorSize, bufferSize, "%s.%s stream", dl->name, ddl->name);
+    }
+}
+
+void configLoadDeviceStreams(struct jsonnode *c, struct deviceData	*dl, char *path, char *context) {
     int					oldtype, i;
     struct jsonnode			*d, *ww;
     struct jsonFieldList		*ll;
-    struct deviceDataData		*ddl;
+    struct deviceStreamData		*ddl;
     char				*name;
     double				dweight;
 
-    for(ll=configFindFieldList(c, "data", JSON_NODE_TYPE_ARRAY, context); ll!=NULL; ll=ll->next) {
+    for(ll=configFindFieldList(c, "stream", JSON_NODE_TYPE_ARRAY, context); ll!=NULL; ll=ll->next) {
 	d = ll->val;
 	LOAD_CONFIG_ERROR_ON_WRONG_TYPE(d, path, context, "", JSON_NODE_TYPE_OBJECT);
 
@@ -250,27 +273,40 @@ void configLoadDeviceData(struct jsonnode *c, struct deviceData	*dl, char *path,
 	    ddl = dl->ddt[i];
 	    oldtype = ddl->type;
 	    ddl->dd = dl;
-	    LOAD_CONFIG_CONTEXT_PUSH(context, "data[%d]", i);
+	    LOAD_CONFIG_CONTEXT_PUSH(context, "stream[%d]", i);
 	    LOAD_CONFIG_ENUM_STRING_OPTION(d, context, ddl, deviceDataTypeNames,  type);
 	    if (ddl->type < DT_NONE || ddl->type >= DT_MAX) {
-		lprintf(0,"%s:%s:%d: Error: unknown data type in %s. Exiting.\n", PPREFIX(), __FILE__, __LINE__, context);
+		lprintf(0,"%s: Error: unknown data type in %s. Exiting.\n", PPREFIX(), context);
 		// Actuall this probably means serious configuration problem. Prefer not to continue
 		CANT_LOAD_CONFIGURATION_FILE_FATAL(path);
 		ddl->type = DT_NONE;
 	    }
 	    LOAD_CONFIG_STRING_OPTION_WITH_DEFAULT_VALUE(d, context, ddl, tag, NULL);
-	    LOAD_CONFIG_STRING_OPTION_WITH_DEFAULT_VALUE(d, context, ddl, name, deviceDataTypeNames[ddl->type]);
+	    if (strSafeLen(ddl->tag) < 2) {
+		// TODO: remove this
+		lprintf(0,"%s: Error: %s.tag is too short. Tags shall be at least two letters long!\n", PPREFIX(), context);
+		CANT_LOAD_CONFIGURATION_FILE_FATAL(path);
+	    }
+	    if (strSafeNCmp(ddl->tag, "BN", 2) == 0) {
+		// TODO: remove this
+		lprintf(0,"%s: Error: %s.tag starts with prefix BN. This prefix is reserved for binary messages!\n", PPREFIX(), context);
+		CANT_LOAD_CONFIGURATION_FILE_FATAL(path);
+	    }
+	    // Hmm. default name is derived from type. Maybe would be better to use tag
+	    // LOAD_CONFIG_STRING_OPTION_WITH_DEFAULT_VALUE(d, context, ddl, name, deviceDataTypeNames[ddl->type]);
+	    LOAD_CONFIG_STRING_OPTION_WITH_DEFAULT_VALUE(d, context, ddl, name, ddl->tag);
 	    LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(d, context, ddl, latency, 0);
 	    if (fabs(ddl->latency) >= 1.0) {
-		lprintf(0,"%s:%s:%d: Warning: %s.latency above 1 second? Are you sure?.\n", PPREFIX(), __FILE__, __LINE__, context);
+		lprintf(0,"%s: Warning: %s.latency above 1 second? Are you sure?.\n", PPREFIX(), context);
 	    }
 	    LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(d, context, ddl, timeout, 1.0);
 	    LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(d, context, ddl, min_range, 0.001);
 	    LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(d, context, ddl, max_range, 1e33);
+	    LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(d, context, ddl, min_altitude, 0.001);
+	    LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(d, context, ddl, max_altitude, 1e33);
 	    LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(d, context, ddl, mandatory, 0);
 	    LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(d, context, ddl, history_size, 2);
 	    LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(d, context, ddl, debug_level, 30);
-	    LOAD_CONFIG_ENUM_STRING_OPTION_WITH_DEFAULT_VALUE(d, context, ddl, coordinateSystemNames,  cs, CS_GBASE);
 	    dweight = 1.0;
 	    ww = jsonFindObjectField(d, "weight");
 	    if (ww != NULL && ww->type == JSON_NODE_TYPE_NUMBER) {
@@ -281,10 +317,12 @@ void configLoadDeviceData(struct jsonnode *c, struct deviceData	*dl, char *path,
 	    //if (ddl->weight[0] != ddl->weight[1]) {
 	    //lprintf(0,"%s: Warning: different weight for X and Y axis! Not yet implemented!\n", PPREFIX());
 	    //}
-	    regressionBufferInit(&ddl->dataHistory, deviceDataTypeLength[ddl->type], ddl->history_size, "%s.%s poses", dl->name, ddl->name);
+	    // we usually process all pending input from ParsedVector to RegressionBuffer at each tick
+	    configInputBufferInit(dl, ddl);
+	    regressionBufferInit(&ddl->outputBuffer, deviceDataStreamParsedVectorLength[ddl->type], ddl->history_size, "%s.%s stream out buffer", dl->name, ddl->name);
 	    memset(&ddl->launchData, 0, sizeof(ddl->launchData));
-	    ddl->nextWithSameType = uu->deviceDataDataByType[ddl->type];
-	    uu->deviceDataDataByType[ddl->type] = ddl;
+	    ddl->nextWithSameType = uu->deviceStreamDataByType[ddl->type];
+	    uu->deviceStreamDataByType[ddl->type] = ddl;
 	    LOAD_CONFIG_CONTEXT_POP(context);
 	} else {
 	    lprintf(0,"%s: Warning: maximum number of device data %d exceeded in configuration file %s. Ignoring.\n", PPREFIX(), DEVICE_DATA_MAX, path);
@@ -340,12 +378,13 @@ void configLoadDeviceConnection(struct jsonnode *cc, struct deviceData *dl, char
     LOAD_CONFIG_CONTEXT_POP(context);
 }
 
-static void configLoadPidController(struct jsonnode *c, struct pidController *pp, char *name, double integralMax, char *path, char *context) {
+static void configLoadPidController(struct jsonnode *c, struct pidController *pp, char *name, double integralMax, double derivativeMax, char *path, char *context) {
     struct jsonnode *cc;
 
     memset(pp, 0, sizeof(*pp));
     pp->name = name;
     pp->constant.integralMax = integralMax;
+    pp->constant.derivativeMax = derivativeMax;
     cc = jsonFindObjectField(c, name);
     if (cc != NULL) cc->used = 1;
     LOAD_CONFIG_CONTEXT_PUSH(context, "%s", name);
@@ -399,15 +438,15 @@ void configLoadDevices(struct jsonnode *cc, char *path, char *context) {
     configLoadVectorNoDefaultValue(cc, uu->motor_yaw_forces, uu->motor_number, "motor_yaw_forces", path, context);
 
     // Load PID values. Do this at the end because some default values may depend on other configuration values.
-    configLoadPidController(cc, &pp, "pidXY", 5.0*cfg->drone_max_speed, path, context);
+    configLoadPidController(cc, &pp, "pidXY", 50.0*cfg->drone_max_speed, 1.0*cfg->drone_max_speed, path, context);
     pp.name = "pidX";
     uu->pidX = pp;
     pp.name = "pidY";
     uu->pidY = pp;
-    configLoadPidController(cc, &uu->pidRoll, "pidRoll", 1.0, path, context);
-    configLoadPidController(cc, &uu->pidPitch, "pidPitch", 1.0, path, context);
-    configLoadPidController(cc, &uu->pidYaw, "pidYaw", 1.0, path, context);
-    configLoadPidController(cc, &uu->pidAltitude, "pidAltitude", 1.0, path, context);
+    configLoadPidController(cc, &uu->pidRoll, "pidRoll", 1.0, 0.05, path, context);
+    configLoadPidController(cc, &uu->pidPitch, "pidPitch", 1.0, 0.05, path, context);
+    configLoadPidController(cc, &uu->pidYaw, "pidYaw", 1.0, 0.05, path, context);
+    configLoadPidController(cc, &uu->pidAltitude, "pidAltitude", 1.0, 0.1, path, context);
 
     
     is1 = fabs(uu->pidX.constant.i) + fabs(uu->pidY.constant.i);
@@ -439,7 +478,7 @@ void configLoadDevices(struct jsonnode *cc, char *path, char *context) {
 	    LOAD_CONFIG_BOOL_OPTION_WITH_DEFAULT_VALUE(c, context, dl, shutdownExit, 0);
 	    LOAD_CONFIG_BOOL_OPTION_WITH_DEFAULT_VALUE(c, context, dl, data_ignore_unknown_tags, 0);
 	    LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(c, context, dl, warming_time, 1.0);
-	    configLoadDeviceData(c, dl, path, context);
+	    configLoadDeviceStreams(c, dl, path, context);
 	    LOAD_CONFIG_CONTEXT_POP(context);
 	} else {
 	    lprintf(0,"%s: Warning: maximum number of devices %d exceeded in configuration file %s. Ignoring.\n", PPREFIX(), DEVICE_MAX, path);

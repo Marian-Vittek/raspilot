@@ -71,14 +71,18 @@ uint8_t teapotPacket[14] = { '$', 0x02, 0,0, 0,0, 0,0, 0,0, 0x00, 0x00, '\r', '\
 
 // command line options
 uint8_t	printRpy = 0;
-uint8_t	printQuaternion = 1;
+uint8_t	printQuaternion = 0;
 
 // ================================================================
 // ===                      INITIAL SETUP                       ===
 // ================================================================
 
 static void setup(int argc, char **argv) {
-  int i;
+  int 	i;
+  char	*i2cpath;
+  int	optSharedI2cFlag;
+
+  i2cpath = (char*)"/dev/i2c-1";
   
   // TODO: get also i2c device path from command line!
   for(i=1; i<argc; i++) {
@@ -90,14 +94,21 @@ static void setup(int argc, char **argv) {
       printQuaternion = 1;
     } else if (strcmp(argv[i], "--quat") == 0) {
       printQuaternion = 0;
+    } else if (strcmp(argv[i], "-s") == 0) {
+      // share i2c. Do not reset shared semaphores
+      optSharedI2cFlag = 1;
+    } else if (argv[i][0] != '-') {
+      i2cpath = argv[i];
     }
   }
+
+  if (optSharedI2cFlag) pi2cInit(i2cpath, optSharedI2cFlag);
   
   // initialize device
   printf("Initializing I2C devices...\n");
   // Remove this
   // pi2cInit((char*)"/dev/i2c-1", 1);
-  mpu.initialize();
+  mpu.initialize(i2cpath, 0x68);
 
   // Is DLPF adding latency also with dmp?
   mpu.setDLPFMode(0);
@@ -220,7 +231,7 @@ static int loop() {
     if (printRpy) {
       mpu.dmpGetGravity(&gravity, &q);
       mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
-      printf("rpy %9.7f %9.7f %9.7f\n", ypr[2], ypr[1], ypr[0]);
+      printf("rpy %9.7f %9.7f %9.7f\n", -ypr[1], ypr[2], -ypr[0]);
     }    
     
     

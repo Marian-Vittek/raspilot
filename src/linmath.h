@@ -40,6 +40,12 @@ LINMATH_H_FUNC int vec##n##_has_zero(vec##n const v) \
 	for(i=0; i<n; ++i) if (v[i] == 0) return(1);	\
 	return(0); \
 } \
+LINMATH_H_FUNC int vec##n##_has_nan(vec##n const v) \
+{ \
+	int i; \
+	for(i=0; i<n; ++i) if (isnan(v[i])) return(1);	\
+	return(0); \
+} \
 LINMATH_H_FUNC void vec##n##_mul_elem(vec##n r, vec##n const a, vec##n const b) \
 { \
 	int i; \

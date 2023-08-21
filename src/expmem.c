@@ -305,7 +305,7 @@ void *expmemMalloc(unsigned n) {
 
     SINGLE_THREAD_CHECK_ENTRY();
 
-    // printf("allocating %d bytes to %d\n", n, mmmi); fflush(stdout);
+    // if (n > 2024000) {printf("allocating %d bytes\n", n); fflush(stdout); *((int*)NULL) = 0;}
     // this is important, because otherwise we can not reallocate or free such a ptr
     if (n == 0) SINGLE_THREAD_CHECK_EXIT(NULL);
 

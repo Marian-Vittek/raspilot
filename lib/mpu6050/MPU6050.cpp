@@ -80,6 +80,13 @@ MPU6050::~MPU6050() {
 }
 
 
+int MPU6050::initialize(char *devicePath, uint8_t address) {
+  pi2cPath = devicePath;
+  devAddr = address;
+  pi2cFd = -1;
+  return(initialize());
+}
+
 /** Power on and prepare for general usage.
  * This will activate the device and take it out of sleep mode (which must be done
  * after start-up). This function also sets both the accelerometer and the gyroscope

@@ -1,7 +1,6 @@
 #ifndef _COMMON__H_
 #define _COMMON__H_ 1
 
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -22,9 +21,11 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/wait.h>
+#include <sys/mman.h>
 
 #include <pthread.h>
 
+#include "raspilotshm.h"
 #include "expmem.h"
 #include "sglib.h"
 #include "pi2c.h"
@@ -57,7 +58,7 @@
 
 #define PILOT_PRELAUNCH_FREQUENCY_HZ		50
 
-#define PILOT_WARMING_WARNING_ROTATION_TIME		1.0
+#define PILOT_WARMING_WARNING_ROTATION_TIME		0.5
 #define PILOT_WARMING_WARNING_ROTATIONS_DELAY		3.0
 #define PILOT_WARMING_WARNING_ROTATIONS_TO_LAUNCH	5.0
 
@@ -109,13 +110,19 @@
 	if ((level) < logLevel) logbaioPrintf(level, __VA_ARGS__);	\
     }
 
+#define STRINGIFY(x)		  		#x
+#define FILE_LINE_ID_STR()	  		__FILE__ ":" STRINGIFY(__LINE__) 
 #define MAGIC_CHECK(uu)				(assert((uu)->magicNumber == MAGIC_NUMBER))
 #define MIN(x,y)                        	((x)<(y)?(x):(y))
 #define MAX(x,y)                        	((x)>(y)?(x):(y))
 #define SIGN(x)					((x)>0?1:(x)<0?-1:0)
 #define DIM(x)                          	(sizeof(x) / sizeof(x[0]))
 #define va_copy_end(x)                  	{}
-#define CORE_DUMP()                     	{if (fork()==0) {signal(SIGABRT, SIG_DFL); abort();}}
+#define DO_SIGSEGV()				{*((int*)(NULL)) = 0;}
+// Hmm. it seems that abort corrupts stack on my RPi
+#define ABORT()					{signal(SIGSEGV, SIG_DFL); DO_SIGSEGV();}
+#define CORE_DUMP()                     	{if (fork()==0) {ABORT();}}
+// #define CORE_DUMP()                     	{if (fork()==0) {signal(SIGABRT, SIG_DFL); abort();}}
 #define PRINTF(msg, ...)                	{???printf("%s:%d: " msg, __FILE__, __LINE__ __VA_OPT__(,) __VA_ARGS__);}
 #define PRINTF_AND_RETURN(val, msg, ...)    	{PRINTF(msg, __VA_ARGS__); return val;}
 #define PRINTF_AND_EXIT(val, msg, ...)    	{PRINTF(msg, __VA_ARGS__); exit(val) ;}
@@ -142,8 +149,6 @@
 
 #define PPREFIX()            		(printPrefix_st(uu, __FILE__, __LINE__))
 #define STR_ERRNO()               	(strerror(errno))
-#define STRINGIFY(x)		  	#x
-#define FILE_LINE_ID_STR()	  	__FILE__ ":" STRINGIFY(__LINE__) 
 
 #define DEBUG_HERE_I_AM()         	{printf("%s: H.I.AM: %s:%d\n", PPREFIX(), __FILE__, __LINE__); fflush(stdout);}
 
@@ -206,6 +211,19 @@ struct universe;
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+enum flyStageEnum {
+    FS_NONE,
+    FS_START,
+    FS_WAITING_FOR_SENSORS,
+    FS_PRE_FLY,
+    FS_FLY,
+    // Following stages are not yet implemented, TODO: instead shutdown in progress test uu->stageFly >= FS_SHUTDOWN
+    FS_LAND,
+    FS_SHUTDOWN,
+    FS_MAX,
+};
+
+
 // TODO: Remove  all this coordinate system stuff. It is overcomplicated. Instead implement
 // gotoWaypointToGps(), gotoWaypointRelative(), etc. ...
 enum coordinateSystemEnum {
@@ -260,20 +278,26 @@ enum deviceDataTypes {
     DT_NONE,
     
     DT_VOID,
+
+    // Text based streams through pipes/sockets
     DT_DEBUG,
     DT_PONG,
     DT_POSITION_VECTOR,
-    DT_GROUND_DISTANCE,
+    DT_BOTTOM_RANGE,
+    DT_FLOW_XY,
     DT_ALTITUDE,
     DT_ORIENTATION_RPY,
-    DT_ORIENTATION_QUATERNION,
-    
+    DT_ORIENTATION_QUATERNION,    
     DT_POSITION_NMEA,
     DT_MAGNETIC_HEADING_NMEA,
-
     // Exotic stuff
     DT_JSTEST,		// joystick
 
+
+    // TOBE: Shared memory streams
+    DT_SHM_POSITION,
+    DT_SHM_ORIENTATION_RPY,
+    
     DT_MAX,
 };
 
@@ -282,11 +306,11 @@ enum deviceConnectionTypeEnum {
     DCT_INTERNAL_ZEROPOSE,
     DCT_COMMAND_BASH,
     DCT_COMMAND_EXEC,
-    DCT_NAMED_PIPES,
+    // Named pipes looked nice. Unfortunately, on raspberry pi they are unstable. They have jitters making them unusable for low latency devices.
+    DCT_NAMED_PIPES,     
     /* in the future we can do something like:
     DCT_TCPIP_CLIENT_SOCKET,
     DCT_TCPIP_SERVER_SOCKET,
-    DCT_UDP_SOCKET,
     */
     DCT_MAX,
 };
@@ -535,6 +559,7 @@ struct pidControllerConstants {
 
     // some safety value to be checked to prevent PID's windup (overflow of integral sum)
     double	integralMax;
+    double	derivativeMax;
 
 };
 
@@ -558,27 +583,26 @@ struct pidController {
     struct pidControllerData		d;
 };
 
-//////////////////////////////////////////////////////////////////////////////////////////////
-// configuration
 
 // Regression buffer is a ring buffer storing vectors of size vectorsize in each cell.
-// It also maintains sums and sums of squares of stored elements. Those sums are used
+// Usualy, it also maintains sums and sums of squares of stored elements. Those sums are used
 // for fast extrapolation (for given time) of values by linear regression.
 struct regressionBuffer {
     char		name[256];	// for debug output only, to be removed or replaced by char *name;
     int			size;
     int			vectorsize;
     int			ai;		// index where next elem will be stored
-    int			ailast;		// index where last elem was added, i.e.  (ai-1) % size
-    int			aiprev;		// index where previous last elem was added, i.e. (ai-2)%size
+    int			ailast;		// index where the last elem was added, i.e.  (ai-1) % size
+    int			aiprev;		// index where the previous elem to the last was added, i.e. (ai-2)%size
     int			n;		// number of total inserted elements, not only currently stored (ai == n%size)
 
     // the actual data stored in the buffer
     double		*time;		// time[size]          // time when the vector was added
     double		*a;		// a[size][vectorsize] // the actual numbers stored in the buffer
 
+    int			keepSumsFlag;	// if zero, sums are not maintained (used for buffers not using regression too much)
+    double		timeOffsetForSums; // time is decresed by this offset in sum and sumSquare to avoid overflow
     // sums used for least square method (from times and elements currently hold in the 'a' array)
-    double		sumsTimeOffset;
     double		sumTime;
     double		sumTimeSquare;
     double		*suma;		// suma[vectorsize];
@@ -586,34 +610,48 @@ struct regressionBuffer {
 
     // sums used for flight statistics
     // sums from all elements inserted since the launch time, not only currently stored
-    double		*totalSumForStatistics;	// totalSumForStatistics[vectorsize];
+    double		*totalSumForStatistics;		// totalSumForStatistics[vectorsize];
     int			totalElemsForStatistics;    
 };
 
-struct deviceDataData {
+//////////////////////////////////////////////////////////////////////////////////////////////
+// configuration
+
+struct deviceStreamData {
     // values from config
     char			*name;
     char			*tag;
-    enum coordinateSystemEnum	cs;
     enum deviceDataTypes	type;
-    int				length;		// length of the vector if type == DDT_VECTOR
     double			latency;	// data received refers to the time lastDataTime - latency
     double			timeout;	// if last value is more then timeout old, sensor is ignored
-    double			min_range;	// minimal valid range for radar
-    double			max_range;	// minimal valid range for radar
+    double			min_range;	// minimal valid range for rangefinders (radar)
+    double			max_range;	// minimal valid range for rangefinders (radar)
+    double			min_altitude;	// min valid altitude (for flow detectors)
+    double			max_altitude;	// max valid altitude (for flow detectors)
     vec4			weight;		// weight is per axis in GBASE, or rpy per quat elem for quat
     uint8_t			mandatory;	// whether device has to be active before launch
     int				history_size;   // the size of the history saved for linear interpolation, rename to regression_points or similar
     int				debug_level;
+    struct deviceData		*dd;		// "back" pointer to device data where I belong
 
-    // run time values
-    struct deviceData		*dd;		// "back" point to device data where I belong
-
-    // received data are stored in a buffer to be extrapolated using linear regression as needed
-    struct regressionBuffer	dataHistory;
+    // This is the place where the 'raw' values read from the device are stored.
+    // Old way.
+    // raw data coming from the sensor are parsed, "timestamped" and put into this buffer
+    //struct raspilotRingBuffer		inputBuffer;
+    //  New way allowing shared memory access.    
+    // Data coming from the sensor through a text pipe are parsed, "timestamped" and put into this buffer.
+    // Shared memory devices send us a pointer to this structure on init and write directly into this shared.
+    struct raspilotInputBuffer    	*input;
     
-    // maybe confidence shall be per sample and stored in dataHistory?
-    // Then the average (or extrapolated) confidence will be used.
+    // data from inputBuffer are transformed to what pilot needs (usualy orientation/position)
+    // when pilot needs
+    struct regressionBuffer	outputBuffer;
+    int				inputToOutputN;	// the indice of the first item in inputBuffer not moved to outputBuffer yet
+
+    
+    // TODO move from scalar confidence to vector
+    double			confidenceVector[DEVICE_DATA_VECTOR_MAX]; // confidence of the outputBuffer data
+    // old way to store values, scalar confidence
     double			confidence;	
 
     // something for final statistics
@@ -621,13 +659,13 @@ struct deviceDataData {
     int				totalNumberOfRecordsReceivedForStatistics;
     
     // This is the value the device reported before drone launch
-    // It may or may not (depending on device type) be used to translate device
-    // poses to actual poses in GBASE coordinate system during the flight
+    // It may or may not (depending on device type) be used to correct device data
     double   			launchData[DEVICE_DATA_VECTOR_MAX];
     uint8_t			launchPoseSetFlag;	// whether we have yet stored the launch pose
 
     // devicedata are linked also by the type of data for faster fusion of sensors
-    struct deviceDataData 	*nextWithSameType;
+    struct deviceStreamData 	*nextWithSameType;
+
 };
 
 struct connection {
@@ -644,16 +682,20 @@ struct connection {
 struct deviceData {
     char			*name;
 
-    // for now, consider all devices are sending line after line
-    // with the relevant parts split by ddt names
-    char			*command;
+    // for now, we consider that all devices are providing data in form of a text streams,
+    // line after line, each line starting by the tag determining which data are there.
     struct connection		connection;
-    struct deviceDataData	*ddt[DEVICE_DATA_MAX];
+    struct deviceStreamData	*ddt[DEVICE_DATA_MAX];
     int				ddtMax;
-    vec3			mount_position;
+    vec3			mount_position;		// w.r.t. the center of gravity
     vec3			mount_rpy;		// roll pitch yaw
     double			warming_time;
+    
+    // Flag whether to send 'exit' command to motors at raspilot shutdown.
+    // the ide was that PWM process will stay running sending idle PWM
+    // while dshot motor process can exit.
     uint8_t			shutdownExit;
+    // do not print warning if unknow data line read from data stream
     uint8_t			data_ignore_unknown_tags;
     
     uint8_t			enabled;
@@ -725,9 +767,10 @@ struct universe {
     int				deviceMotors;
 
     // Following optimizes sensor fusion
-    struct deviceDataData	*deviceDataDataByType[DT_MAX];	// lists by data types
+    struct deviceStreamData	*deviceStreamDataByType[DT_MAX];	// lists by data types
     
     // run time values
+    enum flyStageEnum		flyStage;
     double			pilotStartingTime;		// the time when pilot was launched
     
     struct motorStr		motor[MOTOR_MAX];
@@ -749,37 +792,51 @@ struct universe {
     vec3			droneLastRpyRotationSpeed;
     // The time when previous values were updated
     double			droneLastTickTime;
+
+    // hold a few seconds of historical poses for case somebody needs it
+    // TODO: split into historyPosition and historyRpy, so that position sensors
+    // can find the new orientation there
+    struct raspilotRingBuffer		*historyPose;
     
     // end of universe
     unsigned			magicNumber;
 };
 
-typedef int deviceDataParseFunction(char *tag, char *p, struct deviceData *dd, struct deviceDataData *ddd);
+typedef int deviceDataParseFunction(char *tag, char *p, struct deviceData *dd, struct deviceStreamData *ddd);
 
 //////////////////////////////////////////////////////////////////////////////////////////////
 //
 // common.c
 extern int 			debugLevel;
 extern int 			logLevel;
+extern int 			baseLogLevel;
+extern int			log10TicksPerSecond;
 extern struct universe		*uu;
 extern struct globalTimeInfo	currentTime;
 extern struct timeLineEvent     *timeLine;
+extern uint64_t			tickCounter;
 extern uint64_t			currentTimeLineTimeUsec;
 extern int64_t 			nextStabilizationTickUsec;
 extern int			shutDownInProgress;
 extern struct jsonnode 		dummyJsonNode;
 extern char 			*signalInterruptNames[258];
-extern int 			deviceDataTypeLength[DT_MAX];
+extern int 			deviceDataStreamParsedVectorLength[DT_MAX];
+extern int 			deviceDataStreamRegressionBufferLength[DT_MAX];
 extern char 			*deviceDataTypeNames[DT_MAX+2];
 extern char 			*coordinateSystemNames[CS_MAX+2];
 extern char			*deviceConnectionTypeNames[DCT_MAX+2];
 
 char *getTemporaryStringPtrFromStaticStringRing();
+int strtoint(char *s, char **ee) ;
+void strtodninit() ;
+double strtodn(char *p, char **ee) ;
 int hexDigitCharToInt(int hx) ;
 int intDigitToHexChar(int x) ;
 char *strDuplicate(char *s) ;
 char *strnDuplicate(char *s, int max) ;
 char *strSafeDuplicate(char *s) ;
+int strSafeLen(char *s) ;
+int strSafeNCmp(char *s1, char *s2, int n) ;
 int strSafeCmp(char *s1, char *s2) ;
 int isspaceString(char *s) ;
 void writeToFd(int fd, char *buf, int bufsize) ;
@@ -813,8 +870,6 @@ void timeLineTimeToNextEvent(struct timeval *tv, int maxseconds) ;
 int timeLineExecuteScheduledEvents(int updateCurrenttimeFlag) ;
 void timeLineDump() ;
 char *arrayWithDimToStr_st(double *a, int dim) ;
-void deviceInitiate(int i) ;
-void sendToAllDevices(char *fmt, ...) ;
 void enumNamesInit() ;
 void enumNamesPrint(FILE *ff, char **names) ;
 int enumNamesStringToInt(char *s, char **names) ;
@@ -822,15 +877,19 @@ void terminalResume() ;
 int stdbaioStdinMaybeGetPendingChar() ;
 void stdbaioStdinClearBuffer();
 
+double *raspilotRingBufferGetFirstFreeVector(struct raspilotRingBuffer *hh) ;
+void raspilotRingBufferFindRecordForTime(struct raspilotRingBuffer *hh, double time, double *restime, double **res) ;
+
 void regressionBufferPrintSums(struct regressionBuffer *hh) ;
 void regressionBufferAddToSums(struct regressionBuffer *hh, double time, double *vec) ;
 void regressionBufferSubstractFromSums(struct regressionBuffer *hh, double time, double *vec) ;
 void regressionBufferRecalculateSums(struct regressionBuffer *hh) ;
 void regressionBufferAddElem(struct regressionBuffer *hh, double time, double *vec) ;
 void regressionBufferInit(struct regressionBuffer *hh, int vectorSize, int bufferSize, char *namefmt, ...) ;
+void regressionBufferFindRecordForTime(struct regressionBuffer *hh, double time, double *restime, double *res) ;
 int regressionBufferGetRegressionCoefficients(struct regressionBuffer *hh, int i, double *k0, double *k1) ;
 void regressionBufferGetMean(struct regressionBuffer *hh, double *time, double *res) ;
-int regressionBufferEstimatePoseForTimeByLinearRegression(struct regressionBuffer *hh, double time, double *res) ;
+int regressionBufferEstimateForTime(struct regressionBuffer *hh, double time, double *res) ;
 
 int vec1TruncateToSize(double *r, double size, int warningFlag, char *warningId) ;
 int vec2TruncateToSize(vec2 r, double size, int warningFlag, char *warningId) ;
@@ -838,8 +897,8 @@ int vec3TruncateToSize(vec3 r, double size, int warningFlag, char *warningId) ;
 void pidControllerReset(struct pidController *pp) ;
 char *pidControllerStatistics(struct pidController *pp, int showProposedCiFlag) ;
 double pidControllerStep(struct pidController *pp, double setpoint, double measured_value, double dt) ;
-void quatToYpr(quat qq, double *yaw, double *pitch, double *roll);
-void yprToQuat(double yaw, double pitch, double roll, quat q) ;
+void quatToRpy(quat qq, double *roll, double *pitch, double *yaw);
+void rpyToQuat(double roll, double pitch, double yaw, quat q) ;
 void stdbaioInit() ;
 void stdbaioClose() ;
 void logbaioInit() ;
@@ -852,6 +911,8 @@ void trajectoryLogClose() ;
 void pingToHostInit() ;
 void pingToHostRegularCheck(void *d) ;
 void pingToHostClose() ;
+
+struct raspilotInputBuffer *raspilotCreateSharedMemory(struct deviceStreamData *ddd) ;
 
 // json.c
 extern char *jsonNodeTypeEnumNames[];
@@ -871,6 +932,14 @@ char *jsonParseStringLiteral(char *ss, char **res) ;
 // config.c
 void configloadFile() ;
 void mainLoadMissionFile() ;
+
+// device.c
+int deviceIsSharedMemoryDataStream(struct deviceStreamData *ddl) ;
+void deviceParseInputStreamLineToInputBuffer(struct deviceData *dd, char *s, int n) ;
+void deviceTranslateInputToOutput(struct deviceStreamData *ddd) ;
+void deviceInitiate(int i) ;
+void deviceFinalize(int i) ;
+void deviceSendToAllDevices(char *fmt, ...) ;
 
 // pilot.c
 int raspilotPoll() ;
@@ -895,9 +964,8 @@ void motorsEmmergencyLand() ;
 void motorsEmmergencyShutdown() ;
 void pilotImmediateLanding() ;
 void pilotInteractiveInputRegularCheck(void *d) ;
-void pilotRegularSpecialTick(void *d) ;
-void pilotRegularPreLaunchTick(void *d) ;
-void pilotRegularStabilizationLoopTick(void *d) ;
+void pilotRegularSpecialModeTick(void *d) ;
+void pilotRegularLoopTick(void *d) ;
 int pilotAreAllDevicesReady() ;
 void pilotStoreLaunchPose(void *d) ;
 void pilotRegularStabilizationLoopRescheduleToSoon() ;

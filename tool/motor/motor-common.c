@@ -64,6 +64,7 @@ int motorStandBy = 1;
 int motorPins[MOTOR_MAX];
 double motorThrottle[MOTOR_MAX];
 int motorMax = 0;
+double motorThrottleFactor = 0;
 
 int inputPipeFd;
 int outputPipeFd;
@@ -80,7 +81,7 @@ static uint64_t currentTimestampUsec() {
     return((uint64_t)tv.tv_sec * 1000000LL + tv.tv_usec);
 }
 
-char *sprintTime_st(long long int utime) {
+static char *sprintTime_st(long long int utime) {
     time_t          t;
     int             u;
     struct tm       *tm, ttm;
@@ -95,7 +96,7 @@ char *sprintTime_st(long long int utime) {
     return(res);
 }
 
-void motorSendThrottles() {
+static void motorSendThrottles() {
     int 	i;
     uint64_t 	t;
 
@@ -109,7 +110,7 @@ void motorSendThrottles() {
     motorImplementationSendThrottles(motorPins, motorMax, motorThrottle);
 }
 
-void motorStartEmergencyLanding() {
+static void motorStartEmergencyLanding() {
     int i;
     // This is some emergency stop. If there is an error on the input, try to land with minimal damage.
     printf("debug motor: emergency landing\n"); fflush(stdout);
@@ -121,6 +122,40 @@ void motorStartEmergencyLanding() {
 	usleep(10000);
     }
     if (debug) abort();
+}
+
+static void writeToFd(int fd, char *buf, int bufsize) {
+    int 	r, n;
+	
+    for(n=0; n<bufsize; ) {
+	errno = 0;
+	r = write(fd, buf+n, bufsize-n);
+	// printf("Written %d bytes to %d\n", r, fd);
+	if (r < 0 || (r == 0 && errno != 0)) break;
+	n += r;
+    }
+}
+
+int strtoint(char *s, char **ee) {
+    int sign, res;
+    
+    while(isspace(*s)) s++;
+    
+    sign = 1;
+    if (*s == '-') {
+        sign = -1; s++;
+    } else if (*s == '+') {
+        sign = 1; s++;
+    }
+
+    res = 0;
+    while (*s >= '0' && *s <= '9') {
+	res = res * 10 + *s - '0';
+	s++;
+    }
+    *ee = s;
+    if (sign < 0) res = - res;
+    return(res);
 }
 
 int readThrustFromInputPipe() {
@@ -151,7 +186,7 @@ int readThrustFromInputPipe() {
     tout.tv_sec = 0;
     
     if (debug > 10) {
-	tout.tv_usec = 200000000;	// wait 200ms max
+	tout.tv_usec = 200000000;
     } else {
 	tout.tv_usec = 200000;		// wait 200ms max
     }
@@ -242,8 +277,16 @@ int readThrustFromInputPipe() {
 		parsedOkFlag = 0;
 	    } else {
 		q = eq;
-		for(i=0; i<n; i++) {
+		for(i=0; i<motorMax; i++) {
 		    t = strtod(q, &eq);
+#if TEST2		    
+		    t = strtoint(q, &eq);
+		    if (motorThrottleFactor == 0 && t != 0) {
+			fprintf(ff, "debug %s: %s:%d: Motor throttle factor not set while parsing '%s'\n", sprintTime_st(t), __FILE__, __LINE__, bbb);
+			fflush(ff);
+		    }
+		    t = t * motorThrottleFactor;
+#endif
 		    if (eq == q) {
 			parsedOkFlag = 0;
 		    } else {
@@ -280,7 +323,7 @@ int readThrustFromInputPipe() {
 	} else if (q[0] == 'p' && q[1] == 'i' && q[2] == 'n' && q[3] == 'g') {
 	    tstamp = atoll(q+4);
 	    r = snprintf(pongbuf, sizeof(pongbuf)-1, "pong%lld\n", tstamp);
-	    write(outputPipeFd, pongbuf, r);
+	    writeToFd(outputPipeFd, pongbuf, r);
 	    res |= 0;
 	} else if (q[0] == 'i' && q[1] == 'n' && q[2] == 'f' && q[3] == 'o') {
 	    // raspilot status information, ignore
@@ -292,6 +335,10 @@ int readThrustFromInputPipe() {
 	} else if (q[0] == '3' && q[1] == 'd' && q[2] == '1') {
 	    // set 3d mode
 	    motorImplementationSet3dModeAndSpinDirection(motorPins, motorMax, 1, 0);
+	    res |= 0;
+	} else if (q[0] == 'm' && q[1] == 'f' && q[2] == 'a' && q[3] == 'c') {
+	    // set factor for throttles sent as integers
+	    motorThrottleFactor = 1.0 / atoll(q+4);
 	    res |= 0;
 	} else if (q[0] == 0) {
 	    // empty line, ignore
@@ -342,6 +389,15 @@ int main(int argc, char *argv[]) {
 	exit(-1);
     }
 
+    /* TODO: set affinity
+	cpu_set_t set;
+	CPU_ZERO(&set);
+        // By default set this process to the core 2
+	CPU_SET(2, &set);
+	r = sched_setaffinity(getpid(),sizeof(set),&set);
+	if (r != 0) printf("debug Warning: can't set process affinity.\n");
+    */
+    
     signal(SIGINT, motorStopInterrupt);
     
     if (strcmp(argv[1], "-") == 0) {

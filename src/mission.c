@@ -1,7 +1,7 @@
 //////////////////////////////////////////////////////////////////////////////////////////
 // This file contaions raspilot missions
 // For your own mission, edit this file, in particular the
-// function 'mission' at the bootom of the file.
+// function 'mission' at the bottom of the file.
 
 #include "common.h"
 
@@ -86,9 +86,7 @@ void missionSquare(double squareSize, double altitude, double waitOnWaypoint, in
 }
 
 void missionLandImmediately() {
-    int r;
-    r = timeLineRemoveEventAtUnknownTimeAndArg(pilotRegularPreLaunchTick);
-    if (r == 0) {
+    if (uu->flyStage < FS_FLY) {
 	// if we did not launch yet, just shutdown pilot
 	lprintf(0, "%s: Interactive: shutdown.\n", PPREFIX());
 	raspilotShutDownAndExit();
@@ -123,6 +121,7 @@ void missionProcessInteractiveInput(int c) {
 	printf("%s: Interactive: thrust == %f\n", PPREFIX(), uu->pidAltitude.constant.ci);
 	break;
     case 'l':
+    case 'L':
 	// normal interactive landing
 	missionLandImmediately();
 	break;
@@ -159,7 +158,7 @@ void missionMotorPwmCalibrationAndExit(int motorIndex) {
     printf("%s: If not, motors will launch on max speed  !!!\n", PPREFIX());
     printf("%s: Type 'c' if ESCs are off and we can continue.\n", PPREFIX());
     stdbaioStdinClearBuffer();
-    timeLineInsertEvent(UTIME_AFTER_MSEC(1), pilotRegularSpecialTick, NULL);
+    timeLineInsertEvent(UTIME_AFTER_MSEC(1), pilotRegularSpecialModeTick, NULL);
     
     while ((c=stdbaioStdinMaybeGetPendingChar()) == -1) raspilotPoll();
     if (c != 'c') {
@@ -205,7 +204,7 @@ void missionSingleMotorTest(int motorIndex) {
 }
 
 void missionMotorTest(int i) {
-    timeLineInsertEvent(UTIME_AFTER_MSEC(1), pilotRegularSpecialTick, NULL);
+    timeLineInsertEvent(UTIME_AFTER_MSEC(1), pilotRegularSpecialModeTick, NULL);
     // Do a longer wait for case if someting is not initialized immediately.
     raspilotBusyWait(5.0);
     if (i < 0) {

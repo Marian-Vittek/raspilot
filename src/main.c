@@ -3,6 +3,7 @@
 
 //////////////////////////////////////////////////////////////////////////////////////////
 // TODO: probably create a new file for those functions
+
 enum statisticsActionEnum {
     STATISTIC_NONE,
     STATISTIC_INIT,
@@ -43,10 +44,10 @@ void mainStatisticsMotors(int action) {
     }
 }
 
-void mainStatisticsPoseSensors(int action) {
+void mainStatisticsSensors(int action) {
     int 			i, j, k;
     struct deviceData		*dd;
-    struct deviceDataData	*ddd;
+    struct deviceStreamData	*ddd;
     char			*sep;
     
     if (action == STATISTIC_PRINT) {
@@ -76,12 +77,12 @@ void mainStatisticsPoseSensors(int action) {
 			break;
 		    default:
 			sep = "average: [";
-			for(k=0; k<ddd->dataHistory.vectorsize; k++) {
-			    if (action == STATISTIC_INIT) ddd->dataHistory.totalSumForStatistics[k]=0;
-			    if (action == STATISTIC_PRINT && ddd->dataHistory.totalElemsForStatistics != 0) lprintf(0, "%s%g", sep, ddd->dataHistory.totalSumForStatistics[k] / ddd->dataHistory.totalElemsForStatistics);
+			for(k=0; k<ddd->outputBuffer.vectorsize; k++) {
+			    if (action == STATISTIC_INIT) ddd->outputBuffer.totalSumForStatistics[k]=0;
+			    if (action == STATISTIC_PRINT && ddd->outputBuffer.totalElemsForStatistics != 0) lprintf(0, "%s%g", sep, ddd->outputBuffer.totalSumForStatistics[k] / ddd->outputBuffer.totalElemsForStatistics);
 			    sep = ", ";
 			}
-			if (action == STATISTIC_INIT) ddd->dataHistory.totalElemsForStatistics = 0;
+			if (action == STATISTIC_INIT) ddd->outputBuffer.totalElemsForStatistics = 0;
 			if (action == STATISTIC_PRINT) lprintf(0, "]");
 			break;
 		    }
@@ -97,7 +98,7 @@ void mainStatisticsPoseSensors(int action) {
 void mainStatisticsPids(int action) {
     int 			i, j, k;
     struct deviceData		*dd;
-    struct deviceDataData	*ddd;
+    struct deviceStreamData	*ddd;
     char			*sep;
 
 
@@ -131,7 +132,7 @@ void mainStatistics(int action) {
     }
     
     mainStatisticsMotors(action);
-    mainStatisticsPoseSensors(action);
+    mainStatisticsSensors(action);
     mainStatisticsPids(action);
     
     if (action == STATISTIC_PRINT) {
@@ -152,11 +153,17 @@ void mainExit(void *d) {
 }
 
 void mainStandardShutdown(void *d) {
+    int 	i;
+    
     lprintf(0, "%s: Raspilot is going down\n", PPREFIX());
     motorsStop(NULL);
     motorsStandby(NULL);
-    if (uu->deviceMotors >= 0 && uu->device[uu->deviceMotors]->shutdownExit) motorsExit(NULL);
+    if (uu->deviceMotors >= 0 && uu->device[uu->deviceMotors] != NULL && uu->device[uu->deviceMotors]->shutdownExit) motorsExit(NULL);
     if (1) mainStatistics(STATISTIC_PRINT);
+    
+    // Deinitialize/close all devices
+    for(i=0; i<uu->deviceMax; i++) deviceFinalize(i);
+
     trajectoryLogClose();
     pingToHostClose();
     logbaioClose();
@@ -194,8 +201,14 @@ void pilotInterruptHandler(int sig) {
 	// send motors safe-land command and core dump
 	motorsEmmergencyLand();
 	terminalResume();
+#if 1
+	// strangely, abort corrupts my stack.
+	signal(SIGSEGV, SIG_DFL);
+	DO_SIGSEGV();
+#else
 	signal(SIGABRT, SIG_DFL);
 	abort();
+#endif	
     }
 }
 
@@ -265,9 +278,12 @@ int mainProcessCommandLineArgs(int argc, char **argv) {
 		lprintf(0, "%s: Error: Command line: -ll shall be followed by log level argument\n", PPREFIX());
 	    } else {
 		i++;
-		logLevel = atoi(argv[i]);
+		logLevel = baseLogLevel = atoi(argv[i]);
 		if (logLevel > 0) lprintf(0, "%s: Info: log level: %d\n", PPREFIX(), logLevel);
 	    }
+	} else if (strcmp(argv[i], "-l10") == 0) {
+	    // log level
+	    log10TicksPerSecond = 1;
 	} else if (strcmp(argv[i], "-l") == 0) {
 	    // log file
 	    if (i+1 >= argc) {
@@ -306,37 +322,72 @@ int mainProcessCommandLineArgs(int argc, char **argv) {
 }
 
 static void initTask() {
-    int i;
+    int 	i, r;
+    cpu_set_t 	set;
 
     // the very first initializations of the system
-    
+
     memset(uu, 0, sizeof(*uu));
+    uu->flyStage = FS_START;
     enumNamesInit();
     setCurrentTime();
     uu->pilotStartingTime = currentTime.dtime;
 
-    for(i=0; i<DT_MAX; i++) deviceDataTypeLength[i] = -1;
-    deviceDataTypeLength[DT_NONE] = 0;
-    deviceDataTypeLength[DT_VOID] = 0;
-    deviceDataTypeLength[DT_DEBUG] = 0;
-    deviceDataTypeLength[DT_PONG] = 0;
-    deviceDataTypeLength[DT_POSITION_VECTOR] = 3;
-    deviceDataTypeLength[DT_GROUND_DISTANCE] = 1;
-    deviceDataTypeLength[DT_ALTITUDE] = 1;
-    deviceDataTypeLength[DT_ORIENTATION_RPY] = 3;
-    deviceDataTypeLength[DT_ORIENTATION_QUATERNION] = 4;
-    deviceDataTypeLength[DT_POSITION_NMEA] = 3;
-    deviceDataTypeLength[DT_MAGNETIC_HEADING_NMEA] = 1;
-    deviceDataTypeLength[DT_JSTEST] = 5;
+    // This is the length of the vector we parse from device's stdout
+    for(i=0; i<DT_MAX; i++) deviceDataStreamParsedVectorLength[i] = -1;    
+    deviceDataStreamParsedVectorLength[DT_NONE] = 0;
+    deviceDataStreamParsedVectorLength[DT_VOID] = 0;
+    deviceDataStreamParsedVectorLength[DT_DEBUG] = 0;
+    deviceDataStreamParsedVectorLength[DT_PONG] = 0;
+    deviceDataStreamParsedVectorLength[DT_POSITION_VECTOR] = 3;
+    deviceDataStreamParsedVectorLength[DT_BOTTOM_RANGE] = 1;
+    deviceDataStreamParsedVectorLength[DT_FLOW_XY] = 2;
+    deviceDataStreamParsedVectorLength[DT_ALTITUDE] = 1;
+    deviceDataStreamParsedVectorLength[DT_ORIENTATION_RPY] = 3;
+    deviceDataStreamParsedVectorLength[DT_ORIENTATION_QUATERNION] = 4;
+    deviceDataStreamParsedVectorLength[DT_POSITION_NMEA] = 3;
+    deviceDataStreamParsedVectorLength[DT_MAGNETIC_HEADING_NMEA] = 1;
+    deviceDataStreamParsedVectorLength[DT_JSTEST] = 5;
+    deviceDataStreamParsedVectorLength[DT_SHM_POSITION] = 3;
+    deviceDataStreamParsedVectorLength[DT_SHM_ORIENTATION_RPY] = 3;
+
+    // This is the length of the vector we got by processing parsed vector and which can be extrapolated
+    // by regression into something used by pilot, like position/orientation etc.
+    for(i=0; i<DT_MAX; i++) deviceDataStreamRegressionBufferLength[i] = -1;    
+    deviceDataStreamRegressionBufferLength[DT_NONE] = 0;
+    deviceDataStreamRegressionBufferLength[DT_VOID] = 0;
+    deviceDataStreamRegressionBufferLength[DT_DEBUG] = 0;
+    deviceDataStreamRegressionBufferLength[DT_PONG] = 0;
+    deviceDataStreamRegressionBufferLength[DT_POSITION_VECTOR] = 3;
+    deviceDataStreamRegressionBufferLength[DT_BOTTOM_RANGE] = 1;
+    deviceDataStreamRegressionBufferLength[DT_FLOW_XY] = 2;
+    deviceDataStreamRegressionBufferLength[DT_ALTITUDE] = 1;
+    deviceDataStreamRegressionBufferLength[DT_ORIENTATION_RPY] = 3;
+    deviceDataStreamRegressionBufferLength[DT_ORIENTATION_QUATERNION] = 4;
+    deviceDataStreamRegressionBufferLength[DT_POSITION_NMEA] = 3;
+    deviceDataStreamRegressionBufferLength[DT_MAGNETIC_HEADING_NMEA] = 1;
+    deviceDataStreamRegressionBufferLength[DT_JSTEST] = 0;
+    deviceDataStreamRegressionBufferLength[DT_SHM_POSITION] = 3;
+    deviceDataStreamRegressionBufferLength[DT_SHM_ORIENTATION_RPY] = 3;
+
+    
     // deviceDataTypeLength[DT_MAX] = 0;
     for(i=0; i<DT_MAX; i++) {
-	if (deviceDataTypeLength[i] == -1) {
+	if (deviceDataStreamParsedVectorLength[i] == -1) {
 	    fprintf(stderr, "%s: Internal Error: deviceDataTypeLength[%d] not set. Exiting!\n", PPREFIX(), i);
+	}
+    }
+    for(i=0; i<DT_MAX; i++) {
+	if (deviceDataStreamRegressionBufferLength[i] == -1) {
+	    fprintf(stderr, "%s: Internal Error: deviceDataStreamRegressionBufferLength[%d] not set. Exiting!\n", PPREFIX(), i);
 	}
     }
 
     baioLibraryInit(0);
-
+    strtodninit() ;
+    // Hardware i2c may be shared between processes
+    pi2cInit("/dev/i2c-1", 0);
+    
     signal(SIGABRT, pilotInterruptHandler);
     signal(SIGFPE,  pilotInterruptHandler);
     signal(SIGILL,  pilotInterruptHandler);
@@ -347,18 +398,21 @@ static void initTask() {
     signal(SIGPIPE, sigPipeHandler);				// ignore SIGPIPE Signals
     signal(SIGCHLD, zombieHandler);				// avoid system of keeping child zombies
 
-    // init pi2c
-    pi2cInit("/dev/i2c-1", 0);
 }
 
 static void initConfiguredPilot() {
     int			i;
     struct baio 	*bb;
     struct deviceData	*dd;
-
+    char		*mem;
+    
     uu->pilotLaunchTime = currentTime.dtime;
     regressionBufferInit(&uu->shortHistoryPosition, 3, uu->config.short_history_seconds * uu->stabilization_loop_Hz + 0.5, "short pose history");
     regressionBufferInit(&uu->shortHistoryRpy, 3, uu->config.short_history_seconds * uu->stabilization_loop_Hz + 0.5, "short orientation history");
+    // hold non regression history of [x,y,z,r,p,y] for 5 seconds. At hight rate it is too big. Store 1 second.
+    ALLOCC(mem, RASPILOT_RING_BUFFER_SIZE(6, 1 * uu->stabilization_loop_Hz + 0.5), char);
+    uu->historyPose = (struct raspilotRingBuffer *) mem;
+    raspilotRingBufferInit(uu->historyPose, 6, 1 * uu->stabilization_loop_Hz + 0.5, "historyPose");
     
     for(i=0; i<uu->motor_number; i++) {
 	uu->motor[i].thrust = 0.0;
@@ -437,7 +491,7 @@ int raspilotInit(int argc, char **argv) {
 
     // Sleep at leat 1 second. It is the usual time for killing subprocesses and restarting new one in config
     // file
-    raspilotBusyWait(1.10);
+    // raspilotBusyWait(1.10);
     return(0);
 }
 
@@ -448,14 +502,19 @@ void raspilotPreLaunchSequence() {
     double 	tt, td;
     double 	thrust_warning_spin;
     
-    sendToAllDevices("info: init\n");
-    timeLineInsertEvent(UTIME_AFTER_MSEC(1), pilotRegularPreLaunchTick, NULL);
+    deviceSendToAllDevices("info: init\n");
+    setCurrentTime();
+    
+    uu->flyStage = FS_WAITING_FOR_SENSORS;
+    timeLineInsertEvent(UTIME_AFTER_MSEC(1), pilotRegularLoopTick, NULL);
 
     lprintf(1, "%s: Info: Starting prefly sequence.\n", PPREFIX());
     while (! pilotAreAllDevicesReady()) raspilotPoll();
     
     lprintf(1, "%s: Info: All sensors/devices ready.\n", PPREFIX());
 
+    uu->flyStage = FS_PRE_FLY;
+    
     motorsThrustSet(0);
     raspilotBusyWait(PILOT_WARMING_WARNING_ROTATIONS_TO_LAUNCH);
     lprintf(1, "%s: Warning: First warning motor rotation!\n", PPREFIX());
@@ -465,6 +524,11 @@ void raspilotPreLaunchSequence() {
     motorsThrustSet(0);
     raspilotBusyWait(PILOT_WARMING_WARNING_ROTATIONS_DELAY);
 
+    // launch pose has to be stored between rotations. To have enough of time to accumulate reasonable values
+    // for lauch pose and also to get enough of time to accumulate real values  (with substracted launchpose)
+    // before the real launch.
+    pilotStoreLaunchPose(NULL);
+
     lprintf(1, "%s: Warning: Second warning rotation!\n", PPREFIX());
     if (uu->config.motor_bidirectional) thrust_warning_spin = - thrust_warning_spin;
     motorsThrustSet(thrust_warning_spin);
@@ -472,17 +536,12 @@ void raspilotPreLaunchSequence() {
     motorsThrustSet(0);
     raspilotBusyWait(PILOT_WARMING_WARNING_ROTATIONS_TO_LAUNCH);
     
-    pilotStoreLaunchPose(NULL);
-
     lprintf(1, "%s: Info: Prefly rotation!\n", PPREFIX());
     // start flying motor rotation
     // Maybe a bit more than min rotation would be ok
     motorsThrustSet(uu->config.motor_thrust_min_spin);
     raspilotBusyWait(PILOT_WARMING_WARNING_ROTATION_TIME);
 
-    // end of pre-launch events
-    timeLineRemoveEventAtUnknownTimeAndArg(pilotRegularPreLaunchTick);
-    
     lprintf(5, "%s: Info: Prefly sequence done.\n", PPREFIX());
 
     mainStatistics(STATISTIC_INIT);
@@ -501,16 +560,14 @@ void raspilotLaunch(double altitude) {
 	// altitude = uu->config.drone_min_altitude;
     }
     
+    uu->flyStage = FS_FLY;
     lprintf(1, "%s: Warning: launch: Going to fly!\n", PPREFIX());
-    sendToAllDevices("info: takeoff\n");
-
-    // schedule regular flight events
-    timeLineInsertEvent(UTIME_AFTER_MSEC(1), pilotRegularStabilizationLoopTick, NULL);
+    deviceSendToAllDevices("info: takeoff\n");
 
     savedConfig = uu->config;
     savedWaypoint = uu->currentWaypoint;
     
-    regressionBufferEstimatePoseForTimeByLinearRegression(&uu->shortHistoryPosition, currentTime.dtime, cpose);
+    regressionBufferEstimateForTime(&uu->shortHistoryPosition, currentTime.dtime, cpose);
 
     vec3_assign(uu->currentWaypoint.position, cpose);
 
@@ -539,7 +596,7 @@ void raspilotLaunch(double altitude) {
     uu->currentWaypoint = savedWaypoint;
 
     if (currentTime.dtime >= tt + PILOT_LAUNCH_MAX_TIME) {
-	lprintf(1, "%s: Error: Can't launch within %g seconds. Aborting mission!\n", PPREFIX(), PILOT_LAUNCH_MAX_TIME);
+	lprintf(0, "%s: Error: Can't launch within %g seconds. Aborting mission!\n", PPREFIX(), PILOT_LAUNCH_MAX_TIME);
 	raspilotLand(0, 0);
 	raspilotShutDownAndExit();
     }
@@ -571,6 +628,7 @@ void raspilotLand(double x, double y) {
     if (1) {
 	// landing with working sensors
 	while(raspilotCurrentAltitude() > 0.01) raspilotPoll();
+	raspilotBusyWait(1.0);
     } else {
 	// a very safe (blind) land
 	raspilotBusyWait(PILOT_LAND_ALTITUDE/PILOT_LAND_SPEED*1.5);
@@ -609,7 +667,7 @@ void raspilotWaypointSet(double x, double y, double z, double yaw) {
 
 double raspilotCurrentAltitude() {
     vec3		cpose;
-    regressionBufferEstimatePoseForTimeByLinearRegression(&uu->shortHistoryPosition, currentTime.dtime, cpose);
+    regressionBufferEstimateForTime(&uu->shortHistoryPosition, currentTime.dtime, cpose);
     return(cpose[2]);
 }
 
@@ -619,8 +677,8 @@ int raspilotWaypointReached() {
     vec3 	cpose;
     vec3 	crpy;
 
-    regressionBufferEstimatePoseForTimeByLinearRegression(&uu->shortHistoryPosition, currentTime.dtime, cpose);
-    regressionBufferEstimatePoseForTimeByLinearRegression(&uu->shortHistoryRpy, currentTime.dtime, crpy);
+    regressionBufferEstimateForTime(&uu->shortHistoryPosition, currentTime.dtime, cpose);
+    regressionBufferEstimateForTime(&uu->shortHistoryRpy, currentTime.dtime, crpy);
     vec3_sub(dv, uu->currentWaypoint.position, cpose);
     distance = vec3_len(dv);
     if (distance > uu->config.drone_waypoint_reached_range) return(0);
@@ -686,9 +744,6 @@ void test() {
 // 'mission' in the file 'mission.c' and setup your mission there
 
 int main(int argc, char **argv) {
-
-    // test(); exit(0);
-    
     raspilotInit(argc, argv);
     mission();
     raspilotShutDownAndExit();

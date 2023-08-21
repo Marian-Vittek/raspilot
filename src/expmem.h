@@ -9,11 +9,7 @@
 /* Only  chunks smaller than  MAX_CHUNK_TO_KEEP_ALLOCATED are  kept in
  * exponential free lists. Really big chunks are allocated directly by
  * malloc  */
-#if 0 && EDEBUG
-#define MAX_CHUNK_LOG 				  	16   					/* log(MAX_CHUNK_TO_KEEP_ALLOCATED) */
-#else
-#define MAX_CHUNK_LOG 				  	24   					/* log(MAX_CHUNK_TO_KEEP_ALLOCATED) */
-#endif
+#define MAX_CHUNK_LOG 				  	16   		/* log(MAX_CHUNK_TO_KEEP_ALLOCATED) */
 #define MAX_CHUNK_TO_KEEP_ALLOCATED 	(1<<MAX_CHUNK_LOG) 		/* has to be a power of two! */
 
 
@@ -27,7 +23,7 @@
 
 /* Those very small allocated pieces are "cut off" from a chunk of the
  * following size (allocated directly by malloc) */
-#define DIRECT_LIST_ALLOCATIONS_POOL_SIZE	(1<<24)
+#define DIRECT_LIST_ALLOCATIONS_POOL_SIZE	(1<<16)
 
 
 

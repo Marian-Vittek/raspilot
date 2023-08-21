@@ -122,14 +122,14 @@
 #if 1
 		// direct PWM connection of ESC to raspberry pi pinouts
 		type: "DCT_COMMAND_BASH",
-		command: "killall motor-pigpio; sleep 0.5; killall -q -9 motor-pigpio; sleep 0.5; exec chrt -o 0 ../tool/motor/motor-pigpio-pwm/motor-pigpio - - 8 25 24 23"
+		command: "killall motor-pigpio; sleep 0.5; killall -q -9 motor-pigpio; sleep 0.5; exec chrt -o 0 taskset -c 1 ../tool/motor/motor-pigpio-pwm/motor-pigpio - - 8 25 24 23"
 #else		
 		// PWM extension board with pca9685 chip
 		type: "DCT_COMMAND_BASH",
-		command: "killall motor-pca9685; sleep 0.5; killall -q -9 motor-pca9685; sleep 0.5; exec chrt -o 0 ../tool/motor/motor-pca9685/motor-pca9685 - - 3 2 10 11"
+		command: "killall motor-pca9685; sleep 0.5; killall -q -9 motor-pca9685; sleep 0.5; exec chrt -o 0 taskset -c 1 ../tool/motor/motor-pca9685/motor-pca9685 - - 3 2 10 11"
 #endif		
 	    },
-	    data: [
+	    stream: [
 		{ type:"DT_PONG",  tag: "pong",  debug_level: 88},
 		{ type:"DT_DEBUG", tag: "debug", debug_level: 110},
 	    ],
@@ -139,7 +139,7 @@
 	    name: "imu-t265",
 	    connection : {
 		type: "DCT_COMMAND_BASH",
-		command: "killall -q -9 rs-pose; sleep 0.5; exec chrt -o 0 ../tool/librealsense/build/examples/pose/rs-pose",
+		command: "killall -q -9 rs-pose; sleep 0.5; exec chrt -o 0 taskset -c 2 ../tool/librealsense/build/examples/pose/rs-pose",
 	    },
 	    // For devices returning position, it is supposed that they return position of the sensor, not the position of the drone.
 	    // In such a case you shall specify where the sensor is placed relative to the center of the gravity of the drone.
@@ -149,7 +149,7 @@
 	    // or "trigger_pilot_in_ms: 1,"
 	    mount_position: [0, 0, -0.10],
 	    mount_rpy: [-0.010, 0.006, 0],
-            data: [
+            stream: [
 		{ type: "DT_ORIENTATION_QUATERNION", tag: "quat",  mandatory:1, weight: 1.0, debug_level: 22},
 		{ type: "DT_POSITION_VECTOR",        tag: "pose",  mandatory:1, weight: 1.0, debug_level: 22},
 		{ type: "DT_DEBUG",                  tag: "debug", debug_level: 1},
