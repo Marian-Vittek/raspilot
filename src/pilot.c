@@ -150,7 +150,7 @@ static void pilotUpdateZeropose(struct deviceStreamData *gg, vec3 rpy) {
     memset(&vv, 0, sizeof(vv));
     raspilotRingBufferAddElem(&gg->input->buffer, currentTime.dtime, vv);
     // give me a small confidence, not to interfere with real devices
-    gg->confidence = 1e-50;
+    gg->input->confidence = 1e-50;
 }
 
 static int pilotCheckDeviceForTimeout(struct deviceStreamData *gg) {
@@ -165,6 +165,7 @@ static int pilotCheckDeviceForTimeout(struct deviceStreamData *gg) {
 	lprintf(50, "%s: %s.%s: no history\n", PPREFIX(), gg->dd->name, gg->name);
 	return(-1);
     }
+    //raspilotRingBufferDump(&gg->input->buffer);
     lastdatatime = gg->input->buffer.a[gg->input->buffer.ailast * (gg->input->buffer.vectorsize+1)];
     // lprintf(0, "timeout check %f < %f %f %f == %f\n", lastdatatime, currentTime.dtime, gg->timeout, gg->latency, currentTime.dtime - (gg->timeout + gg->latency));
     if (lastdatatime < currentTime.dtime - (gg->timeout + gg->latency)) {
@@ -376,7 +377,7 @@ static int pilotCombineCurrentOrientationFromSensors(quat orientation) {
     // Go through all sensors contributing to the orientation, either RPY or Quaternion
     // TODO: Probably completely remove quaternions for the sake of simplicity
     pilotAddQuatOrientation(qqsum, qqweight, DT_ORIENTATION_QUATERNION, pilotAddCurrentQuatOrientationFromSensorToSum);
-    pilotAddRpyOrientation(rpysinsum, rpycossum, rpyweight, DT_SHM_ORIENTATION_RPY, pilotAddCurrentRpyOrientationFromSensorToSum);
+    pilotAddRpyOrientation(rpysinsum, rpycossum, rpyweight, DT_ORIENTATION_RPY_SHM, pilotAddCurrentRpyOrientationFromSensorToSum);
     pilotAddRpyOrientation(rpysinsum, rpycossum, rpyweight, DT_ORIENTATION_RPY, pilotAddCurrentRpyOrientationFromSensorToSum);
 
     qqwHasZero = vec4_has_zero(qqweight);
@@ -438,7 +439,7 @@ static int pilotCombineCurrentPositionFromSensors(vec3 position, quat orientatio
     memset(weightsum, 0, sizeof(vec3));
     
     // Go through all sensors contributing to the position
-    pilotAddPosition(ppsum, weightsum, orientation, DT_SHM_POSITION, pilotAddPositionFromSensorToSum);
+    pilotAddPosition(ppsum, weightsum, orientation, DT_POSITION_SHM, pilotAddPositionFromSensorToSum);
     pilotAddPosition(ppsum, weightsum, orientation, DT_POSITION_VECTOR, pilotAddPositionFromSensorToSum);
     pilotAddPosition(ppsum, weightsum, orientation, DT_POSITION_NMEA, pilotAddPositionFromSensorToSum);
     pilotAddPosition(ppsum, weightsum, orientation, DT_FLOW_XY, pilotAddXYfromSensorToSum);

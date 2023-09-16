@@ -48,17 +48,37 @@ struct raspilotInputBuffer {
     pthread_mutex_t 			mutex;
     // buffer must be the last member of the struct, because its data are allocated after it.
     int					magicVersion;	// some number to verifying that both raspilot and device are using the same version of shm
+    // TODO: confidence shall be by meassured value
+    double				confidence;
     // must be the last, actual buffer is allocated after this structure
     struct raspilotRingBuffer		buffer;
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+static inline void raspilotRingBufferDump(struct raspilotRingBuffer *hh) {
+    int 	i, j, k, n;
+    
+    printf("debug %s raspilotRingBufferDump: Start.\n", hh->name);
+    if (hh != NULL && hh->size != 0 && hh->vectorsize != 0) {
+	n = hh->size;
+	if (n > hh->n) n = hh->n;
+	for(j=0; j<n; j++) {
+	    i = (hh->ai + j) % hh->size;
+	    printf("debug %f: ", hh->a[i*(hh->vectorsize+1)]);
+	    for(k=0; k<hh->vectorsize; k++) {
+		printf("%f ", hh->a[i*(hh->vectorsize+1)+k+1]);
+	    }
+	    printf("\n");
+	}
+    }
+    printf("debug %s raspilotRingBufferDump: end.\n\n", hh->name);
+}
+
 static inline void raspilotRingBufferAddElem(struct raspilotRingBuffer *hh, double time, double *vec) {
     int 	i;
     
     // printf("%s:%d: raspilotRingBufferAddElem: %s: %f:  %s\n", __FILE__, __LINE__, hh->name, time, arrayWithDimToStr_st(vec, hh->vectorsize));
-
     if (hh->size == 0 || hh->vectorsize == 0) return;
 
     hh->a[hh->ai * (hh->vectorsize+1)] = time;
@@ -88,7 +108,7 @@ static inline void raspilotRingBufferInit(struct raspilotRingBuffer *hh, int vec
     vsnprintf(hh->name, sizeof(hh->name)-1, namefmt, ap);
     assert(bufferSize > 0);
     if (bufferSize == 1) {
-	printf("%s:%d: Warning: ring buffer %s has size %d!\n", __FILE__, __LINE__, hh->name, (bufferSize));
+	printf("debug %s:%d: Warning: ring buffer %s has size %d!\n", __FILE__, __LINE__, hh->name, (bufferSize));
     }
     hh->ai = hh->ailast = 0;
     hh->n = 0;
@@ -100,11 +120,16 @@ static inline void raspilotRingBufferInit(struct raspilotRingBuffer *hh, int vec
     va_end(ap);
 }
 
-static inline void raspilotShmPush(struct raspilotInputBuffer *ii, double time, double *vector) {
+static inline void raspilotShmPush(struct raspilotInputBuffer *ii, double time, double *vector, int size) {
+    assert(ii != NULL);
+    if (ii->buffer.vectorsize != size) {
+	printf("debug %s:%d: Error: %s: shared memory vector size %d does not match added vector size %d!\n", __FILE__, __LINE__, ii->buffer.name, ii->buffer.vectorsize, size);
+	return;
+    }
     pthread_mutex_lock(&ii->mutex);
     raspilotRingBufferAddElem(&ii->buffer, time, vector);
+    msync(ii, RASPILOT_INPUT_BUFFER_SIZE(ii->buffer.size, ii->buffer.vectorsize), MS_SYNC);
     pthread_mutex_unlock(&ii->mutex);
-    //? msync(ii, RASPILOT_INPUT_BUFFER_SIZE(ii->buffer.size, ii->buffer.vectorsize), MS_SYNC);
 }	 
 
 static inline struct raspilotInputBuffer *raspilotShmConnect(char *name) {
@@ -123,7 +148,7 @@ static inline struct raspilotInputBuffer *raspilotShmConnect(char *name) {
 	goto failexitpoint;
     }
     len = sizeof(struct raspilotInputBuffer);
-    res = mmap(NULL, len, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    res = (struct raspilotInputBuffer *) mmap(NULL, len, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if (res == NULL) {
 	printf("debug %s:%d: Error: Can't mmap shared memory %s\n", __FILE__, __LINE__, name);
 	goto failexitpoint;
@@ -147,7 +172,7 @@ static inline struct raspilotInputBuffer *raspilotShmConnect(char *name) {
     // ok, we have everything we need to get the actual length, remap the memory
     munmap(res, len);
     len = RASPILOT_INPUT_BUFFER_SIZE(size, vectorsize);
-    res = mmap(NULL, len, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    res = (struct raspilotInputBuffer *) mmap(NULL, len, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if (res == NULL) {
 	printf("debug %s:%d: Error: Can't re-mmap shared memory of %s\n", __FILE__, __LINE__, name);
 	goto failexitpoint;
@@ -168,7 +193,7 @@ static inline struct raspilotInputBuffer *raspilotShmConnect(char *name) {
 	printf("debug %s:%d: Error: Can't init mutex of %s\n", __FILE__, __LINE__, name);
 	goto failexitpoint;
     }
-    raspilotRingBufferInit(&res->buffer, vectorsize, size, "%s shm stream", name);
+    raspilotRingBufferInit(&res->buffer, vectorsize, size, (char*)"%s shm stream", name);
 
     res->status = RIBS_SHARED_OK;
     // according to doc, we can close fd now.

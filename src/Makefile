@@ -2,7 +2,7 @@
 # raspilot makefile
 
 CFLAGS= -g -DEDEBUG -Wall -Wno-format-truncation -Wno-unused-variable -Wno-pointer-sign -Wno-unused-but-set-variable -I../lib/pi2c -L/usr/local/lib
-LINKFLAGS= -lm -pthread -static
+LINKFLAGS= -pthread -lm -lrt 
 
 INCLUDES=common.h raspilotshm.h expmem.h sglib.h linmath.h linmath2.h ../lib/pi2c/pi2c.h
 OBJS=main.o common.o expmem.o json.o baio.o config.o device.o pilot.o mission.o ../lib/pi2c/pi2c.c
@@ -10,9 +10,9 @@ OBJS=main.o common.o expmem.o json.o baio.o config.o device.o pilot.o mission.o 
 ########################################################
 
 #dev
-#DRONE=d250
+DRONE=d250
 #DRONE=piw
-DRONE=pc
+#DRONE=pc
 #DRONE=piz2
 ###
 
@@ -70,7 +70,7 @@ starttolog: prestart
 	sudo bash -c "ulimit -c unlimited ; chrt -r 20 taskset -c 0 ./raspilot -d 6 -ll 33 -l10 -p `echo $$SSH_CLIENT | awk '{ print $$1}'`"
 
 startdebug: prestart
-	sudo bash -c "ulimit -c unlimited ; chrt -r 20 taskset -c 0 ./raspilot -d 66 -ll 33 -p `echo $$SSH_CLIENT | awk '{ print $$1}'`"
+	sudo bash -c "ulimit -c unlimited ; chrt -r 20 taskset -c 0 ./raspilot -d 66 -ll 66 -p `echo $$SSH_CLIENT | awk '{ print $$1}'`"
 
 replay: always
 	scp $(DRONE):dev/raspilot/src/trajectory.dat .

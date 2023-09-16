@@ -137,13 +137,13 @@
 	    ],
 	},
 
-#if 1
+#if 0
 	{
 	    name: "gyro-bmi-magwick",
 	    connection : {
 		type: "DCT_COMMAND_BASH",
 		// get roll pitch from magwick fusion at the rate 2000Hz from bmi160 connected to shared i2c-1 interface
-		command: "killall -q -9 bmi160; sleep 0.5; exec chrt -r 10 taskset -c 2 ../tool/imu/bmi160/bmi160 -r 2000 /dev/i2c-1",
+		command: "killall -q -9 bmi160; sleep 0.5; exec chrt -r 10 taskset -c 2 ../tool/imu/bmi160/bmi160 -r 2000 -s /dev/i2c-1",
 	    },
 	    warming_time: 6.0,
 	    // positive roll makes left side up
@@ -157,13 +157,33 @@
 	},
 #endif
 
+#if 1
+	{
+	    name: "gyro-bmi-magwick-shm",
+	    connection : {
+		type: "DCT_COMMAND_BASH",
+		// get roll pitch from magwick fusion at the rate 2000Hz from bmi160 connected to shared i2c-1 interface
+		command: "killall -q -9 bmi160-shm; sleep 0.5; exec chrt -r 10 taskset -c 2 ../tool/imu/bmi160/bmi160-shm -r 200 -s /dev/i2c-1",
+	    },
+	    warming_time: 6.0,
+	    // positive roll makes left side up
+	    // positive pitch makes nose up
+	    mount_rpy: [0.04, 0.05, 0],
+            stream: [
+	    	// Note the very small yaw weight. It is supposed we get yaw from other sources
+		{ type: "DT_ORIENTATION_RPY_SHM", tag: "rpy", weight: [1.0, 1.0, 1e-10], mandatory:1, history_size:4, debug_level: 88},
+		{ type: "DT_DEBUG",               tag: "debug", debug_level: 88},
+            ],
+	},
+#endif
+
 #if 0
 	{
 	    name: "gyro-mpu-rowberg",
 	    connection : {
 		type: "DCT_COMMAND_BASH",
 		// get yaw from rowberg dmp from mpu6050 (rate 50Hz) from (software) i2c-3 interface
-		command: "killall -q -9 demo_dmp; sleep 0.5; exec chrt -r 10 taskset -c 3 ../tool/imu/mpu6050/rowberg/demo_dmp -rpy /dev/i2c-3",
+		command: "killall -q -9 demo_dmp; sleep 0.5; exec chrt -r 10 taskset -c 3 ../tool/imu/mpu6050/rowberg/demo_dmp -rpy -s /dev/i2c-1",
 	    },
 	    warming_time: 20.0,
 	    // positive pitch makes nose up
@@ -176,7 +196,7 @@
 	},
 #endif
 
-#if 1
+#if 0
 	{
 	    name: "apriltag",
 	    connection : {
@@ -196,7 +216,7 @@
 	},
 #endif
 
-#if 1
+#if 0
 	{
 	    name: "matek-3901-l0x",
 	    connection : {
@@ -314,14 +334,14 @@
 	},
 #endif
 	
-#if 0
+#if 1
 	{
 	    name: "zeropose",
 	    connection : {
 		type: "DCT_INTERNAL_ZEROPOSE",
 	    },
             stream: [
-		{ type: "DT_POSITION_VECTOR",        weight: 1e-100, debug_level: 1},
+		{ type: "DT_POSITION_VECTOR",        tag: "position", weight: 1e-100, debug_level: 1},
 		// { type: "DT_ORIENTATION_QUATERNION", weight: 1e-100, debug_level: 1},
             ],
 	},

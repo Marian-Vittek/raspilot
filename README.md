@@ -18,8 +18,8 @@ versioning and/or releases.
 This project began as a professional assignment. The aim was to
 develop a flight controller and autopilot where it is easy to connect
 various hardware components such as experimental gyroscopes, distance
-sensors, GPS modules etc. and perform series of tests. Another goal
-was potentially unlimited precision (sub centimeter) of flight.
+sensors, positioning modules etc. and perform series of tests. Another
+goal was potentially unlimited precision (sub centimeter) of flight.
 
 Unfortunately, the company that commissioned the software cancelled
 the project before it had reached its first milestone. By that time

@@ -4,8 +4,8 @@
 int deviceIsSharedMemoryDataStream(struct deviceStreamData *ddl) {
     int shmFlag;
     switch (ddl->type) {
-    case DT_SHM_POSITION:
-    case DT_SHM_ORIENTATION_RPY:
+    case DT_POSITION_SHM:
+    case DT_ORIENTATION_RPY_SHM:
 	shmFlag = 1;
 	break;
     default:
@@ -51,7 +51,7 @@ static int parseVector(double *rr, int length, char *tag, char *s, struct device
 	if (pe == p) return(-1);
 	p = pe;    
     }
-    ddd->confidence = 1.0;
+    ddd->input->confidence = 1.0;
     lprintf(100 - ddd->debug_level, "%s: %s: %s: parsed %s --> %s\n", PPREFIX(), dd->name, tag, s, arrayWithDimToStr_st(rr, length));
     return(0);
 }
@@ -112,35 +112,35 @@ int parseNmeaPosition(double *rr, char *tag, char *s, struct deviceData *dd, str
     switch (fixtype) {
     case '0':
 	// Invalid
-	ddd->confidence = 0.0;
+	ddd->input->confidence = 0.0;
 	break;
     case '1':
 	// Autonomous GPS fix, no correction data used.
-	ddd->confidence = 0.7;
+	ddd->input->confidence = 0.7;
 	break;
     case '2':
 	// DGPS fix, using a local DGPS base station or correction service such as WAAS or EGNOS.
-	ddd->confidence = 0.8;
+	ddd->input->confidence = 0.8;
 	break;
     case '3':
 	// PPS fix ???
-	ddd->confidence = 0.6;
+	ddd->input->confidence = 0.6;
 	break;
     case '4':
 	// RTK fix, high accuracy Real Time Kinematic.
-	ddd->confidence = 1.0;
+	ddd->input->confidence = 1.0;
 	break;
     case '5':
 	// RTK Float, better than DGPS, but not quite RTK.
-	ddd->confidence = 0.9;
+	ddd->input->confidence = 0.9;
 	break;
     case '6':
 	// Estimated fix (dead reckoning).
-	ddd->confidence = 0.5;
+	ddd->input->confidence = 0.5;
 	break;
     default:
 	// We do not know what
-	ddd->confidence = 0.3;
+	ddd->input->confidence = 0.3;
 	break;
     }
 
@@ -266,9 +266,9 @@ static void deviceTranslateBottomRangeToAltitude(struct deviceData *dd, struct d
     double *pose;
     
     range = *ran;
-    ddd->confidence = 1.0;
-    if (range < ddd->min_range) ddd->confidence = 0;
-    if (range > ddd->max_range) ddd->confidence = 0;
+    ddd->input->confidence = 1.0;
+    if (range < ddd->min_range) ddd->input->confidence = 0;
+    if (range > ddd->max_range) ddd->input->confidence = 0;
     // we suppose that at the launch time the rangefinder looks downward!!!
     // translate range to altitude
     if (! ddd->launchPoseSetFlag) {
@@ -292,13 +292,13 @@ static void deviceTranslateFlowXYtoDronePositionXY(struct deviceData *dd, struct
 
     if (ddd->input == NULL) {
 	lprintf(0, "%s: Error: no input buffer for %s.%s.\n", PPREFIX(), dd->name, ddd->name);
-	ddd->confidence = 0;
+	ddd->input->confidence = 0;
 	return;
     }
     
     if (previousSampleTime >= sampleTime) {
 	lprintf(0, "%s: Error: time inversion. Probably too small input buffer %s.\n", PPREFIX(), ddd->input->buffer.name);
-	ddd->confidence = 0;
+	ddd->input->confidence = 0;
 	return;
     }
 
@@ -312,7 +312,7 @@ static void deviceTranslateFlowXYtoDronePositionXY(struct deviceData *dd, struct
     alt = pose[2] + 0.05;
 
     if (alt <= 0.02 || uu->historyPose == NULL || uu->historyPose->n == 0 || ddd->input == NULL || ddd->input->buffer.n == 0) {
-	ddd->confidence = 0;
+	ddd->input->confidence = 0;
 	return;
     }
 
@@ -327,7 +327,7 @@ static void deviceTranslateFlowXYtoDronePositionXY(struct deviceData *dd, struct
 	|| pitch <= - M_PI/4 || pitch >= M_PI/4
 	|| oldroll <= - M_PI/4 || oldroll >= M_PI/4
 	|| oldpitch <= - M_PI/4 || oldpitch >= M_PI/4) {
-	ddd->confidence = 0;
+	ddd->input->confidence = 0;
 	return;
     }
     
@@ -363,7 +363,6 @@ static void deviceTranslateFlowXYtoDronePositionXY(struct deviceData *dd, struct
     // translate from sensor to drone position
     deviceSensorPositionToDronePosition(dp, p, dd, sampleTime);
 	
-    ddd->confidence = 1.0;
     dronePosXY[0] = dp[0];
     dronePosXY[1] = dp[1];
     return;
@@ -458,6 +457,7 @@ void deviceParseInputStreamLineToInputBuffer(struct deviceData *dd, char *s, int
 		    assert(inputVector != NULL);
 		    assert(ddd->input != NULL);
 		    raspilotRingBufferAddElem(&ddd->input->buffer, sampletime, inputVector);
+		    ddd->input->confidence = 1.0;
 		    lprintf(100 - ddd->debug_level, "%s: %s: %s: %g: Parsed %s\n", PPREFIX(), dd->name, tag, sampletime, arrayWithDimToStr_st(inputVector, ddd->input->buffer.vectorsize));
 		}
 	    } else {
@@ -481,7 +481,6 @@ void deviceTranslateInputToOutput(struct deviceStreamData *ddd) {
     
     dd = ddd->dd;
 
-    //? __sync_synchronize();
     lprintf( 66, "%s: %s.%s: Translating input to output.\n", PPREFIX(), dd->name, ddd->name);
     if (ddd->input == NULL) return;
 
@@ -490,12 +489,13 @@ void deviceTranslateInputToOutput(struct deviceStreamData *ddd) {
 	return;
     }
     // If shared and not in ok state do nothing
+    lprintf( 66, "%s: %s.%s: Shared memory: status %d, n %d.\n", PPREFIX(), dd->name, ddd->name, ddd->input->status, ddd->input->buffer.n);
     if (ddd->input->status == RIBS_SHARED_INITIALIZE || ddd->input->status == RIBS_SHARED_FINALIZE) return;
     if (ddd->input->status == RIBS_SHARED_OK) {
 	// shared memory input, get mutex
 	//lprintf(0, "[");
 	pthread_mutex_lock(&ddd->input->mutex);
-	//? __sync_synchronize();
+	__sync_synchronize();
     }
     // I did not process n last values
     count = ddd->input->buffer.n - ddd->inputToOutputN;
@@ -517,6 +517,7 @@ void deviceTranslateInputToOutput(struct deviceStreamData *ddd) {
 	case DT_PONG:
 	    break;
 	case DT_ORIENTATION_RPY:
+	case DT_ORIENTATION_RPY_SHM:
 	    // apply mount correction
 	    vec3_sub(outputVector, inputVector, dd->mount_rpy);
 	    if (ddd->launchPoseSetFlag) {
@@ -539,6 +540,7 @@ void deviceTranslateInputToOutput(struct deviceStreamData *ddd) {
 	    lprintf(0, "%s: Not yet implemented\n", PPREFIX());
 	    break;
 	case DT_POSITION_VECTOR:
+	case DT_POSITION_SHM:
 	    assert(deviceDataStreamParsedVectorLength[ddd->type] == 3);
 	    deviceSensorPositionToDronePosition(outputVector, inputVector, dd, sampletime);
 	    if (ddd->launchPoseSetFlag) {
@@ -574,6 +576,7 @@ void deviceTranslateInputToOutput(struct deviceStreamData *ddd) {
 	}
 	if (ddd->outputBuffer.vectorsize > 0) {
 	    regressionBufferAddElem(&ddd->outputBuffer, sampletime, outputVector);
+	    ddd->confidence = ddd->input->confidence;
 	    lprintf(100 - ddd->debug_level, "%s: %s: %s: Translating %16.6f: %s --> %s\n", PPREFIX(), dd->name, ddd->name, sampletime, arrayWithDimToStr_st(inputVector, ddd->input->buffer.vectorsize), arrayWithDimToStr_st(outputVector, ddd->outputBuffer.vectorsize));
 	}
     }

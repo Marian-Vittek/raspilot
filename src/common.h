@@ -295,8 +295,8 @@ enum deviceDataTypes {
 
 
     // TOBE: Shared memory streams
-    DT_SHM_POSITION,
-    DT_SHM_ORIENTATION_RPY,
+    DT_POSITION_SHM,
+    DT_ORIENTATION_RPY_SHM,
     
     DT_MAX,
 };
@@ -641,7 +641,7 @@ struct deviceStreamData {
     //  New way allowing shared memory access.    
     // Data coming from the sensor through a text pipe are parsed, "timestamped" and put into this buffer.
     // Shared memory devices send us a pointer to this structure on init and write directly into this shared.
-    struct raspilotInputBuffer    	*input;
+    struct raspilotInputBuffer	*input;
     
     // data from inputBuffer are transformed to what pilot needs (usualy orientation/position)
     // when pilot needs
@@ -649,9 +649,7 @@ struct deviceStreamData {
     int				inputToOutputN;	// the indice of the first item in inputBuffer not moved to outputBuffer yet
 
     
-    // TODO move from scalar confidence to vector
-    double			confidenceVector[DEVICE_DATA_VECTOR_MAX]; // confidence of the outputBuffer data
-    // old way to store values, scalar confidence
+    // TODO move from scalar confidence to vector, even better per record!
     double			confidence;	
 
     // something for final statistics

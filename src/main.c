@@ -348,8 +348,8 @@ static void initTask() {
     deviceDataStreamParsedVectorLength[DT_POSITION_NMEA] = 3;
     deviceDataStreamParsedVectorLength[DT_MAGNETIC_HEADING_NMEA] = 1;
     deviceDataStreamParsedVectorLength[DT_JSTEST] = 5;
-    deviceDataStreamParsedVectorLength[DT_SHM_POSITION] = 3;
-    deviceDataStreamParsedVectorLength[DT_SHM_ORIENTATION_RPY] = 3;
+    deviceDataStreamParsedVectorLength[DT_POSITION_SHM] = 3;
+    deviceDataStreamParsedVectorLength[DT_ORIENTATION_RPY_SHM] = 3;
 
     // This is the length of the vector we got by processing parsed vector and which can be extrapolated
     // by regression into something used by pilot, like position/orientation etc.
@@ -367,8 +367,8 @@ static void initTask() {
     deviceDataStreamRegressionBufferLength[DT_POSITION_NMEA] = 3;
     deviceDataStreamRegressionBufferLength[DT_MAGNETIC_HEADING_NMEA] = 1;
     deviceDataStreamRegressionBufferLength[DT_JSTEST] = 0;
-    deviceDataStreamRegressionBufferLength[DT_SHM_POSITION] = 3;
-    deviceDataStreamRegressionBufferLength[DT_SHM_ORIENTATION_RPY] = 3;
+    deviceDataStreamRegressionBufferLength[DT_POSITION_SHM] = 3;
+    deviceDataStreamRegressionBufferLength[DT_ORIENTATION_RPY_SHM] = 3;
 
     
     // deviceDataTypeLength[DT_MAX] = 0;

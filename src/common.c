@@ -748,8 +748,8 @@ void enumNamesInit() {
     ENUM_NAME_SET(deviceDataTypeNames, DT_POSITION_NMEA);
     ENUM_NAME_SET(deviceDataTypeNames, DT_MAGNETIC_HEADING_NMEA);
     ENUM_NAME_SET(deviceDataTypeNames, DT_JSTEST);
-    ENUM_NAME_SET(deviceDataTypeNames, DT_SHM_POSITION);
-    ENUM_NAME_SET(deviceDataTypeNames, DT_SHM_ORIENTATION_RPY);
+    ENUM_NAME_SET(deviceDataTypeNames, DT_POSITION_SHM);
+    ENUM_NAME_SET(deviceDataTypeNames, DT_ORIENTATION_RPY_SHM);
     ENUM_NAME_SET(deviceDataTypeNames, DT_MAX);
     ENUM_NAME_CHECK(deviceDataTypeNames, DT_);
     
@@ -1603,23 +1603,23 @@ void *createSharedMemory(int size, char *namefmt, ...) {
     va_list	ap;
     void	*res;
 
-    DEBUG_HERE_I_AM();
+    // DEBUG_HERE_I_AM();
     
     va_start(ap, namefmt);
     vsnprintf(name, TMP_STRING_SIZE-1, namefmt, ap);
     //printf("%s: Info: Creating shared memory %s\n", PPREFIX(), name); fflush(stdout);
     lprintf(1, "%s: Info: Creating shared memory %s\n", PPREFIX(), name);
     va_end(ap);
-    
+
     fd = shm_open(name, O_CREAT | O_RDWR, S_IRWXU);
     if (fd == -1) {
-	lprintf(0, "%s: Error: Can't open shared memory %s\n", PPREFIX(), name);
+	lprintf(0, "%s: Error: Can't open shared memory %s: %s\n", PPREFIX(), name, strerror(errno));
 	return(NULL);
     }
     if (size > 0) {
 	r = ftruncate(fd, size);
 	if (r == -1) {
-	    lprintf(0, "%s: Error: Can't truncate shared memory %s\n", PPREFIX(), name);
+	    lprintf(0, "%s: Error: Can't truncate shared memory %s: %s\n", PPREFIX(), name, strerror(errno));
 	    close(fd);
 	    return(NULL);
 	}
@@ -1628,7 +1628,7 @@ void *createSharedMemory(int size, char *namefmt, ...) {
     close(fd);
     
     if (res == NULL) {
-	lprintf(0, "%s: Error: Can't mmap shared memory %s\n", PPREFIX(), name);
+	lprintf(0, "%s: Error: Can't mmap shared memory %s: %s\n", PPREFIX(), name, strerror(errno));
 	return(NULL);
     }
     return(res);
@@ -1640,10 +1640,12 @@ struct raspilotInputBuffer *raspilotCreateSharedMemory(struct deviceStreamData *
 
     len = RASPILOT_INPUT_BUFFER_SIZE(ddd->history_size, deviceDataStreamParsedVectorLength[ddd->type]);
     res = createSharedMemory(len, "raspilot.%s.%s", ddd->dd->name, ddd->name);
+    if (res == NULL) return(NULL);
     res->buffer.vectorsize = deviceDataStreamParsedVectorLength[ddd->type];
     res->buffer.size = ddd->history_size;
     res->status = RIBS_SHARED_INITIALIZE;
     res->magicVersion = RASPILOT_SHM_MAGIC_VERSION;
+    res->confidence = 0;
     return(res);
 }
 

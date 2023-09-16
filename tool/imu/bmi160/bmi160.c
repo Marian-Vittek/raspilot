@@ -24,9 +24,14 @@
 #include <string.h>
 #include <signal.h>
 #include <math.h>
+#include <sys/time.h>
 
 #include "Fusion.h"
 #include "DFRobot_BMI160.h"
+
+#ifdef SHM
+#include "raspilotshm.h"
+#endif
 
 #define FACTOR_GYRO_RFS2000 16.4
 #define FACTOR_GYRO_RFS1000 32.8
@@ -47,10 +52,17 @@ DFRobot_BMI160 bmi160;
 const int8_t i2c_addr = 0x69;
 
 static inline double doubleGetTime() {
+    struct timeval  tv;
+    gettimeofday(&tv, NULL);
+    return(tv.tv_sec + tv.tv_usec / 1000000.0);
+}
+#if 0
+static inline double doubleGetTime() {
   struct timespec tt;
-  clock_gettime(CLOCK_MONOTONIC, &tt);
+  clock_gettime(CLOCK_REALTIME, &tt);
   return(tt.tv_sec + tt.tv_nsec/1000000000.0);
 }
+#endif
 
 static void taskStop(int signum) {
     exit(0);
@@ -64,11 +76,13 @@ int main(int argc, char **argv) {
     int 	rslt;
     int16_t 	accelGyro[6]={0}; 
     int 	ii;
-  
-
+    double	rpy[3];    
     int		optSharedI2cFlag;
     char	*optI2cPath;
     double	optRate;
+#ifdef SHM
+    struct raspilotInputBuffer 	*shmbuf;
+#endif
 
     optSharedI2cFlag = 0;
     optI2cPath = (char*)"/dev/i2c-1";
@@ -95,6 +109,12 @@ int main(int argc, char **argv) {
     }
     bmi160.setStepPowerMode(bmi160.stepNormalPowerMode);
 
+
+#ifdef SHM
+    shmbuf = raspilotShmConnect((char *)"raspilot.gyro-bmi-magwick-shm.rpy");
+    if (shmbuf == NULL) exit(-1);
+#endif
+    
     signal(SIGINT, taskStop);
   
     FusionAhrsInitialise(&ahrs);
@@ -131,8 +151,18 @@ int main(int argc, char **argv) {
 		// Print rpy in drone coordinates. This depends on how precisely the sensor is mounted on drone.
 		// TODO: Maybe print in sensor's coordinates and make translation inside raspilot.
 		//if (ii++ % (int)optRate == 0) {
-		printf("rpy %9.7f %9.7f %9.7f\n", -euler.angle.pitch*M_PI/180.0, -euler.angle.roll*M_PI/180.0, euler.angle.yaw*M_PI/180.0);
+		rpy[0] = -euler.angle.pitch*M_PI/180.0;
+		rpy[1] = -euler.angle.roll*M_PI/180.0;
+		rpy[2] = euler.angle.yaw*M_PI/180.0;
+#ifdef SHM
+		shmbuf->confidence = 1.0;
+		raspilotShmPush(shmbuf, t1, rpy, 3);
+		//printf("debug bmi160: %f pushing rpy %9.7f %9.7f %9.7f\n", t1, rpy[0], rpy[1], rpy[2]);
+		//raspilotRingBufferDump(&shmbuf->buffer);
+#else
+		printf("rpy %9.7f %9.7f %9.7f\n", rpy[0], rpy[1], rpy[2]);
 		fflush(stdout);
+#endif		
 		//}
 	    } else {
 		// The original stuff printed by fusion
