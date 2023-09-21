@@ -248,7 +248,7 @@ static void configInputBufferInit(struct deviceData *dl, struct deviceStreamData
 	// Allocate/map shared memory struct raspilotInputBuffer
 	ddl->input = raspilotCreateSharedMemory(ddl);
     } else {
-	CALLOCC(mem, RASPILOT_INPUT_BUFFER_SIZE(vectorSize, bufferSize), char);
+	CALLOCC(mem, RASPILOT_INPUT_BUFFER_SIZE(bufferSize, vectorSize), char);
 	ddl->input = (struct raspilotInputBuffer *) mem;
 	ddl->input->status = RIBS_NOT_SHARED;
 	raspilotRingBufferInit(&ddl->input->buffer, vectorSize, bufferSize, "%s.%s stream", dl->name, ddl->name);

@@ -24,7 +24,7 @@
 // comma can occur after the last field and constant expressions can be used instead of constants.
 
 #define PI 3.1415926
-#define RATE 1000
+#define RATE 100
 {
     // Safe values for small drones seems to be between 500 and 5000Hz.
     stabilization_loop_Hz: RATE,
@@ -57,13 +57,13 @@
     // Smaller values make drone more "nervous" more precise but you may reach drone physical
     // limits. Check that your drone can stabilize with "nearly empty" battery with your value.
     // Smaller value may also drain your battery.
-    pilot_reach_goal_orientation_time:	0.2,
+    pilot_reach_goal_orientation_time:	0.5,
     
     // This is the time in which autopilots wants to reach target position.
     // This time must be at least double of "pilot_reach_goal_orientation_time" because in our simple model
     // the drone first gets "go to target" orientation, then it moves to the half way, then it gets "braking"
     // orientation and makes another half way while braking to zero velocity at target position.
-    pilot_reach_goal_position_time:	2.0,
+    pilot_reach_goal_position_time:	1.5,
 
     // However, while moving between waypoints the drone is constrained by the following values as well
     // max speed contains also vertical speed, that's why there is higher number
@@ -96,11 +96,11 @@
     // This is why we suppose to set the I factor to zero and we allow to use a so called "constant integral" value "CI" representing
     // the average I*Integral specific to your drone.
 
-#define RPB 0.20
+#define RPB 0.12
 
     pidRoll:     { p:RPB,  i:0,  d:0.00000, ci: 0 },
     pidPitch:    { p:RPB,  i:0,  d:0.00000, ci: 0 },
-    pidYaw:      { p:0.03,  i:0.03,  d:0.00001, ci: 0 },
+    pidYaw:      { p:0.05,  i:0,  d:0.00000, ci: 0 },
 
     // The last sort of PID controller is pidAltitude. It translates desired vertical speed (usually 0)
     // to motor thrust. It shall have P factor large enough to launch and stabilize the drone altitude.
@@ -110,7 +110,7 @@
     // charged and "nearly empty" batteries.
 
     // pidAltitude: { p:0.1,  i:0.01,  d:0, ci:0.13 },
-    pidAltitude: { p:0.01,  i:0.05,  d:0.00001, ci:0.15 },
+    pidAltitude: { p:0.05,  i:0.005,  d:0.00001, ci:0.14 },
 
     //////////////////////////////////////////////
     // sensors and other devices installed on the drone and usually connected through pipes
@@ -122,7 +122,7 @@
 	    connection : {
 	    	// direct dshot connection of ESC to raspberry pi pinouts
 		type: "DCT_COMMAND_BASH",
-		command: "killall motor-dshot; sleep 0.5; killall -q -9 motor-dshot; sleep 0.5; ulimit -c unlimited; exec chrt -f 99 taskset -c 1 ../tool/motor/motor-dshot/motor-dshot - - 6 13 19 26"
+		command: "killall motor-dshot; sleep 0.5; killall -q -9 motor-dshot; sleep 0.5; ulimit -c unlimited; exec chrt -f 99 taskset -c 1 ../tool/motor/motor-dshot/motor-dshot - - 26 6 13 19 "
 	    },
 	    shutdownExit: true,
 	    /*TODO
@@ -142,8 +142,8 @@
 	    name: "gyro-bmi-magwick",
 	    connection : {
 		type: "DCT_COMMAND_BASH",
-		// get roll pitch from magwick fusion at the rate 2000Hz from bmi160 connected to shared i2c-1 interface
-		command: "killall -q -9 bmi160; sleep 0.5; exec chrt -r 10 taskset -c 2 ../tool/imu/bmi160/bmi160 -r 2000 -s /dev/i2c-1",
+		// get roll pitch from magwick fusion at given rate (-r) from bmi160 connected to shared i2c-1 interface
+		command: "killall -q -9 bmi160; sleep 0.5; exec chrt -r 10 taskset -c 2 ../tool/imu/bmi160/bmi160 -r 1000 -s /dev/i2c-1",
 	    },
 	    warming_time: 6.0,
 	    // positive roll makes left side up
@@ -151,7 +151,7 @@
 	    mount_rpy: [0.04, 0.05, 0],
             stream: [
 	    	// Note the very small yaw weight. It is supposed we get yaw from other sources
-		{ type: "DT_ORIENTATION_RPY", tag: "rpy", weight: [1.0, 1.0, 1e-10], mandatory:1, history_size:4, debug_level: 88},
+		{ type: "DT_ORIENTATION_RPY", tag: "rpy", weight: [1.0, 1.0, 1e-10], mandatory:1, history_size:10, debug_level: 88},
 		{ type: "DT_DEBUG",           tag: "debug", debug_level: 22},
             ],
 	},
@@ -162,16 +162,16 @@
 	    name: "gyro-bmi-magwick-shm",
 	    connection : {
 		type: "DCT_COMMAND_BASH",
-		// get roll pitch from magwick fusion at the rate 2000Hz from bmi160 connected to shared i2c-1 interface
-		command: "killall -q -9 bmi160-shm; sleep 0.5; exec chrt -r 10 taskset -c 2 ../tool/imu/bmi160/bmi160-shm -r 200 -s /dev/i2c-1",
+		// get roll pitch from magwick fusion at given rate (-r) from bmi160 connected to shared i2c-1 interface
+		command: "killall -q -9 bmi160-shm; sleep 0.5; exec chrt -r 10 taskset -c 2 ../tool/imu/bmi160/bmi160-shm -r 1000 -s /dev/i2c-1",
 	    },
 	    warming_time: 6.0,
 	    // positive roll makes left side up
 	    // positive pitch makes nose up
-	    mount_rpy: [0.04, 0.05, 0],
+	    mount_rpy: [0.08, 0.0, 0],
             stream: [
 	    	// Note the very small yaw weight. It is supposed we get yaw from other sources
-		{ type: "DT_ORIENTATION_RPY_SHM", tag: "rpy", weight: [1.0, 1.0, 1e-10], mandatory:1, history_size:4, debug_level: 88},
+		{ type: "DT_ORIENTATION_RPY_SHM", tag: "rpy", weight: [1.0, 1.0, 1e-10], mandatory:1, history_size:10, debug_level: 88},
 		{ type: "DT_DEBUG",               tag: "debug", debug_level: 88},
             ],
 	},
@@ -196,7 +196,7 @@
 	},
 #endif
 
-#if 0
+#if 1
 	{
 	    name: "apriltag",
 	    connection : {
@@ -207,9 +207,9 @@
 	    mount_position: [0, 0, 0.05],
 	    warming_time: 1.0,
             stream: [
-		{ type: "DT_POSITION_VECTOR",      tag: "pose:",  mandatory:1, weight: [1.0, 1.0, 1e-10], history_size:3, latency: 0.1, debug_level: 88},
+		{ type: "DT_POSITION_VECTOR",      tag: "pose:",  mandatory:1, weight: [1.0, 1.0, 1.0], history_size:3, latency: 0, debug_level: 88},
 		// { type: "DT_POSITION_VECTOR",      tag: "pose:",  mandatory:1, weight: [0.0001, 0.0001, 0.0001], history_size:20, latency: 0.10, debug_level: 88},
-		{ type: "DT_ORIENTATION_RPY", 	   tag: "rpy:", weight: [1e-10, 1e-10, 1], mandatory:1, history_size:3, latency: 0.10, debug_level: 88},
+		{ type: "DT_ORIENTATION_RPY", 	   tag: "rpy:", weight: [1e-10, 1e-10, 1], mandatory:1, history_size:8, latency: 0, debug_level: 88},
 		{ type: "DT_VOID",                 tag: "lat:", debug_level: 1},
 		{ type: "DT_DEBUG",                tag: "debug", debug_level: 22},
             ],
@@ -334,7 +334,7 @@
 	},
 #endif
 	
-#if 1
+#if 0
 	{
 	    name: "zeropose",
 	    connection : {

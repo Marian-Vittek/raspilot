@@ -67,7 +67,7 @@ start: prestart
 	sudo bash -c "ulimit -c unlimited ; chrt -r 20 taskset -c 0 ./raspilot  -d 1 -ll 6 -p `echo $$SSH_CLIENT | awk '{ print $$1}'`"
 
 starttolog: prestart
-	sudo bash -c "ulimit -c unlimited ; chrt -r 20 taskset -c 0 ./raspilot -d 6 -ll 33 -l10 -p `echo $$SSH_CLIENT | awk '{ print $$1}'`"
+	sudo bash -c "ulimit -c unlimited ; chrt -r 20 taskset -c 0 ./raspilot -d 6 -ll 33 -p `echo $$SSH_CLIENT | awk '{ print $$1}'`"
 
 startdebug: prestart
 	sudo bash -c "ulimit -c unlimited ; chrt -r 20 taskset -c 0 ./raspilot -d 66 -ll 66 -p `echo $$SSH_CLIENT | awk '{ print $$1}'`"

@@ -67,9 +67,11 @@ of the PX4. Specialised routines that manipulate the sensors and
 motors are running in separate processes and are connected to the
 autopilot via Linux pipes and/or shared memory. Software runs
 asynchronously and the input is read as it comes.  The autopilot
-itself runs an infinite loop at an adjustable frequency. Software that
-physically controls ESCs runs in a separate process too. It makes it
-easy to integrate specific ESC protocols or specific motor hardware.
+itself runs an infinite loop at an adjustable frequency. Frequency is
+configurable and ranges between 50Hz and 5kHz. Smaller drones require
+higher frequency. Software that physically controls ESCs runs in a
+separate process too. This architecture makes it easy to integrate
+specific sensors, ESC protocols or specific motor hardware.
 
 
 From the user point of view, the whole autopilot behaves like a
@@ -87,9 +89,7 @@ flight.
 The physics that Raspilot uses to stabilise drones is very
 rudimentary. Only inertia rules are taken into account. Changes in
 rotation and speed of movement are controlled by PID
-controllers. Frequency at which the main loop is executed is
-configurable and ranges between 50Hz and 5kHz. Smaller
-drones require higher frequency.
+controllers. 
 
 
 

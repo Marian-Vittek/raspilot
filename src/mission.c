@@ -206,7 +206,7 @@ void missionSingleMotorTest(int motorIndex) {
 void missionMotorTest(int i) {
     timeLineInsertEvent(UTIME_AFTER_MSEC(1), pilotRegularSpecialModeTick, NULL);
     // Do a longer wait for case if someting is not initialized immediately.
-    raspilotBusyWait(5.0);
+    raspilotBusyWait(10.0);
     if (i < 0) {
 	missionSingleMotorTest(0) ;
 	missionSingleMotorTest(1) ;

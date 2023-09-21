@@ -83,6 +83,9 @@
 #define DEVICE_MAX			64
 #define DEVICE_DATA_MAX			32
 #define DEVICE_DATA_VECTOR_MAX 		16
+// In order to speed up parsing of thrust sent to motorsd, we are sending integers instead of double.
+// The actual thrust <0..1> will be multiplied by this factor before being sent to motors.
+#define MOTOR_FACTOR			10000
 
 /////////////////////////////////////////////////////////////
 
@@ -128,6 +131,8 @@
 #define PRINTF_AND_EXIT(val, msg, ...)    	{PRINTF(msg, __VA_ARGS__); exit(val) ;}
 #define PRINTF_AND_ABORT(msg, ...)    		{PRINTF(msg, __VA_ARGS__); abort() ;}
 
+#if 1
+
 #define ALLOC(p,t)          {(p) = (t*) expmemMalloc(sizeof(t)); if((p)==NULL) {printf("apsarapilot: Out of memory\n"); assert(0);shutdown();}}
 #define CALLOC(p,t)         {ALLOC(p,t); memset((p), 0, sizeof(t));}
 #define REALLOC(p,t)        {(p) = (t*) expmemRealloc((p), sizeof(t)); if((p)==NULL && (n)!=0) {printf("apsarapilot: Out of memory\n"); assert(0);shutdown();}}
@@ -136,6 +141,19 @@
 #define REALLOCC(p,n,t)     {(p) = (t*) expmemRealloc((p), (n)*sizeof(t)); if((p)==NULL && (n)!=0) {printf("apsarapilot Out of memory\n"); assert(0);shutdown();}}
 #define ALLOC_SIZE(p,t,n)   {(p) = (t*) expmemMalloc(n); if((p)==NULL && (n)!=0) {printf("apsarapilot: Out of memory\n"); assert(0); exit(1);shutdown();}}
 #define FREE(p)             {expmemFree(p); }
+
+#else
+
+#define ALLOC(p,t)          {(p) = (t*) malloc(sizeof(t)); if((p)==NULL) {printf("apsarapilot: Out of memory\n"); assert(0);shutdown();}}
+#define CALLOC(p,t)         {ALLOC(p,t); memset((p), 0, sizeof(t));}
+#define REALLOC(p,t)        {(p) = (t*) realloc((p), sizeof(t)); if((p)==NULL && (n)!=0) {printf("apsarapilot: Out of memory\n"); assert(0);shutdown();}}
+#define ALLOCC(p,n,t)       {(p) = (t*) malloc((n)*sizeof(t)); if((p)==NULL && (n)!=0) {printf("apsarapilot: Out of memory\n"); assert(0);shutdown();}}
+#define CALLOCC(p,n,t)      {ALLOCC(p,n,t); memset((p), 0, (n)*sizeof(t));}
+#define REALLOCC(p,n,t)     {(p) = (t*) realloc((p), (n)*sizeof(t)); if((p)==NULL && (n)!=0) {printf("apsarapilot Out of memory\n"); assert(0);shutdown();}}
+#define ALLOC_SIZE(p,t,n)   {(p) = (t*) malloc(n); if((p)==NULL && (n)!=0) {printf("apsarapilot: Out of memory\n"); assert(0); exit(1);shutdown();}}
+#define FREE(p)             {free(p); }
+
+#endif
 
 #define UTIME_AFTER_MINUTES(n)    (currentTime.usec + 1000000LL*60*(n))
 #define UTIME_AFTER_SECONDS(n)    (currentTime.usec + 1000000LL*(n))

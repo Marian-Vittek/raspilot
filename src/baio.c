@@ -646,7 +646,6 @@ int baioOnSelectEvent(int maxfd, fd_set *readfds, fd_set *writefds, fd_set *exce
 		if (baioDebugLevel > 20) {
 		    printf("%s: Event on %d: wfd %d: status: %6x    %6s; rwe: %d%d%d\n", PPREFIX(), i, wfd, status, "", (readfds != NULL&&FD_ISSET(wfd, readfds)), (writefds != NULL && FD_ISSET(wfd, writefds)), (exceptfds != NULL && FD_ISSET(wfd, exceptfds))); fflush(stdout);
 		}
-		// first check for ssl_pending
 		if (exceptfds != NULL && FD_ISSET(wfd, exceptfds)) {
 		    res ++;
 		    baioImmediateDeactivate(bb);

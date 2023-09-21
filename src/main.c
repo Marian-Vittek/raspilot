@@ -161,6 +161,8 @@ void mainStandardShutdown(void *d) {
     if (uu->deviceMotors >= 0 && uu->device[uu->deviceMotors] != NULL && uu->device[uu->deviceMotors]->shutdownExit) motorsExit(NULL);
     if (1) mainStatistics(STATISTIC_PRINT);
     
+    shutDownInProgress = 1;
+
     // Deinitialize/close all devices
     for(i=0; i<uu->deviceMax; i++) deviceFinalize(i);
 
@@ -169,7 +171,6 @@ void mainStandardShutdown(void *d) {
     logbaioClose();
     stdbaioClose();
     fflush(stdout);
-    shutDownInProgress = 1;
     terminalResume();
     timeLineRemoveAllEvents();
     timeLineInsertEvent(UTIME_AFTER_MSEC(500), mainExit, d);
@@ -410,12 +411,17 @@ static void initConfiguredPilot() {
     regressionBufferInit(&uu->shortHistoryPosition, 3, uu->config.short_history_seconds * uu->stabilization_loop_Hz + 0.5, "short pose history");
     regressionBufferInit(&uu->shortHistoryRpy, 3, uu->config.short_history_seconds * uu->stabilization_loop_Hz + 0.5, "short orientation history");
     // hold non regression history of [x,y,z,r,p,y] for 5 seconds. At hight rate it is too big. Store 1 second.
-    ALLOCC(mem, RASPILOT_RING_BUFFER_SIZE(6, 1 * uu->stabilization_loop_Hz + 0.5), char);
+    ALLOCC(mem, RASPILOT_RING_BUFFER_SIZE(1 * uu->stabilization_loop_Hz + 0.5, 6), char);
     uu->historyPose = (struct raspilotRingBuffer *) mem;
     raspilotRingBufferInit(uu->historyPose, 6, 1 * uu->stabilization_loop_Hz + 0.5, "historyPose");
-    
     for(i=0; i<uu->motor_number; i++) {
 	uu->motor[i].thrust = 0.0;
+    }
+
+    
+    // The main launch/initialization of all configured devices.
+    for(i=0; i<uu->deviceMax; i++) {
+	deviceInitiate(i);
     }
 
     // find motors
@@ -431,13 +437,15 @@ static void initConfiguredPilot() {
 	exit(-1);
     }
 
-    // The main launch/initialization of all configured devices.
-    for(i=0; i<uu->deviceMax; i++) {
-	deviceInitiate(i);
+    bb = baioFromMagic(uu->device[uu->deviceMotors]->baioMagic);
+    if (bb == NULL) {
+	fprintf(stderr, "%s: Internal Error: \"motors\" baio not found. Exiting.\n", PPREFIX());
+	exit(-1);
     }
-
     assert(strcmp(uu->device[uu->deviceMotors]->name, "motors") == 0);
-    uu->motorBaioMagic = uu->device[uu->deviceMotors]->baioMagic;
+    uu->motorBaioMagic = bb->baioMagic;
+    baioPrintfToBuffer(bb, "mfac %g\n", (double)MOTOR_FACTOR);
+    
 }
     
 //////////////////////////////////////////////////////////////////////////////////////////
@@ -561,7 +569,7 @@ void raspilotLaunch(double altitude) {
     }
     
     uu->flyStage = FS_FLY;
-    lprintf(1, "%s: Warning: launch: Going to fly!\n", PPREFIX());
+    lprintf(0, "%s: Warning: launch: Going to fly!\n", PPREFIX());
     deviceSendToAllDevices("info: takeoff\n");
 
     savedConfig = uu->config;
@@ -582,14 +590,14 @@ void raspilotLaunch(double altitude) {
     // Remove the speed constraint, so that we launch a bit quicker than normal flight
     // Otherwise the drone is drifting on minimal altitude and stumble about something
     uu->config.drone_max_speed = PILOT_LAUNCH_SPEED;
-    uu->config.pilot_reach_goal_orientation_time = PILOT_LAUNCH_GOAL_ORIENTATION_TIME;
-    uu->config.pilot_reach_goal_position_time = PILOT_LAUNCH_GOAL_POSITION_TIME;
+    //uu->config.pilot_reach_goal_orientation_time = PILOT_LAUNCH_GOAL_ORIENTATION_TIME;
+    //uu->config.pilot_reach_goal_position_time = PILOT_LAUNCH_GOAL_POSITION_TIME;
     
     // initiate PID
     pilotUpdatePositionHistoryAndRecomputeMotorThrust();
     
     tt = currentTime.dtime;
-    while(raspilotCurrentAltitude() < altitude && currentTime.dtime < tt + PILOT_LAUNCH_MAX_TIME) raspilotPoll();
+    while(0 && raspilotCurrentAltitude() < altitude && currentTime.dtime < tt + PILOT_LAUNCH_MAX_TIME) raspilotPoll();
 
     // ok we are flying and launch altitude, recover configuration and continue user's program
     uu->config = savedConfig;
@@ -600,7 +608,7 @@ void raspilotLaunch(double altitude) {
 	raspilotLand(0, 0);
 	raspilotShutDownAndExit();
     }
-    lprintf(1, "%s: Info: launched.\n", PPREFIX());
+    lprintf(0, "%s: Info: launched.\n", PPREFIX());
 }
 
 void raspilotLand(double x, double y) {

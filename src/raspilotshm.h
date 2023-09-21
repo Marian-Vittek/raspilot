@@ -120,16 +120,20 @@ static inline void raspilotRingBufferInit(struct raspilotRingBuffer *hh, int vec
     va_end(ap);
 }
 
-static inline void raspilotShmPush(struct raspilotInputBuffer *ii, double time, double *vector, int size) {
+static inline int raspilotShmPush(struct raspilotInputBuffer *ii, double time, double *vector, int size) {
     assert(ii != NULL);
     if (ii->buffer.vectorsize != size) {
 	printf("debug %s:%d: Error: %s: shared memory vector size %d does not match added vector size %d!\n", __FILE__, __LINE__, ii->buffer.name, ii->buffer.vectorsize, size);
-	return;
+	return(-2);
+    }
+    if (ii->status == RIBS_SHARED_FINALIZE) {
+	return(-1);
     }
     pthread_mutex_lock(&ii->mutex);
     raspilotRingBufferAddElem(&ii->buffer, time, vector);
     msync(ii, RASPILOT_INPUT_BUFFER_SIZE(ii->buffer.size, ii->buffer.vectorsize), MS_SYNC);
     pthread_mutex_unlock(&ii->mutex);
+    return(0);
 }	 
 
 static inline struct raspilotInputBuffer *raspilotShmConnect(char *name) {

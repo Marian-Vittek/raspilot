@@ -256,15 +256,16 @@ int readThrustFromInputPipe() {
 	    uint64_t 	t;
 	    t = currentTimestampUsec();
 	    printf("debug %s: %s:%d: Parsing '%s'\n", sprintTime_st(t), __FILE__, __LINE__, bbb);
+	    fflush(stdout);
 	}
-	if (0) {
+#if 0
 	    uint64_t 	t;
 	    t = currentTimestampUsec();
 	    static FILE *ff;
 	    if (ff == NULL) ff = fopen("motor-debug.txt", "w");
 	    fprintf(ff, "debug %s: %s:%d: Parsing '%s'\n", sprintTime_st(t), __FILE__, __LINE__, bbb);
 	    fflush(ff);
-	}
+#endif
 	SKIP_BLANK(q);
 	if (q[0] == 'h' && q[1] == 'b' && q[2] == 0) {
 	    // heartbeat, meaning hold last pwm
@@ -278,14 +279,17 @@ int readThrustFromInputPipe() {
 	    } else {
 		q = eq;
 		for(i=0; i<motorMax; i++) {
+#if 0		    
 		    t = strtod(q, &eq);
-#if TEST2		    
+#else
 		    t = strtoint(q, &eq);
 		    if (motorThrottleFactor == 0 && t != 0) {
-			fprintf(ff, "debug %s: %s:%d: Motor throttle factor not set while parsing '%s'\n", sprintTime_st(t), __FILE__, __LINE__, bbb);
-			fflush(ff);
+			printf("debug %s: %s:%d: Motor throttle factor not set while parsing '%s'\n", sprintTime_st(t), __FILE__, __LINE__, bbb);
+			fflush(stdout);
+			t = 0;
+		    } else {
+			t = t * motorThrottleFactor;
 		    }
-		    t = t * motorThrottleFactor;
 #endif
 		    if (eq == q) {
 			parsedOkFlag = 0;
@@ -338,7 +342,12 @@ int readThrustFromInputPipe() {
 	    res |= 0;
 	} else if (q[0] == 'm' && q[1] == 'f' && q[2] == 'a' && q[3] == 'c') {
 	    // set factor for throttles sent as integers
-	    motorThrottleFactor = 1.0 / atoll(q+4);
+	    t = strtod(q+4, &eq);
+	    if (t != 0) {
+		motorThrottleFactor = 1.0 / t;
+	    } else {
+		motorThrottleFactor = 0;
+	    }
 	    res |= 0;
 	} else if (q[0] == 0) {
 	    // empty line, ignore

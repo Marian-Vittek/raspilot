@@ -334,6 +334,7 @@ int expmemFree(void *p) {
     SINGLE_THREAD_CHECK_ENTRY();
 
     if (p == NULL) SINGLE_THREAD_CHECK_EXIT(0);
+
     space = ((S_expmemChunkHeader *)p)-1;
     fi = space->u.freeInfo;
     expmemInternalFree(space, fi);

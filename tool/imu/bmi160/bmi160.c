@@ -44,7 +44,7 @@
 #define FACTOR_ACC_S8g  4096.0
 #define FACTOR_ACC_S16g 2048.0
     
-#define FACTOR_GYRO FACTOR_GYRO_RFS2000
+#define FACTOR_GYRO FACTOR_GYRO_RFS1000
 #define FACTOR_ACC  FACTOR_ACC_S2g
 
 
@@ -129,8 +129,8 @@ int main(int argc, char **argv) {
         FusionVector accelerometer = {0.0f, 0.0f, 1.0f}; // replace this with actual accelerometer data in g
 	double temp;
 
-	//get both accel and gyro data from bmi160
-	//parameter accelGyro is the pointer to store the data
+	// get both accel and gyro data from bmi160
+	// parameter accelGyro is the pointer to store the data
 	rslt = bmi160.getAccelGyroData(accelGyro);
 	if(rslt != 0) {
 	    printf("debug Error getting data\n");
@@ -156,7 +156,7 @@ int main(int argc, char **argv) {
 		rpy[2] = euler.angle.yaw*M_PI/180.0;
 #ifdef SHM
 		shmbuf->confidence = 1.0;
-		raspilotShmPush(shmbuf, t1, rpy, 3);
+		if (raspilotShmPush(shmbuf, t1, rpy, 3) != 0) exit(0);
 		//printf("debug bmi160: %f pushing rpy %9.7f %9.7f %9.7f\n", t1, rpy[0], rpy[1], rpy[2]);
 		//raspilotRingBufferDump(&shmbuf->buffer);
 #else
