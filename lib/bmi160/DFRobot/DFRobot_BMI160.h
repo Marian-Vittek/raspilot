@@ -1037,6 +1037,10 @@ public:
    */
   int8_t setStepPowerMode(uint8_t model);
 
+  /* [MV] Moved to public */
+  void   defaultParamSettg(struct bmi160Dev *dev);
+  int8_t setAccelConf(struct bmi160Dev *dev);
+  int8_t setGyroConf(struct bmi160Dev *dev);
 
   uint8_t onlyAccel=1;
   uint8_t onlyGyro=2;
@@ -1050,19 +1054,16 @@ public:
     int8_t SPIInit(struct bmi160Dev *dev);
     
     int8_t softReset(struct bmi160Dev *dev);
-    void   defaultParamSettg(struct bmi160Dev *dev);
     
     int8_t setSensConf();
     int8_t setSensConf(struct bmi160Dev *dev);
     
-    int8_t setAccelConf(struct bmi160Dev *dev);
     int8_t checkAccelConfig(uint8_t *data, struct bmi160Dev *dev);
     int8_t processAccelOdr(uint8_t *data, struct bmi160Dev *dev);
     int8_t processAccelBw(uint8_t *data, struct bmi160Dev *dev);
     int8_t processAccelRange(uint8_t *data, struct bmi160Dev *dev);
 
-    int8_t setGyroConf(struct bmi160Dev *dev);
-    int8_t checkGyroConfig(uint8_t *data, struct bmi160Dev *dev);
+      int8_t checkGyroConfig(uint8_t *data, struct bmi160Dev *dev);
     int8_t processGyroOdr(uint8_t *data, struct bmi160Dev *dev);
     int8_t processGyroBw(uint8_t *data, struct bmi160Dev *dev);
     int8_t processGyroRange(uint8_t *data, struct bmi160Dev *dev);

@@ -85,7 +85,7 @@
 #define DEVICE_DATA_VECTOR_MAX 		16
 // In order to speed up parsing of thrust sent to motorsd, we are sending integers instead of double.
 // The actual thrust <0..1> will be multiplied by this factor before being sent to motors.
-#define MOTOR_FACTOR			10000
+#define MOTOR_STREAM_THRUST_FACTOR			10000
 
 /////////////////////////////////////////////////////////////
 
@@ -297,6 +297,13 @@ enum deviceDataTypes {
     
     DT_VOID,
 
+    // Sending streams (to motors)
+    // Sending to motors
+    DT_PING,
+    DT_THRUST,
+    DT_THRUST_SHM,
+
+    // Reading streams from sensors
     // Text based streams through pipes/sockets
     DT_DEBUG,
     DT_PONG,
@@ -312,13 +319,14 @@ enum deviceDataTypes {
     DT_JSTEST,		// joystick
 
 
-    // TOBE: Shared memory streams
+    // Shared memory streams
     DT_POSITION_SHM,
     DT_ORIENTATION_RPY_SHM,
     
     DT_MAX,
 };
 
+// Maybe this is useless, you can implement all of them as DCT_COMMAND_BASH
 enum deviceConnectionTypeEnum {
     DCT_NONE,
     DCT_INTERNAL_ZEROPOSE,
@@ -639,18 +647,19 @@ struct deviceStreamData {
     // values from config
     char			*name;
     char			*tag;
-    enum deviceDataTypes	type;
-    double			latency;	// data received refers to the time lastDataTime - latency
-    double			timeout;	// if last value is more then timeout old, sensor is ignored
-    double			min_range;	// minimal valid range for rangefinders (radar)
-    double			max_range;	// minimal valid range for rangefinders (radar)
-    double			min_altitude;	// min valid altitude (for flow detectors)
-    double			max_altitude;	// max valid altitude (for flow detectors)
-    vec4			weight;		// weight is per axis in GBASE, or rpy per quat elem for quat
-    uint8_t			mandatory;	// whether device has to be active before launch
-    int				history_size;   // the size of the history saved for linear interpolation, rename to regression_points or similar
+    int				type;			// enum deviceDataTypes
+    double			latency;		// data received refers to the time lastDataTime - latency
+    double			timeout;		// if last value is more then timeout old, sensor is ignored
+    double			min_range;		// minimal valid range for rangefinders (radar)
+    double			max_range;		// minimal valid range for rangefinders (radar)
+    double			min_altitude;		// min valid altitude (for flow detectors)
+    double			max_altitude;		// max valid altitude (for flow detectors)
+    vec4			weight;			// weight is per axis in GBASE, or rpy per quat elem for quat
+    double			drift_fix_period;	// Not yet implemented, period to recalibrate drift of drifting devices
+    uint8_t			mandatory;		// whether device has to be active before launch
+    int				history_size;   	// the size of the history saved for linear interpolation, rename to regression_points or similar
     int				debug_level;
-    struct deviceData		*dd;		// "back" pointer to device data where I belong
+    struct deviceData		*dd;			// "back" pointer to device data where I belong
 
     // This is the place where the 'raw' values read from the device are stored.
     // Old way.
@@ -685,7 +694,7 @@ struct deviceStreamData {
 };
 
 struct connection {
-    enum deviceConnectionTypeEnum type;
+    int type; // enum deviceConnectionTypeEnum
     union {
 	char		*command;
 	struct {
@@ -723,8 +732,6 @@ struct deviceData {
 
 struct motorStr {
     double			thrust;
-    double			rotationSpeed;
-    double			lastSentRotationSpeed;
 
     double			lastSentThrust;
     double			totalWork;
@@ -736,7 +743,6 @@ struct waypoint {
 };
 
 struct config {
-    uint8_t 			motor_bidirectional;		// do not set this. It breaks the stabilization.
     double			motor_thrust_min_spin;
     double			pilot_reach_goal_orientation_time;
     double			pilot_reach_goal_position_time;
@@ -747,7 +753,8 @@ struct config {
     double			drone_max_altitude;
     double			drone_waypoint_reached_range;
     double			drone_waypoint_reached_angle;
-    double			short_history_seconds;
+    double			short_buffer_seconds;
+    double			long_buffer_seconds;
 };
 
 struct universe {
@@ -760,6 +767,7 @@ struct universe {
     char			*pingToHost;
     char			*logFileName;
     
+    double			autopilot_loop_Hz;
     double			stabilization_loop_Hz;
     int 			motor_number;
     double			motor_roll_forces[MOTOR_MAX];
@@ -786,8 +794,8 @@ struct universe {
     struct deviceStreamData	*deviceStreamDataByType[DT_MAX];	// lists by data types
     
     // run time values
-    enum flyStageEnum		flyStage;
-    double			pilotStartingTime;		// the time when pilot was launched
+    int				flyStage; 		// enum flyStageEnum
+    double			pilotStartingTime;	// the time when pilot was launched
     
     struct motorStr		motor[MOTOR_MAX];
 
@@ -797,9 +805,13 @@ struct universe {
     double			motorFirstSendTime;		// when we lastly send a command to motors
     double			motorLastSendTime;		// when we lastly send a command to motors
 
-    // Short history buffer is used to smooth position and velo from sensor fusion
-    struct regressionBuffer	shortHistoryPosition;
-    struct regressionBuffer	shortHistoryRpy;
+    // Long buffer is used to smooth position and velo from sensor fusion
+    struct regressionBuffer	longBufferPosition;
+    struct regressionBuffer	longBufferRpy;
+
+    // Short buffer is used to smooth roll and pitch
+    struct regressionBuffer	shortBufferPosition;
+    struct regressionBuffer	shortBufferRpy;
 
     // Those values may be used as the current position, orientation and velocity of the drone
     vec3			droneLastPosition;
@@ -809,10 +821,17 @@ struct universe {
     // The time when previous values were updated
     double			droneLastTickTime;
 
+    // Target roll, pitch yaw [speed] for PID controller
+    double 			targetRoll, targetPitch, targetYaw;
+    double			targetYawRotationSpeed, targetRollRotationSpeed, targetPitchRotationSpeed;
+
+    // Thrust to be sent to motors for altitude goal.
+    double			altitudeThrust;
+    
     // hold a few seconds of historical poses for case somebody needs it
     // TODO: split into historyPosition and historyRpy, so that position sensors
     // can find the new orientation there
-    struct raspilotRingBuffer		*historyPose;
+    struct raspilotRingBuffer	*historyPose;
     
     // end of universe
     unsigned			magicNumber;
@@ -833,11 +852,11 @@ extern struct timeLineEvent     *timeLine;
 extern uint64_t			tickCounter;
 extern uint64_t			currentTimeLineTimeUsec;
 extern int64_t 			nextStabilizationTickUsec;
+extern int64_t 			nextPidTickUsec;
 extern int			shutDownInProgress;
 extern struct jsonnode 		dummyJsonNode;
 extern char 			*signalInterruptNames[258];
-extern int 			deviceDataStreamParsedVectorLength[DT_MAX];
-extern int 			deviceDataStreamRegressionBufferLength[DT_MAX];
+extern int 			deviceDataStreamVectorLength[DT_MAX];
 extern char 			*deviceDataTypeNames[DT_MAX+2];
 extern char 			*coordinateSystemNames[CS_MAX+2];
 extern char			*deviceConnectionTypeNames[DCT_MAX+2];
@@ -969,9 +988,10 @@ void raspilotWaypointSet(double x, double y, double z, double yaw) ;
 void raspilotGotoWaypoint(double x, double y, double z, double yaw) ;
 double raspilotCurrentAltitude() ;
 int raspilotWaypointReached() ;
-void motorsThrustSend(void *d) ;
+void pilotSendThrusts(void *d) ;
 void motorsExit(void *d) ;
 void motorsStandby(void *d) ;
+void motorsSendStreamThrustFactor(void *d) ;
 void motorsThrustSet(double thrust) ;
 void motorThrustSetAndSend(int i, double thrust) ;
 void motorsThrustSetAndSend(double thrust) ;
@@ -981,15 +1001,15 @@ void motorsEmmergencyShutdown() ;
 void pilotImmediateLanding() ;
 void pilotInteractiveInputRegularCheck(void *d) ;
 void pilotRegularSpecialModeTick(void *d) ;
-void pilotRegularLoopTick(void *d) ;
+void pilotRegularStabilizationTick(void *d) ;
+void pilotAutopilotLoopTick(void *d) ;
 int pilotAreAllDevicesReady() ;
 void pilotStoreLaunchPose(void *d) ;
 void pilotRegularStabilizationLoopRescheduleToSoon() ;
-void pilotSetMotors3dMode(void *d) ;
-void pilotRegularMotorPing(void *d) ;
+void pilotRegularSendPings(void *d) ;
 void pilotRegularSaveTrajectory(void *d) ;
 void pilotRegularWaitForDevicesAndStartPilot(void *d) ;
-void pilotUpdatePositionHistoryAndRecomputeMotorThrust() ;
+void pilotUpdateBufferAndRecomputeMotorThrust() ;
 
 // baio.c
 extern int baioDebugLevel;
@@ -1021,6 +1041,7 @@ void missionLandImmediately() ;
 void mission();
 
 // main.c
+void mainInitDeviceDataStreamVectorLengths(int motor_number) ;
 void mainStatistics(int action) ;
 void shutdown();
 void mainStandardShutdown(void *d);

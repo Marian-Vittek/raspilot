@@ -322,6 +322,40 @@ int mainProcessCommandLineArgs(int argc, char **argv) {
     return(i);
 }
 
+void mainInitDeviceDataStreamVectorLengths(int motor_number) {
+    int 	i;
+    
+    // Streams in general are providing a vector of doubles.
+    // This is the length of that vector for the given stream
+    for(i=0; i<DT_MAX; i++) deviceDataStreamVectorLength[i] = -1;    
+    deviceDataStreamVectorLength[DT_NONE] = 0;
+    deviceDataStreamVectorLength[DT_VOID] = 0;
+    deviceDataStreamVectorLength[DT_DEBUG] = 0;
+    deviceDataStreamVectorLength[DT_PONG] = 0;
+    deviceDataStreamVectorLength[DT_POSITION_VECTOR] = 3;
+    deviceDataStreamVectorLength[DT_BOTTOM_RANGE] = 1;
+    deviceDataStreamVectorLength[DT_FLOW_XY] = 2;
+    deviceDataStreamVectorLength[DT_ALTITUDE] = 1;
+    deviceDataStreamVectorLength[DT_ORIENTATION_RPY] = 3;
+    deviceDataStreamVectorLength[DT_ORIENTATION_QUATERNION] = 4;
+    deviceDataStreamVectorLength[DT_POSITION_NMEA] = 3;
+    deviceDataStreamVectorLength[DT_MAGNETIC_HEADING_NMEA] = 1;
+    deviceDataStreamVectorLength[DT_JSTEST] = 5;
+    deviceDataStreamVectorLength[DT_POSITION_SHM] = 3;
+    deviceDataStreamVectorLength[DT_ORIENTATION_RPY_SHM] = 3;
+
+    deviceDataStreamVectorLength[DT_PING] = 1;
+    deviceDataStreamVectorLength[DT_THRUST] = motor_number;
+    deviceDataStreamVectorLength[DT_THRUST_SHM] = motor_number;
+
+    // check that we did not forget anything.
+    for(i=0; i<DT_MAX; i++) {
+	if (deviceDataStreamVectorLength[i] == -1) {
+	    fprintf(stderr, "%s: Internal Error: deviceDataTypeLength[%d] not set. Exiting!\n", PPREFIX(), i);
+	}
+    }
+}
+
 static void initTask() {
     int 	i, r;
     cpu_set_t 	set;
@@ -334,55 +368,9 @@ static void initTask() {
     setCurrentTime();
     uu->pilotStartingTime = currentTime.dtime;
 
-    // This is the length of the vector we parse from device's stdout
-    for(i=0; i<DT_MAX; i++) deviceDataStreamParsedVectorLength[i] = -1;    
-    deviceDataStreamParsedVectorLength[DT_NONE] = 0;
-    deviceDataStreamParsedVectorLength[DT_VOID] = 0;
-    deviceDataStreamParsedVectorLength[DT_DEBUG] = 0;
-    deviceDataStreamParsedVectorLength[DT_PONG] = 0;
-    deviceDataStreamParsedVectorLength[DT_POSITION_VECTOR] = 3;
-    deviceDataStreamParsedVectorLength[DT_BOTTOM_RANGE] = 1;
-    deviceDataStreamParsedVectorLength[DT_FLOW_XY] = 2;
-    deviceDataStreamParsedVectorLength[DT_ALTITUDE] = 1;
-    deviceDataStreamParsedVectorLength[DT_ORIENTATION_RPY] = 3;
-    deviceDataStreamParsedVectorLength[DT_ORIENTATION_QUATERNION] = 4;
-    deviceDataStreamParsedVectorLength[DT_POSITION_NMEA] = 3;
-    deviceDataStreamParsedVectorLength[DT_MAGNETIC_HEADING_NMEA] = 1;
-    deviceDataStreamParsedVectorLength[DT_JSTEST] = 5;
-    deviceDataStreamParsedVectorLength[DT_POSITION_SHM] = 3;
-    deviceDataStreamParsedVectorLength[DT_ORIENTATION_RPY_SHM] = 3;
-
-    // This is the length of the vector we got by processing parsed vector and which can be extrapolated
-    // by regression into something used by pilot, like position/orientation etc.
-    for(i=0; i<DT_MAX; i++) deviceDataStreamRegressionBufferLength[i] = -1;    
-    deviceDataStreamRegressionBufferLength[DT_NONE] = 0;
-    deviceDataStreamRegressionBufferLength[DT_VOID] = 0;
-    deviceDataStreamRegressionBufferLength[DT_DEBUG] = 0;
-    deviceDataStreamRegressionBufferLength[DT_PONG] = 0;
-    deviceDataStreamRegressionBufferLength[DT_POSITION_VECTOR] = 3;
-    deviceDataStreamRegressionBufferLength[DT_BOTTOM_RANGE] = 1;
-    deviceDataStreamRegressionBufferLength[DT_FLOW_XY] = 2;
-    deviceDataStreamRegressionBufferLength[DT_ALTITUDE] = 1;
-    deviceDataStreamRegressionBufferLength[DT_ORIENTATION_RPY] = 3;
-    deviceDataStreamRegressionBufferLength[DT_ORIENTATION_QUATERNION] = 4;
-    deviceDataStreamRegressionBufferLength[DT_POSITION_NMEA] = 3;
-    deviceDataStreamRegressionBufferLength[DT_MAGNETIC_HEADING_NMEA] = 1;
-    deviceDataStreamRegressionBufferLength[DT_JSTEST] = 0;
-    deviceDataStreamRegressionBufferLength[DT_POSITION_SHM] = 3;
-    deviceDataStreamRegressionBufferLength[DT_ORIENTATION_RPY_SHM] = 3;
-
-    
-    // deviceDataTypeLength[DT_MAX] = 0;
-    for(i=0; i<DT_MAX; i++) {
-	if (deviceDataStreamParsedVectorLength[i] == -1) {
-	    fprintf(stderr, "%s: Internal Error: deviceDataTypeLength[%d] not set. Exiting!\n", PPREFIX(), i);
-	}
-    }
-    for(i=0; i<DT_MAX; i++) {
-	if (deviceDataStreamRegressionBufferLength[i] == -1) {
-	    fprintf(stderr, "%s: Internal Error: deviceDataStreamRegressionBufferLength[%d] not set. Exiting!\n", PPREFIX(), i);
-	}
-    }
+    // pre-init vector length konstants. Some values depend on configuration, so it will be "reinitialized"
+    // from config.c one more time.
+    mainInitDeviceDataStreamVectorLengths(0);
 
     baioLibraryInit(0);
     strtodninit() ;
@@ -408,12 +396,14 @@ static void initConfiguredPilot() {
     char		*mem;
     
     uu->pilotLaunchTime = currentTime.dtime;
-    regressionBufferInit(&uu->shortHistoryPosition, 3, uu->config.short_history_seconds * uu->stabilization_loop_Hz + 0.5, "short pose history");
-    regressionBufferInit(&uu->shortHistoryRpy, 3, uu->config.short_history_seconds * uu->stabilization_loop_Hz + 0.5, "short orientation history");
+    regressionBufferInit(&uu->longBufferPosition, 3, uu->config.long_buffer_seconds * uu->autopilot_loop_Hz + 0.5, "long buffer pose");
+    regressionBufferInit(&uu->longBufferRpy, 3, uu->config.long_buffer_seconds * uu->autopilot_loop_Hz + 0.5, "long buffer orientation");
+    regressionBufferInit(&uu->shortBufferPosition, 3, uu->config.short_buffer_seconds * uu->autopilot_loop_Hz + 0.5, "short buffer pose");
+    regressionBufferInit(&uu->shortBufferRpy, 3, uu->config.short_buffer_seconds * uu->autopilot_loop_Hz + 0.5, "short buffer orientation");
     // hold non regression history of [x,y,z,r,p,y] for 5 seconds. At hight rate it is too big. Store 1 second.
-    ALLOCC(mem, RASPILOT_RING_BUFFER_SIZE(1 * uu->stabilization_loop_Hz + 0.5, 6), char);
+    ALLOCC(mem, RASPILOT_RING_BUFFER_SIZE(1 * uu->autopilot_loop_Hz + 0.5, 6), char);
     uu->historyPose = (struct raspilotRingBuffer *) mem;
-    raspilotRingBufferInit(uu->historyPose, 6, 1 * uu->stabilization_loop_Hz + 0.5, "historyPose");
+    raspilotRingBufferInit(uu->historyPose, 6, 1 * uu->autopilot_loop_Hz + 0.5, "historyPose");
     for(i=0; i<uu->motor_number; i++) {
 	uu->motor[i].thrust = 0.0;
     }
@@ -424,28 +414,7 @@ static void initConfiguredPilot() {
 	deviceInitiate(i);
     }
 
-    // find motors
-    uu->deviceMotors = -1;
-    for(i=0; i<uu->deviceMax; i++) {
-	if (strcmp(uu->device[i]->name, "motors") == 0) {
-	    uu->deviceMotors = i;
-	    break;
-	}
-    }
-    if (uu->deviceMotors < 0) {
-	fprintf(stderr, "%s: \"motors\" device not found. Exiting.\n", PPREFIX());
-	exit(-1);
-    }
-
-    bb = baioFromMagic(uu->device[uu->deviceMotors]->baioMagic);
-    if (bb == NULL) {
-	fprintf(stderr, "%s: Internal Error: \"motors\" baio not found. Exiting.\n", PPREFIX());
-	exit(-1);
-    }
-    assert(strcmp(uu->device[uu->deviceMotors]->name, "motors") == 0);
-    uu->motorBaioMagic = bb->baioMagic;
-    baioPrintfToBuffer(bb, "mfac %g\n", (double)MOTOR_FACTOR);
-    
+    motorsSendStreamThrustFactor(NULL);
 }
     
 //////////////////////////////////////////////////////////////////////////////////////////
@@ -485,10 +454,8 @@ int raspilotInit(int argc, char **argv) {
     trajectoryLogInit();
     if (uu->pingToHost != NULL) pingToHostInit();
     
-
-    if (uu->config.motor_bidirectional) timeLineInsertEvent(UTIME_AFTER_MSEC(1000), pilotSetMotors3dMode, NULL);
-    // the first ping wakes up motors
-    timeLineInsertEvent(UTIME_AFTER_MSEC(5000), pilotRegularMotorPing, NULL);
+    // the first ping wakes up motors. ? Is this still true?
+    timeLineInsertEvent(UTIME_AFTER_MSEC(5000), pilotRegularSendPings, NULL);
     // read standard input for interactive commands
     timeLineInsertEvent(UTIME_AFTER_MSEC(10), pilotInteractiveInputRegularCheck, NULL);
     // start saving trajectory
@@ -514,7 +481,8 @@ void raspilotPreLaunchSequence() {
     setCurrentTime();
     
     uu->flyStage = FS_WAITING_FOR_SENSORS;
-    timeLineInsertEvent(UTIME_AFTER_MSEC(1), pilotRegularLoopTick, NULL);
+    timeLineInsertEvent(UTIME_AFTER_MSEC(1), pilotAutopilotLoopTick, NULL);
+    timeLineInsertEvent(UTIME_AFTER_MSEC(2), pilotRegularStabilizationTick, NULL);
 
     lprintf(1, "%s: Info: Starting prefly sequence.\n", PPREFIX());
     while (! pilotAreAllDevicesReady()) raspilotPoll();
@@ -538,7 +506,6 @@ void raspilotPreLaunchSequence() {
     pilotStoreLaunchPose(NULL);
 
     lprintf(1, "%s: Warning: Second warning rotation!\n", PPREFIX());
-    if (uu->config.motor_bidirectional) thrust_warning_spin = - thrust_warning_spin;
     motorsThrustSet(thrust_warning_spin);
     raspilotBusyWait(PILOT_WARMING_WARNING_ROTATION_TIME);
     motorsThrustSet(0);
@@ -553,7 +520,7 @@ void raspilotPreLaunchSequence() {
     lprintf(5, "%s: Info: Prefly sequence done.\n", PPREFIX());
 
     mainStatistics(STATISTIC_INIT);
-    pilotUpdatePositionHistoryAndRecomputeMotorThrust();		// initiate PIDs
+    pilotUpdateBufferAndRecomputeMotorThrust();		// initiate PIDs
 }
 
 void raspilotLaunch(double altitude) {
@@ -575,7 +542,7 @@ void raspilotLaunch(double altitude) {
     savedConfig = uu->config;
     savedWaypoint = uu->currentWaypoint;
     
-    regressionBufferEstimateForTime(&uu->shortHistoryPosition, currentTime.dtime, cpose);
+    regressionBufferEstimateForTime(&uu->longBufferPosition, currentTime.dtime, cpose);
 
     vec3_assign(uu->currentWaypoint.position, cpose);
 
@@ -594,7 +561,7 @@ void raspilotLaunch(double altitude) {
     //uu->config.pilot_reach_goal_position_time = PILOT_LAUNCH_GOAL_POSITION_TIME;
     
     // initiate PID
-    pilotUpdatePositionHistoryAndRecomputeMotorThrust();
+    pilotUpdateBufferAndRecomputeMotorThrust();
     
     tt = currentTime.dtime;
     while(0 && raspilotCurrentAltitude() < altitude && currentTime.dtime < tt + PILOT_LAUNCH_MAX_TIME) raspilotPoll();
@@ -675,7 +642,7 @@ void raspilotWaypointSet(double x, double y, double z, double yaw) {
 
 double raspilotCurrentAltitude() {
     vec3		cpose;
-    regressionBufferEstimateForTime(&uu->shortHistoryPosition, currentTime.dtime, cpose);
+    regressionBufferEstimateForTime(&uu->longBufferPosition, currentTime.dtime, cpose);
     return(cpose[2]);
 }
 
@@ -685,8 +652,8 @@ int raspilotWaypointReached() {
     vec3 	cpose;
     vec3 	crpy;
 
-    regressionBufferEstimateForTime(&uu->shortHistoryPosition, currentTime.dtime, cpose);
-    regressionBufferEstimateForTime(&uu->shortHistoryRpy, currentTime.dtime, crpy);
+    regressionBufferEstimateForTime(&uu->longBufferPosition, currentTime.dtime, cpose);
+    regressionBufferEstimateForTime(&uu->longBufferRpy, currentTime.dtime, crpy);
     vec3_sub(dv, uu->currentWaypoint.position, cpose);
     distance = vec3_len(dv);
     if (distance > uu->config.drone_waypoint_reached_range) return(0);

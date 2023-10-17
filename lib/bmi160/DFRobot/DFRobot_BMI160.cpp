@@ -164,7 +164,7 @@ int8_t DFRobot_BMI160::setSensConf(struct bmi160Dev *dev)
   dev->accelCfg.power = BMI160_ACCEL_NORMAL_MODE;
 
   dev->gyroCfg.odr = BMI160_GYRO_ODR_3200HZ;
-  dev->gyroCfg.range = BMI160_GYRO_RANGE_1000_DPS;
+  dev->gyroCfg.range = BMI160_GYRO_RANGE_2000_DPS;
   dev->gyroCfg.bw = BMI160_GYRO_BW_NORMAL_MODE;
 
   dev->gyroCfg.power = BMI160_GYRO_NORMAL_MODE; 

@@ -24,9 +24,9 @@
 // comma can occur after the last field and constant expressions can be used instead of constants.
 
 #define PI 3.1415926
-#define RATE 100
+#define RATE 500
 {
-    // Safe values for small drones seems to be between 500 and 5000Hz.
+    autopilot_loop_Hz: RATE,
     stabilization_loop_Hz: RATE,
     
     motor_number:          4,
@@ -34,19 +34,20 @@
     motor_pitch_forces:	   [ 1, -1, -1,  1],
     motor_roll_forces:	   [-1, -1,  1,  1],
     
-    // What we call "short history" is the buffer of poses from which we compute supposed position of the drone.
-    // The main reason why we do that is that sensors may be noisy and the buffer is used to "smooth" or "average"
-    // some noise spikes. We use linear regression of buffered values to get current pose.
-    // The size of short history buffer is in seconds. If you have good sensors you can put smaller numbers.
+    // What we call "long buffer" is the buffer of poses used to "smooth" or "average"
+    // noise. We use linear regression of buffered values to get current pose.
+    // The size of long buffer is in seconds. If you have good sensors you can put smaller numbers.
     // If all your sensors are noisy you have to put larger value.
-    // The short history must be larger than 1 tick which is 1/stabilization_loop_Hz. The best value
-    // is 2/stabilization_loop_Hz.
-    short_history_seconds:	   2/RATE,
+    // Similarly, there is a "short buffer" storing roll and pitch used to stabilize drone. This is usualy shorter then "large buffer"
+    // because stabilization requires less latency.
+    // Buffer_seconds must be larger than 1 tick which is 1/stabilization_loop_Hz.
+    short_buffer_seconds:	   2/RATE,
+    long_buffer_seconds:	   0.1,
 
     // waypoint shall not be lower than this altitude
     drone_min_altitude:            0.01,
     
-    // waypoint shall not be higher than this altitude. Also if drone happens to be higher than this, minimal thrust is applied
+    // waypoint shall not be higher than this altitude.
     drone_max_altitude:            1.00, 
     
     // waypoint is considered as reached when the drone happens to be within that distance and orientation range
@@ -57,24 +58,22 @@
     // Smaller values make drone more "nervous" more precise but you may reach drone physical
     // limits. Check that your drone can stabilize with "nearly empty" battery with your value.
     // Smaller value may also drain your battery.
-    pilot_reach_goal_orientation_time:	0.5,
+    pilot_reach_goal_orientation_time:	0.2,
     
     // This is the time in which autopilots wants to reach target position.
     // This time must be at least double of "pilot_reach_goal_orientation_time" because in our simple model
     // the drone first gets "go to target" orientation, then it moves to the half way, then it gets "braking"
     // orientation and makes another half way while braking to zero velocity at target position.
-    pilot_reach_goal_position_time:	1.5,
+    pilot_reach_goal_position_time:	1.0,
 
     // However, while moving between waypoints the drone is constrained by the following values as well
     // max speed contains also vertical speed, that's why there is higher number
     drone_max_speed: 		   1.0,
-    drone_max_rotation_speed:	   PI/32,
+    drone_max_rotation_speed:	   PI/16,
     drone_max_inclination:	   PI/4,
 
-    // Two values for drone launch sequence, they are in the range 0..1
-    // 0 meaning no spinning, 1 meaning maximal spinning.
     // minimal spin, i.e. the spin during "warning rotations" before launch
-    motor_thrust_min_spin:         0.005,
+    motor_thrust_min_spin:         0.01,
     
     //////////////////////////////////////////////
     // PID controllers.
@@ -85,7 +84,8 @@
     // It is perfectly OK to use values [0,0,0] for non-windy weather, flying in interior or during the calibration of the drone.
     // You configure the same values for both PidX and PidY controllers.
 
-    pidXY:        { p:0.2,  i:0.2,  d:0.00001 },
+    //pidXY:        { p:0,  i:0,  d:0 },
+    pidXY:        { p:0.2,  i:0.003,  d:0.005 },
 
     // The second sort of PID controllers translates the desired drone rotation speed to motor thrust (i.e. to a value between 0 and 1).
     // That are PidRoll, PidPitch and PidYaw controllers.
@@ -96,11 +96,11 @@
     // This is why we suppose to set the I factor to zero and we allow to use a so called "constant integral" value "CI" representing
     // the average I*Integral specific to your drone.
 
-#define RPB 0.12
+#define RPB 0.07
 
     pidRoll:     { p:RPB,  i:0,  d:0.00000, ci: 0 },
     pidPitch:    { p:RPB,  i:0,  d:0.00000, ci: 0 },
-    pidYaw:      { p:0.05,  i:0,  d:0.00000, ci: 0 },
+    pidYaw:      { p:0.06,  i:0.03,  d:0.00000, ci: 0 },
 
     // The last sort of PID controller is pidAltitude. It translates desired vertical speed (usually 0)
     // to motor thrust. It shall have P factor large enough to launch and stabilize the drone altitude.
@@ -110,7 +110,7 @@
     // charged and "nearly empty" batteries.
 
     // pidAltitude: { p:0.1,  i:0.01,  d:0, ci:0.13 },
-    pidAltitude: { p:0.05,  i:0.005,  d:0.00001, ci:0.14 },
+    pidAltitude: { p:0.02,  i:0.04,  d:0.00001, ci:0.08 },
 
     //////////////////////////////////////////////
     // sensors and other devices installed on the drone and usually connected through pipes
@@ -125,15 +125,14 @@
 		command: "killall motor-dshot; sleep 0.5; killall -q -9 motor-dshot; sleep 0.5; ulimit -c unlimited; exec chrt -f 99 taskset -c 1 ../tool/motor/motor-dshot/motor-dshot - - 26 6 13 19 "
 	    },
 	    shutdownExit: true,
-	    /*TODO
-	    read: [
-		{ type:"DT_PING",  tag: "ping",  debug_level: 10},
-		{ type:"DT_THRUST",tag: "mt4",   debug_level: 10},
-	    ],
-	    */
 	    stream: [
-		{ type:"DT_PONG",  tag: "pong",  debug_level: 10},
-		{ type:"DT_DEBUG", tag: "debug", debug_level: 100},
+	    	// sending
+		{ type:"DT_PING",       tag: "ping",  debug_level: 10},
+		{ type:"DT_THRUST",     tag: "mt4",   debug_level: 10},
+		// { type:"DT_THRUST_SHM", debug_level: 110},
+		// reading
+		{ type:"DT_PONG",	tag: "pong",  debug_level: 10},
+		{ type:"DT_DEBUG", 	tag: "debug", debug_level: 100},
 	    ],
 	},
 
@@ -163,15 +162,15 @@
 	    connection : {
 		type: "DCT_COMMAND_BASH",
 		// get roll pitch from magwick fusion at given rate (-r) from bmi160 connected to shared i2c-1 interface
-		command: "killall -q -9 bmi160-shm; sleep 0.5; exec chrt -r 10 taskset -c 2 ../tool/imu/bmi160/bmi160-shm -r 1000 -s /dev/i2c-1",
+		command: "killall -q -9 bmi160-shm; sleep 0.5; exec chrt -r 10 taskset -c 2 ../tool/imu/bmi160/bmi160-shm -r 2000 -s /dev/i2c-1",
 	    },
 	    warming_time: 6.0,
 	    // positive roll makes left side up
 	    // positive pitch makes nose up
-	    mount_rpy: [0.08, 0.0, 0],
+	    mount_rpy: [-0.0, 0.02, 0],
             stream: [
-	    	// Note the very small yaw weight. It is supposed we get yaw from other sources
-		{ type: "DT_ORIENTATION_RPY_SHM", tag: "rpy", weight: [1.0, 1.0, 1e-10], mandatory:1, history_size:10, debug_level: 88},
+		{ type: "DT_ORIENTATION_RPY_SHM", tag: "rpy",  weight: [1.0, 1.0, 1.0], mandatory:1, history_size:4, latency: 0.001, debug_level: 88},
+		// { type: "DT_ORIENTATION_RPY_SHM", tag: "rpy2", weight: [0.0, 0.0, 1.0], mandatory:1, history_size:100, drift_fix_period:3, debug_level: 88},
 		{ type: "DT_DEBUG",               tag: "debug", debug_level: 88},
             ],
 	},
@@ -207,9 +206,9 @@
 	    mount_position: [0, 0, 0.05],
 	    warming_time: 1.0,
             stream: [
-		{ type: "DT_POSITION_VECTOR",      tag: "pose:",  mandatory:1, weight: [1.0, 1.0, 1.0], history_size:3, latency: 0, debug_level: 88},
+		{ type: "DT_POSITION_VECTOR",      tag: "pose:",  mandatory:1, weight: [1.0, 1.0, 1.0], history_size:2, latency: 0.04, debug_level: 88},
 		// { type: "DT_POSITION_VECTOR",      tag: "pose:",  mandatory:1, weight: [0.0001, 0.0001, 0.0001], history_size:20, latency: 0.10, debug_level: 88},
-		{ type: "DT_ORIENTATION_RPY", 	   tag: "rpy:", weight: [1e-10, 1e-10, 1], mandatory:1, history_size:8, latency: 0, debug_level: 88},
+		// { type: "DT_ORIENTATION_RPY", 	   tag: "rpy:", weight: [1e-20, 1e-20, 1], mandatory:1, history_size:10, latency: 0, debug_level: 88},
 		{ type: "DT_VOID",                 tag: "lat:", debug_level: 1},
 		{ type: "DT_DEBUG",                tag: "debug", debug_level: 22},
             ],

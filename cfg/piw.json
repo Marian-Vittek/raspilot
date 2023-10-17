@@ -30,8 +30,7 @@
 
     motor_number:          4,
 
-    // So far the lowest frequency with stable drone is 20Hz.
-    // Safe values seems to be between 50 and 5000Hz.
+    autopilot_loop_Hz: 50,
     stabilization_loop_Hz: 50,
     
     motor_yaw_forces:	   [-1,  1, -1,  1],
@@ -130,8 +129,13 @@
 #endif		
 	    },
 	    stream: [
-		{ type:"DT_PONG",  tag: "pong",  debug_level: 88},
-		{ type:"DT_DEBUG", tag: "debug", debug_level: 110},
+	    	// sending
+		{ type:"DT_PING",       tag: "ping",  debug_level: 10},
+		{ type:"DT_THRUST",     tag: "mt4",   debug_level: 10},
+		// { type:"DT_THRUST_SHM", debug_level: 110},
+		// reading
+		{ type:"DT_PONG",	tag: "pong",  debug_level: 88},
+		{ type:"DT_DEBUG", 	tag: "debug", debug_level: 110},
 	    ],
 	},
 	
@@ -144,9 +148,6 @@
 	    // For devices returning position, it is supposed that they return position of the sensor, not the position of the drone.
 	    // In such a case you shall specify where the sensor is placed relative to the center of the gravity of the drone.
 	    // Similarly you shall specify orientation (as roll, pitch yaw) of the sensor compared to orientation of the drone.
-	    // See the manual how to infer those values.
-	    // TODO: Some "trigger_pilot" option. This device will reschedule autopilot stabilizaion code to less than 1 ms delay.
-	    // or "trigger_pilot_in_ms: 1,"
 	    mount_position: [0, 0, -0.10],
 	    mount_rpy: [-0.010, 0.006, 0],
             stream: [

@@ -5,7 +5,7 @@ LIBI2C=$(RASPILOT_HOME)/lib/pi2c
 all: motor-pca9685
 
 motor-pca9685: motor-pca9685.cpp ../motor-common.c ../motor-common.h Adafruit_PWMServoDriver.h Adafruit_PWMServoDriver.cpp $(LIBI2C)/pi2c.c $(LIBI2C)/pi2c.h
-	g++ -Wall -I $(LIBI2C) -o motor-pca9685 ../motor-common.c motor-pca9685.cpp Adafruit_PWMServoDriver.cpp $(LIBI2C)/pi2c.c -pthread
+	g++ -Wall -I $(LIBI2C) -o motor-pca9685 ../motor-common.c motor-pca9685.cpp Adafruit_PWMServoDriver.cpp $(LIBI2C)/pi2c.c -pthread -lm
 
 clean: always
 	rm -f *~ motor-pca9685

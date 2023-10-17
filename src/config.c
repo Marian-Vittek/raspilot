@@ -238,7 +238,7 @@ static void configInputBufferInit(struct deviceData *dl, struct deviceStreamData
     double	*memoryPool;
     char	*mem;
     
-    vectorSize = deviceDataStreamParsedVectorLength[ddl->type];
+    vectorSize = deviceDataStreamVectorLength[ddl->type];
     bufferSize = ddl->history_size;
     len = sizeof(struct raspilotInputBuffer) + bufferSize * (vectorSize + 1) * sizeof(double);
 	
@@ -253,6 +253,19 @@ static void configInputBufferInit(struct deviceData *dl, struct deviceStreamData
 	ddl->input->status = RIBS_NOT_SHARED;
 	raspilotRingBufferInit(&ddl->input->buffer, vectorSize, bufferSize, "%s.%s stream", dl->name, ddl->name);
     }
+}
+
+static void configVectorMaybeSpecifiedByUniqueNumber(struct jsonnode *d, double *vv, int length, char *field, double defaultValue, char *path, char *context) {
+    double 		dval;
+    struct jsonnode 	*ww;
+    
+    dval = defaultValue;
+    ww = jsonFindObjectField(d, field);
+    if (ww != NULL && ww->type == JSON_NODE_TYPE_NUMBER) {
+	dval = ww->u.n;
+	ww->used = 1;
+    }
+    configLoadVectorWithDefaultValue(d, vv, length, field, dval, path, context, 0);
 }
 
 void configLoadDeviceStreams(struct jsonnode *c, struct deviceData	*dl, char *path, char *context) {
@@ -274,9 +287,9 @@ void configLoadDeviceStreams(struct jsonnode *c, struct deviceData	*dl, char *pa
 	    oldtype = ddl->type;
 	    ddl->dd = dl;
 	    LOAD_CONFIG_CONTEXT_PUSH(context, "stream[%d]", i);
-	    LOAD_CONFIG_ENUM_STRING_OPTION(d, context, ddl, deviceDataTypeNames,  type);
+	    LOAD_CONFIG_ENUM_STRING_OPTION(d, context, ddl, deviceDataTypeNames, type);
 	    if (ddl->type < DT_NONE || ddl->type >= DT_MAX) {
-		lprintf(0,"%s: Error: unknown data type in %s. Exiting.\n", PPREFIX(), context);
+		lprintf(0,"%s: Error: stream type in %s. Exiting.\n", PPREFIX(), context);
 		// Actuall this probably means serious configuration problem. Prefer not to continue
 		CANT_LOAD_CONFIGURATION_FILE_FATAL(path);
 		ddl->type = DT_NONE;
@@ -297,7 +310,7 @@ void configLoadDeviceStreams(struct jsonnode *c, struct deviceData	*dl, char *pa
 	    LOAD_CONFIG_STRING_OPTION_WITH_DEFAULT_VALUE(d, context, ddl, name, ddl->tag);
 	    LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(d, context, ddl, latency, 0);
 	    if (fabs(ddl->latency) >= 1.0) {
-		lprintf(0,"%s: Warning: %s.latency above 1 second? Are you sure?.\n", PPREFIX(), context);
+		lprintf(0,"%s: Warning: %s: latency above 1 second? Are you sure?.\n", PPREFIX(), context);
 	    }
 	    LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(d, context, ddl, timeout, 1.0);
 	    LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(d, context, ddl, min_range, 0.001);
@@ -307,19 +320,14 @@ void configLoadDeviceStreams(struct jsonnode *c, struct deviceData	*dl, char *pa
 	    LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(d, context, ddl, mandatory, 0);
 	    LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(d, context, ddl, history_size, 2);
 	    LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(d, context, ddl, debug_level, 30);
-	    dweight = 1.0;
-	    ww = jsonFindObjectField(d, "weight");
-	    if (ww != NULL && ww->type == JSON_NODE_TYPE_NUMBER) {
-		dweight = ww->u.n;
-		ww->used = 1;
-	    }
-	    configLoadVectorWithDefaultValue(d, ddl->weight, 4, "weight", dweight, path, context, 0);
+	    configVectorMaybeSpecifiedByUniqueNumber(d, ddl->weight, 4, "weight", 1.0, path, context);
 	    //if (ddl->weight[0] != ddl->weight[1]) {
 	    //lprintf(0,"%s: Warning: different weight for X and Y axis! Not yet implemented!\n", PPREFIX());
 	    //}
+	     LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(d, context, ddl, drift_fix_period, 0);
 	    // we usually process all pending input from ParsedVector to RegressionBuffer at each tick
 	    configInputBufferInit(dl, ddl);
-	    regressionBufferInit(&ddl->outputBuffer, deviceDataStreamParsedVectorLength[ddl->type], ddl->history_size, "%s.%s stream out buffer", dl->name, ddl->name);
+	    regressionBufferInit(&ddl->outputBuffer, deviceDataStreamVectorLength[ddl->type], ddl->history_size, "%s.%s stream out buffer", dl->name, ddl->name);
 	    memset(&ddl->launchData, 0, sizeof(ddl->launchData));
 	    ddl->nextWithSameType = uu->deviceStreamDataByType[ddl->type];
 	    uu->deviceStreamDataByType[ddl->type] = ddl;
@@ -396,7 +404,7 @@ static void configLoadPidController(struct jsonnode *c, struct pidController *pp
     LOAD_CONFIG_CONTEXT_POP(context);
 }
 
-void configLoadDevices(struct jsonnode *cc, char *path, char *context) {
+void configLoadFromJsonNode(struct jsonnode *cc, char *path, char *context) {
     int					i;
     struct jsonnode			*c;
     struct jsonFieldList		*ll;
@@ -409,15 +417,24 @@ void configLoadDevices(struct jsonnode *cc, char *path, char *context) {
     vec3				vvv;
 	
     cfg = &uu->config;
-    LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(cc, context, uu, stabilization_loop_Hz, 100);
-    LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(cc, context, cfg, short_history_seconds, 0.2);
-    if (uu->config.short_history_seconds < 1.0/uu->stabilization_loop_Hz) {
-	lprintf(0, "%s: Error: short_history_seconds must be larger than 1/stabilization_loop_Hz\n", PPREFIX());
-	uu->config.short_history_seconds = 2.0/uu->stabilization_loop_Hz;
-    }
     LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(cc, context, uu, motor_number, 4);
 
-    LOAD_CONFIG_BOOL_OPTION_WITH_DEFAULT_VALUE(cc, context, cfg, motor_bidirectional, 0);
+    // vector lengths may depend on some configuration, so I can not initialize before that point
+    mainInitDeviceDataStreamVectorLengths(uu->motor_number);
+
+    LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(cc, context, uu, autopilot_loop_Hz, 100);
+    LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(cc, context, uu, stabilization_loop_Hz, 100);
+    LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(cc, context, cfg, short_buffer_seconds, 0.05);
+    if (uu->config.short_buffer_seconds < 1.0/uu->autopilot_loop_Hz) {
+	lprintf(0, "%s: Error: short_buffer_seconds must be larger than 1/stabilization_loop_Hz\n", PPREFIX());
+	uu->config.short_buffer_seconds = 2.0/uu->autopilot_loop_Hz;
+    }
+    LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(cc, context, cfg, long_buffer_seconds, 0.2);
+    if (uu->config.long_buffer_seconds < 1.0/uu->autopilot_loop_Hz) {
+	lprintf(0, "%s: Error: long_buffer_seconds must be larger than 1/stabilization_loop_Hz\n", PPREFIX());
+	uu->config.long_buffer_seconds = 20.0/uu->autopilot_loop_Hz;
+    }
+    
     LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(cc, context, cfg, motor_thrust_min_spin, 0.01);
     LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(cc, context, cfg, pilot_reach_goal_orientation_time, 0.2);
     LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(cc, context, cfg, pilot_reach_goal_position_time, cfg->pilot_reach_goal_orientation_time*2+0.5);
@@ -542,7 +559,7 @@ void configloadFile() {
 
     // go through parsed JSON
     memset(context, 0, sizeof(context));
-    configLoadDevices(cc, path, context);
+    configLoadFromJsonNode(cc, path, context);
     
     memset(context, 0, sizeof(context));
     configCheckForUnusedObjects(cc, context);

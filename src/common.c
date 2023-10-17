@@ -13,6 +13,7 @@ struct globalTimeInfo   currentTime;
 int			shutDownInProgress = 0;
 struct jsonnode 	dummyJsonNode;
 int64_t 		nextStabilizationTickUsec;
+int64_t 		nextPidTickUsec;
 int			stdbaioBaioMagic = 0;
 int			logbaioBaioMagic = 0;
 int			trajectoryLogBaioMagic = 0;
@@ -21,8 +22,7 @@ double			pingToHostLastAnswerTime = 0;
 
 // enumeration names
 char 			*signalInterruptNames[258];
-int 			deviceDataStreamParsedVectorLength[DT_MAX];
-int 			deviceDataStreamRegressionBufferLength[DT_MAX];
+int 			deviceDataStreamVectorLength[DT_MAX];
 char 			*deviceDataTypeNames[DT_MAX+2];
 char 			*coordinateSystemNames[CS_MAX+2];
 char			*deviceConnectionTypeNames[DCT_MAX+2];
@@ -737,6 +737,9 @@ void enumNamesInit() {
 
     ENUM_NAME_SET(deviceDataTypeNames, DT_NONE);
     ENUM_NAME_SET(deviceDataTypeNames, DT_VOID);
+    ENUM_NAME_SET(deviceDataTypeNames, DT_PING);
+    ENUM_NAME_SET(deviceDataTypeNames, DT_THRUST);
+    ENUM_NAME_SET(deviceDataTypeNames, DT_THRUST_SHM);
     ENUM_NAME_SET(deviceDataTypeNames, DT_DEBUG);
     ENUM_NAME_SET(deviceDataTypeNames, DT_PONG);
     ENUM_NAME_SET(deviceDataTypeNames, DT_POSITION_VECTOR);
@@ -1638,10 +1641,10 @@ struct raspilotInputBuffer *raspilotCreateSharedMemory(struct deviceStreamData *
     struct raspilotInputBuffer 	*res;
     int				len;
 
-    len = RASPILOT_INPUT_BUFFER_SIZE(ddd->history_size, deviceDataStreamParsedVectorLength[ddd->type]);
+    len = RASPILOT_INPUT_BUFFER_SIZE(ddd->history_size, deviceDataStreamVectorLength[ddd->type]);
     res = createSharedMemory(len, "raspilot.%s.%s", ddd->dd->name, ddd->name);
     if (res == NULL) return(NULL);
-    res->buffer.vectorsize = deviceDataStreamParsedVectorLength[ddd->type];
+    res->buffer.vectorsize = deviceDataStreamVectorLength[ddd->type];
     res->buffer.size = ddd->history_size;
     res->status = RIBS_SHARED_INITIALIZE;
     res->magicVersion = RASPILOT_SHM_MAGIC_VERSION;

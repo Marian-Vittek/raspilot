@@ -4,7 +4,7 @@ all: motor-null
 
 
 motor-null: motor-null.c ../motor-common.h
-	g++ -Wall -o motor-null ../motor-common.c motor-null.c
+	g++ -Wall -o motor-null ../motor-common.c motor-null.c -lm
 
 clean: always
 	rm -f *~ motor-null

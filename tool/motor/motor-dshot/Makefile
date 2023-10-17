@@ -10,7 +10,7 @@ test2: test2.c motor-dshot.c
 	gcc -O2 -Wall -o test2 test2.c motor-dshot.c
 
 clean: always
-	rm -f test motor-dshot.s
+	rm -f test test2 motor-dshot.s
 
 run: always
 	sudo chrt -f 99 ./test

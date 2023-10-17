@@ -3,14 +3,14 @@ all: motor-dshot
 
 
 motor-dshot: motor-dshot.c ../motor-common.c ../motor-common.h 
-	gcc -O2 -S -o motor-dshot.s motor-dshot.c
-	gcc -g -O2 -Wall -o motor-dshot ../motor-common.c motor-dshot.c
+	gcc -O2 -S -o motor-dshot.s motor-dshot.c 
+	gcc -g -O2 -Wall -o motor-dshot ../motor-common.c motor-dshot.c -lm
 
-test: always
-	gcc -O2 -Wall -o test test2.c -DDSHOT_USE_CLOCK=DSHOT_USE_CPU_CLOCK motor-dshot.c
+test2: always
+	gcc -O2 -Wall -o test2 test2.c motor-dshot.c
 
 clean: always
-	rm -f *~ motor-dshot motor-dshot.s
+	rm -f *~ motor-dshot test test2 motor-dshot.s
 
 .PHONY: always
 

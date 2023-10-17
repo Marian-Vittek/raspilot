@@ -14,6 +14,7 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <fcntl.h>
+#include <math.h>
 
 #include "motor-common.h"
 
@@ -270,10 +271,11 @@ int readThrustFromInputPipe() {
 	if (q[0] == 'h' && q[1] == 'b' && q[2] == 0) {
 	    // heartbeat, meaning hold last pwm
 	    res |= 0;
-	} else if (q[0] == 'm' && q[1] == 't') {
+	} else if (q[0] == 'm' && q[1] == 't' && isdigit(q[2])) {
 	    parsedOkFlag = 1;
 	    q += 2;
 	    n = strtol(q, &eq, 10);
+	    // TODO: n = strtoint(q, &eq);
 	    if (eq == q || n != motorMax) {
 		parsedOkFlag = 0;
 	    } else {
@@ -298,7 +300,9 @@ int readThrustFromInputPipe() {
 			if (t < -1 || t > 1) {
 			    parsedOkFlag = 0;
 			} else {
-			    motorThrottle[i] = t;
+			    // Expert says that the throttle shall be square root from thrust. Is it true?
+			    if (t <= 0) motorThrottle[i] = 0;
+			    else motorThrottle[i] = sqrt(t);
 			}
 		    }
 		}

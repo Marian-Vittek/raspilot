@@ -49,6 +49,7 @@
 
 
 DFRobot_BMI160 bmi160;
+struct bmi160Dev dev;
 const int8_t i2c_addr = 0x69;
 
 static inline double doubleGetTime() {
@@ -82,6 +83,7 @@ int main(int argc, char **argv) {
     double	optRate;
 #ifdef SHM
     struct raspilotInputBuffer 	*shmbuf;
+    struct raspilotInputBuffer 	*shmbuf2;
 #endif
 
     optSharedI2cFlag = 0;
@@ -109,9 +111,15 @@ int main(int argc, char **argv) {
     }
     bmi160.setStepPowerMode(bmi160.stepNormalPowerMode);
 
+    // reset gyroscope sensibility
+    bmi160.defaultParamSettg(&dev);
+    dev.gyroCfg.range = BMI160_GYRO_RANGE_500_DPS; // BMI160_GYRO_RANGE_2000_DPS;
+    bmi160.setGyroConf(&dev);
+    
 
 #ifdef SHM
     shmbuf = raspilotShmConnect((char *)"raspilot.gyro-bmi-magwick-shm.rpy");
+    shmbuf2 = raspilotShmConnect((char *)"raspilot.gyro-bmi-magwick-shm.rpy2");
     if (shmbuf == NULL) exit(-1);
 #endif
     
@@ -157,6 +165,7 @@ int main(int argc, char **argv) {
 #ifdef SHM
 		shmbuf->confidence = 1.0;
 		if (raspilotShmPush(shmbuf, t1, rpy, 3) != 0) exit(0);
+		if (shmbuf2 != NULL) if (raspilotShmPush(shmbuf2, t1, rpy, 3) != 0) exit(0);
 		//printf("debug bmi160: %f pushing rpy %9.7f %9.7f %9.7f\n", t1, rpy[0], rpy[1], rpy[2]);
 		//raspilotRingBufferDump(&shmbuf->buffer);
 #else

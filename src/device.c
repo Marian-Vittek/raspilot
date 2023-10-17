@@ -392,33 +392,33 @@ void deviceParseInputStreamLineToInputBuffer(struct deviceData *dd, char *s, int
 	if (strncmp(p, tag, taglen) == 0) {
 	    tagFoundFlag = 1;
 	    t = p + taglen;
-	    if (deviceDataStreamParsedVectorLength[ddd->type] == 0 || ddd->input == NULL) {
+	    if (deviceDataStreamVectorLength[ddd->type] == 0 || ddd->input == NULL) {
 		inputVector = NULL;
 	    } else {
 		inputVector = raspilotRingBufferGetFirstFreeVector(&ddd->input->buffer);
-		memset(inputVector, 0, deviceDataStreamParsedVectorLength[ddd->type] * sizeof(double));
+		memset(inputVector, 0, deviceDataStreamVectorLength[ddd->type] * sizeof(double));
 	    }
 	    sampletime = currentTime.dtime - ddd->latency;
 	    switch(ddd->type) {
 	    case DT_VOID:
-		assert(deviceDataStreamParsedVectorLength[ddd->type] == 0);
+		assert(deviceDataStreamVectorLength[ddd->type] == 0);
 		r = 0;
 		break;
 	    case DT_DEBUG:
-		assert(deviceDataStreamParsedVectorLength[ddd->type] == 0);
+		assert(deviceDataStreamVectorLength[ddd->type] == 0);
 		r = parseDeviceDebugPrint(tag, t, dd, ddd);
 		break;
 	    case DT_PONG:
-		assert(deviceDataStreamParsedVectorLength[ddd->type] == 0);
+		assert(deviceDataStreamVectorLength[ddd->type] == 0);
 		r = parsePong(tag, t, dd, ddd);
 		break;
 	    case DT_ORIENTATION_RPY:
-		assert(deviceDataStreamParsedVectorLength[ddd->type] == 3);
-		r = parseVector(inputVector, deviceDataStreamParsedVectorLength[ddd->type], tag, t, dd, ddd);
+		assert(deviceDataStreamVectorLength[ddd->type] == 3);
+		r = parseVector(inputVector, deviceDataStreamVectorLength[ddd->type], tag, t, dd, ddd);
 		break;		    
 	    case DT_ORIENTATION_QUATERNION:
-		assert(deviceDataStreamParsedVectorLength[ddd->type] == 4);
-		r = parseVector(inputVector, deviceDataStreamParsedVectorLength[ddd->type], tag, t, dd, ddd);
+		assert(deviceDataStreamVectorLength[ddd->type] == 4);
+		r = parseVector(inputVector, deviceDataStreamVectorLength[ddd->type], tag, t, dd, ddd);
 		break;
 	    case DT_POSITION_NMEA:
 		r = parseNmeaPosition(inputVector, tag, t, dd, ddd);
@@ -432,20 +432,20 @@ void deviceParseInputStreamLineToInputBuffer(struct deviceData *dd, char *s, int
 		// r = parseJstestJoystickSetWaypoint(inputVector, tag, t, dd, ddd);
 		break;
 	    case DT_POSITION_VECTOR:
-		assert(deviceDataStreamParsedVectorLength[ddd->type] == 3);
-		r = parseVector(inputVector, deviceDataStreamParsedVectorLength[ddd->type], tag, t, dd, ddd);
+		assert(deviceDataStreamVectorLength[ddd->type] == 3);
+		r = parseVector(inputVector, deviceDataStreamVectorLength[ddd->type], tag, t, dd, ddd);
 		break;
 	    case DT_BOTTOM_RANGE:
-		assert(deviceDataStreamParsedVectorLength[ddd->type] == 1);
-		r = parseVector(inputVector, deviceDataStreamParsedVectorLength[ddd->type], tag, t, dd, ddd);
+		assert(deviceDataStreamVectorLength[ddd->type] == 1);
+		r = parseVector(inputVector, deviceDataStreamVectorLength[ddd->type], tag, t, dd, ddd);
 		break;
 	    case DT_FLOW_XY:
-		assert(deviceDataStreamParsedVectorLength[ddd->type] == 2);
-		r = parseVector(inputVector, deviceDataStreamParsedVectorLength[ddd->type], tag, t, dd, ddd);
+		assert(deviceDataStreamVectorLength[ddd->type] == 2);
+		r = parseVector(inputVector, deviceDataStreamVectorLength[ddd->type], tag, t, dd, ddd);
 		break;
 	    case DT_ALTITUDE:
-		assert(deviceDataStreamParsedVectorLength[ddd->type] == 1);
-		r = parseVector(inputVector, deviceDataStreamParsedVectorLength[ddd->type], tag, t, dd, ddd);
+		assert(deviceDataStreamVectorLength[ddd->type] == 1);
+		r = parseVector(inputVector, deviceDataStreamVectorLength[ddd->type], tag, t, dd, ddd);
 		break;
 	    default:
 		if (! dd->data_ignore_unknown_tags) printf("%s: %s: Error: Tag %s not implemented!\n", PPREFIX(), dd->name, tag);
@@ -453,7 +453,7 @@ void deviceParseInputStreamLineToInputBuffer(struct deviceData *dd, char *s, int
 	    }
 	    if (r == 0) {
 		ddd->totalNumberOfRecordsReceivedForStatistics ++;
-		if (deviceDataStreamParsedVectorLength[ddd->type] > 0) {
+		if (deviceDataStreamVectorLength[ddd->type] > 0) {
 		    assert(inputVector != NULL);
 		    assert(ddd->input != NULL);
 		    raspilotRingBufferAddElem(&ddd->input->buffer, sampletime, inputVector);
@@ -541,19 +541,19 @@ void deviceTranslateInputToOutput(struct deviceStreamData *ddd) {
 	    break;
 	case DT_POSITION_VECTOR:
 	case DT_POSITION_SHM:
-	    assert(deviceDataStreamParsedVectorLength[ddd->type] == 3);
+	    assert(deviceDataStreamVectorLength[ddd->type] == 3);
 	    deviceSensorPositionToDronePosition(outputVector, inputVector, dd, sampletime);
 	    if (ddd->launchPoseSetFlag) {
 		vec3_sub(outputVector, outputVector, ddd->launchData);
 	    }
 	    break;
 	case DT_BOTTOM_RANGE:
-	    assert(deviceDataStreamParsedVectorLength[ddd->type] == 1);
+	    assert(deviceDataStreamVectorLength[ddd->type] == 1);
 	    outputVector[0] = inputVector[0];
 	    deviceTranslateBottomRangeToAltitude(dd, ddd, sampletime, inputVector, outputVector);
 	    break;
 	case DT_FLOW_XY:
-	    assert(deviceDataStreamParsedVectorLength[ddd->type] == 2);
+	    assert(deviceDataStreamVectorLength[ddd->type] == 2);
 	    if (ddd->input->buffer.n >= 2) {
 		li = (i + ddd->input->buffer.size - 1) % ddd->input->buffer.size;
 		previousSampleTime = ddd->input->buffer.a[li*(ddd->input->buffer.vectorsize+1)];
@@ -563,7 +563,7 @@ void deviceTranslateInputToOutput(struct deviceStreamData *ddd) {
 	    }
 	    break;
 	case DT_ALTITUDE:
-	    assert(deviceDataStreamParsedVectorLength[ddd->type] == 1);
+	    assert(deviceDataStreamVectorLength[ddd->type] == 1);
 	    // Deduce launch altitude
 	    if (ddd->launchPoseSetFlag) {
 		outputVector[0] = inputVector[0] - ddd->launchData[0];
