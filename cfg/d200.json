@@ -1,0 +1,351 @@
+// d250 is raspberry pi installed on my 250g drone.
+/*
+	All values here are in SI units, i.e. meters, seconds, meter/second, etc.
+	All angle related values are in radians, i.e. radians, radians/second, etc.
+
+        ordering of motors shall be:
+       
+        front side of the drone
+       
+          3       0
+           \     /
+            --^--
+            |   |
+            -----
+           /     \
+          2       1
+       
+
+*/
+
+// This file is preprocessed by C preprocessor before being read by raspilot, this
+// allows to use preprocessor directives like #define and #if.
+// File format is an "extended" JSON which is JSON format where field names can be used without quotes,
+// comma can occur after the last field and constant expressions can be used instead of constants.
+
+#define PI 3.1415926
+#define RATE 500
+{
+    autopilot_loop_Hz: RATE,
+    stabilization_loop_Hz: RATE,
+    
+    motor_number:          4,
+    motor_yaw_forces:	   [-1,  1, -1,  1],
+    motor_pitch_forces:	   [ 1, -1, -1,  1],
+    motor_roll_forces:	   [-1, -1,  1,  1],
+    
+    // What we call "long buffer" is the buffer of poses used to "smooth" or "average"
+    // noise. We use linear regression of buffered values to get current pose.
+    // The size of long buffer is in seconds. If you have good sensors you can put smaller numbers.
+    // If all your sensors are noisy you have to put larger value.
+    // Similarly, there is a "short buffer" storing roll and pitch used to stabilize drone. This is usualy shorter then "large buffer"
+    // because stabilization requires less latency.
+    // Buffer_seconds must be larger than 1 tick which is 1/stabilization_loop_Hz.
+    short_buffer_seconds:	   2/RATE,
+    long_buffer_seconds:	   0.1,
+
+    // waypoint shall not be lower than this altitude
+    drone_min_altitude:            0.01,
+    
+    // waypoint shall not be higher than this altitude.
+    drone_max_altitude:            1.00, 
+    
+    // waypoint is considered as reached when the drone happens to be within that distance and orientation range
+    drone_waypoint_reached_range:    0.05,
+    drone_waypoint_reached_angle:    0.20,
+
+    // This is the time in which autopilots wants to reach target roll and pitch orientation. 
+    // Smaller values make drone more "nervous" more precise but you may reach drone physical
+    // limits. Check that your drone can stabilize with "nearly empty" battery with your value.
+    // Smaller value may also drain your battery.
+    pilot_reach_goal_orientation_time:	0.2,
+    
+    // This is the time in which autopilots wants to reach target position.
+    // This time must be at least double of "pilot_reach_goal_orientation_time" because in our simple model
+    // the drone first gets "go to target" orientation, then it moves to the half way, then it gets "braking"
+    // orientation and makes another half way while braking to zero velocity at target position.
+    pilot_reach_goal_position_time:	1.0,
+
+    // However, while moving between waypoints the drone is constrained by the following values as well
+    // max speed contains also vertical speed, that's why there is higher number
+    drone_max_speed: 		   1.0,
+    drone_max_rotation_speed:	   PI/16,
+    drone_max_inclination:	   PI/4,
+
+    // minimal spin, i.e. the spin during "warning rotations" before launch
+    motor_thrust_min_spin:         0.01,
+    
+    //////////////////////////////////////////////
+    // PID controllers.
+    
+    // There are three sorts of PID controllers in raspilot. The first sort consists of two pid controllers named PidX and PidY.
+    // They are used to translate desired horizontal ground velocity of the drone to drone velocity relative to the air speed.
+    // They allow to fly in windy conditions. Values [0,0,0] may be used to block such a translation.
+    // It is perfectly OK to use values [0,0,0] for non-windy weather, flying in interior or during the calibration of the drone.
+    // You configure the same values for both PidX and PidY controllers.
+
+    //pidXY:        { p:0,  i:0,  d:0 },
+    pidXY:        { p:0.2,  i:0.003,  d:0.005 },
+
+    // The second sort of PID controllers translates the desired drone rotation speed to motor thrust (i.e. to a value between 0 and 1).
+    // That are PidRoll, PidPitch and PidYaw controllers.
+    // The "Integral" part of those controlers accumulates value representing unbalancing of the drone or its motors.
+    // It is supposed that during a flight, the Integral part will accumulate the same value for the same drone
+    // no matter the flight conditions. However, under some circumstances the Interal part may "push"
+    // against pidX and pidY controllers and all those controllers may diverge.
+    // This is why we suppose to set the I factor to zero and we allow to use a so called "constant integral" value "CI" representing
+    // the average I*Integral specific to your drone.
+
+#define RPB 0.07
+
+    pidRoll:     { p:RPB,  i:0,  d:0.00000, ci: 0 },
+    pidPitch:    { p:RPB,  i:0,  d:0.00000, ci: 0 },
+    pidYaw:      { p:0.06,  i:0.03,  d:0.00000, ci: 0 },
+
+    // The last sort of PID controller is pidAltitude. It translates desired vertical speed (usually 0)
+    // to motor thrust. It shall have P factor large enough to launch and stabilize the drone altitude.
+    // Similarly to previous controllers you can use CI constant to start PID rotation at some previously
+    // determined constant value. Contrary to previous controllers you shall keep the I factor non zero in this
+    // controller even if CI is set. The I factor in this case accumulates the difference between fully
+    // charged and "nearly empty" batteries.
+
+    // pidAltitude: { p:0.1,  i:0.01,  d:0, ci:0.13 },
+    pidAltitude: { p:0.02,  i:0.04,  d:0.00001, ci:0.08 },
+
+    //////////////////////////////////////////////
+    // sensors and other devices installed on the drone and usually connected through pipes
+
+    device: [
+
+	{
+	    name: "motors",
+	    connection : {
+	    	// direct dshot connection of ESC to raspberry pi pinouts
+		type: "DCT_COMMAND_BASH",
+		command: "killall motor-dshot; sleep 0.5; killall -q -9 motor-dshot; sleep 0.5; ulimit -c unlimited; exec chrt -f 99 taskset -c 1 ../tool/motor/motor-dshot/motor-dshot - - 6 26 13 5 "
+	    },
+	    shutdownExit: true,
+	    stream: [
+	    	// sending
+		{ type:"DT_PING",       tag: "ping",  debug_level: 10},
+		{ type:"DT_THRUST",     tag: "mt4",   debug_level: 10},
+		// { type:"DT_THRUST_SHM", debug_level: 110},
+		// reading
+		{ type:"DT_PONG",	tag: "pong",  debug_level: 10},
+		{ type:"DT_DEBUG", 	tag: "debug", debug_level: 100},
+	    ],
+	},
+
+#if 0
+	{
+	    name: "gyro-bmi-magwick",
+	    connection : {
+		type: "DCT_COMMAND_BASH",
+		// get roll pitch from magwick fusion at given rate (-r) from bmi160 connected to shared i2c-1 interface
+		command: "killall -q -9 bmi160; sleep 0.5; exec chrt -r 10 taskset -c 2 ../tool/imu/bmi160/bmi160 -r 1000 -s /dev/i2c-1",
+	    },
+	    warming_time: 6.0,
+	    // positive roll makes left side up
+	    // positive pitch makes nose up
+	    mount_rpy: [0.04, 0.05, 0],
+            stream: [
+	    	// Note the very small yaw weight. It is supposed we get yaw from other sources
+		{ type: "DT_ORIENTATION_RPY", tag: "rpy", weight: [1.0, 1.0, 1e-10], mandatory:1, history_size:10, debug_level: 88},
+		{ type: "DT_DEBUG",           tag: "debug", debug_level: 22},
+            ],
+	},
+#endif
+
+#if 1
+	{
+	    name: "gyro-bmi-magwick-shm",
+	    connection : {
+		type: "DCT_COMMAND_BASH",
+		// get roll pitch from magwick fusion at given rate (-r) from bmi160 connected to shared i2c-1 interface
+		command: "killall -q -9 bmi160-shm; sleep 0.5; exec chrt -r 10 taskset -c 2 ../tool/imu/bmi160/bmi160-shm -r 2000 -s /dev/i2c-1",
+	    },
+	    warming_time: 6.0,
+	    // positive roll makes left side up
+	    // positive pitch makes nose up
+	    mount_rpy: [-0.0, 0.02, 0],
+            stream: [
+		{ type: "DT_ORIENTATION_RPY_SHM", tag: "rpy",  weight: [1.0, 1.0, 1.0], mandatory:1, history_size:4, latency: 0.001, debug_level: 88},
+		// { type: "DT_ORIENTATION_RPY_SHM", tag: "rpy2", weight: [0.0, 0.0, 1.0], mandatory:1, history_size:100, drift_fix_period:3, debug_level: 88},
+		{ type: "DT_DEBUG",               tag: "debug", debug_level: 88},
+            ],
+	},
+#endif
+
+#if 0
+	{
+	    name: "gyro-mpu-rowberg",
+	    connection : {
+		type: "DCT_COMMAND_BASH",
+		// get yaw from rowberg dmp from mpu6050 (rate 50Hz) from (software) i2c-3 interface
+		command: "killall -q -9 demo_dmp; sleep 0.5; exec chrt -r 10 taskset -c 3 ../tool/imu/mpu6050/rowberg/demo_dmp -rpy -s /dev/i2c-1",
+	    },
+	    warming_time: 20.0,
+	    // positive pitch makes nose up
+	    // positive roll makes left side up
+	    mount_rpy: [0, 0, 0],
+            stream: [
+		{ type: "DT_ORIENTATION_RPY", tag: "rpy", weight: [1e-10, 1e-10, 1.0], mandatory:1, history_size:3, debug_level: 88},
+		{ type: "DT_DEBUG",           tag: "debug", debug_level: 22},
+            ],
+	},
+#endif
+
+#if 1
+	{
+	    name: "apriltag",
+	    connection : {
+		type: "DCT_COMMAND_BASH",
+		command: "taskset -c 3 ssh vittek@192.168.1.124 /home/vittek/dev/raspiapril/src/raspiapril",
+	    },
+	    // supposing apriltag reports the position to the middle of the tag
+	    mount_position: [0, 0, 0.05],
+	    warming_time: 1.0,
+            stream: [
+		{ type: "DT_POSITION_VECTOR",      tag: "pose:",  mandatory:1, weight: [1.0, 1.0, 1.0], history_size:2, latency: 0.04, debug_level: 88},
+		// { type: "DT_POSITION_VECTOR",      tag: "pose:",  mandatory:1, weight: [0.0001, 0.0001, 0.0001], history_size:20, latency: 0.10, debug_level: 88},
+		// { type: "DT_ORIENTATION_RPY", 	   tag: "rpy:", weight: [1e-20, 1e-20, 1], mandatory:1, history_size:10, latency: 0, debug_level: 88},
+		{ type: "DT_VOID",                 tag: "lat:", debug_level: 1},
+		{ type: "DT_DEBUG",                tag: "debug", debug_level: 22},
+            ],
+	},
+#endif
+
+#if 0
+	{
+	    name: "matek-3901-l0x",
+	    connection : {
+		type: "DCT_COMMAND_BASH",
+		command: "killall matek-3901-l0x; sleep 0.5; killall -q -9 matek-3901-l0x; sleep 0.5; exec chrt -r 10 taskset -c 3 ../tool/flow/matek-3901-L0X/matek-3901-l0x /dev/serial0",
+	    },
+	    data_ignore_unknown_tags: true,
+	    mount_position: [0.05, -0.02, -0.05],
+            stream: [
+		{ type: "DT_BOTTOM_RANGE",   tag: "range", weight: 1000.0, mandatory:1, min_range:0.05, max_range:1.8, history_size:3, debug_level: 88},
+		// Strangely, for history size 2 FLOW_XY diverges completely. For other values it doesn't.
+		{ type: "DT_FLOW_XY",        tag: "motion", weight: 0.1, mandatory:1, history_size:3, debug_level: 88},
+		{ type: "DT_DEBUG",          tag: "debug", debug_level: 22},
+            ],
+	},
+#endif
+
+#if 0
+	{
+	    name: "compass-hmc5883l",
+	    connection : {
+		type: "DCT_COMMAND_BASH",
+		command: "killall -q -9  hmc5883l; sleep 0.5; exec chrt -r 10 taskset -c 3 ../tool/imu/gy86/hmc5883l -r 50 -s /dev/i2c-3",
+	    },
+	    warming_time: 2.0,
+	    // positive pitch makes nose up
+	    // positive roll makes left side up
+	    mount_rpy: [-0.00, 0.14, -0.79],
+            stream: [
+		{ type: "DT_ORIENTATION_RPY", tag: "rpy", weight: 0.1, mandatory:0, history_size:3, debug_level: 88},
+		{ type: "DT_DEBUG",           tag: "debug", debug_level: 1},
+            ],
+	},
+#endif
+
+#if 0
+	{
+	    name: "altimeter",
+	    connection : {
+		type: "DCT_COMMAND_BASH",
+		command: "killall altimeter; sleep 0.5; killall -q -9 altimeter; sleep 0.5; exec chrt -r 10 taskset -c 3 ../tool/imu/altimeter/baro/bmp180/bmp180-master/src/imu/altimeter /dev/i2c-3 100",
+	    },
+	    warming_time: 1.0,
+	    // positive roll makes left side up
+	    // positive pitch makes nose up
+            stream: [
+		{ type: "DT_ALTITUDE",             tag: "alt", weight: 0.01, mandatory:1, history_size:500, debug_level: 88},
+		{ type: "DT_VOID",      	   tag: "temp", debug_level: 88},
+		{ type: "DT_DEBUG",                tag: "debug", debug_level: 1},
+            ],
+	},
+#endif
+
+#if 0
+	{
+	    name: "sonar",
+	    connection : {
+		type: "DCT_COMMAND_BASH",
+		command: "killall sonar-hcsr04; sleep 0.5; killall -q -9 sonar-hcsr04; sleep 0.5; exec chrt -r 10 taskset -c 3 ../tool/sonar/sonar-hcsr04/sonar-hcsr04 9 11",
+	    },
+	    mount_position: [0, 0.01, 0.04],
+            stream: [
+		{ type: "DT_GROUND_DISTANCE",   tag: "dist", weight: 1.0, mandatory:1, history_size:15, debug_level: 88},
+		{ type: "DT_DEBUG",             tag: "debug", debug_level: 22},
+            ],
+	},
+#endif
+
+#if 0
+	{
+	    name: "joystick",
+	    connection : {
+		type: "DCT_COMMAND_BASH",
+		command: "taskset -c 3 ssh vittek@192.168.1.100 jstest --event /dev/input/js0"
+	    },
+            stream: [
+		{ type: "DT_JSTEST", tag: "Event:", weight: 1.0, history_size:3, debug_level: 88},
+            ],
+	},
+#endif
+
+#if 0
+	{
+	    name: "neo-8m",
+	    connection : {
+		type: "DCT_COMMAND_BASH",
+		command: "taskset -c 3 cat /dev/serial0",
+	    },
+	    // GPS position 
+	    mount_position: [0, 0, 0],
+	    mount_pry: [0, 0, 0],
+	    data_ignore_unknown_tags: true,
+            stream: [
+	    	// TODO: Maybe implement some interface putting GPS, Glonass and Galileo together with the same tags
+		{ type: "DT_POSITION_NMEA_GPS",	     tag: "$GPGGA",  weight: 1, debug_level: 111},
+		{ type: "DT_POSITION_NMEA_GPS",	     tag: "$GLGGA",  weight: 1, debug_level: 111},
+		{ type: "DT_POSITION_NMEA_GPS",	     tag: "$GNGGA",  weight: 1, debug_level: 111},
+		{ type: "DT_DEBUG",                  tag: "debug", debug_level: 111},
+            ],
+	},
+#endif
+	
+#if 0
+	{
+	    name: "compass-hmc5883l",
+	    connection : {
+		type: "DCT_COMMAND_BASH",
+		command: "killall -q -9 compass; sleep 0.5; exec chrt -r 10 taskset -c 3 ../tool/imu/compass/HMC5883l/hmc5883l.c-master/imu/compass /dev/i2c-4",
+	    },
+	    // compass - magnetometer
+            stream: [
+		{ type: "DT_ORIENTATION_RPY_COMPASS", tag: "head",  weight: [0,0,0.0001], debug_level: 111},
+		{ type: "DT_DEBUG",                   tag: "debug", debug_level: 111},
+            ],
+	},
+#endif
+	
+#if 0
+	{
+	    name: "zeropose",
+	    connection : {
+		type: "DCT_INTERNAL_ZEROPOSE",
+	    },
+            stream: [
+		{ type: "DT_POSITION_VECTOR",        tag: "position", weight: 1e-100, debug_level: 1},
+		// { type: "DT_ORIENTATION_QUATERNION", weight: 1e-100, debug_level: 1},
+            ],
+	},
+#endif
+
+],
+    
+}
