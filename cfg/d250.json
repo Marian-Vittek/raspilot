@@ -120,7 +120,7 @@
 	{
 	    name: "motors",
 	    connection : {
-	    	// direct dshot connection of ESC to raspberry pi pinouts
+	    	// direct dshot connection of ESC to raspberry pi pinouts. Numeric arguments are gpio pins where motor's ESC is connected.
 		type: "DCT_COMMAND_BASH",
 		command: "killall motor-dshot; sleep 0.5; killall -q -9 motor-dshot; sleep 0.5; ulimit -c unlimited; exec chrt -f 99 taskset -c 1 ../tool/motor/motor-dshot/motor-dshot - - 26 6 13 19 "
 	    },

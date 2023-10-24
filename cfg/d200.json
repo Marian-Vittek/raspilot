@@ -120,7 +120,7 @@
 	{
 	    name: "motors",
 	    connection : {
-	    	// direct dshot connection of ESC to raspberry pi pinouts
+	    	// direct dshot connection of ESC to raspberry pi pinouts. Numeric arguments of motor-dshot are gpio pins where ESC is connected.
 		type: "DCT_COMMAND_BASH",
 		command: "killall motor-dshot; sleep 0.5; killall -q -9 motor-dshot; sleep 0.5; ulimit -c unlimited; exec chrt -f 99 taskset -c 1 ../tool/motor/motor-dshot/motor-dshot - - 6 26 13 5 "
 	    },
@@ -136,47 +136,6 @@
 	    ],
 	},
 
-#if 0
-	{
-	    name: "gyro-bmi-magwick",
-	    connection : {
-		type: "DCT_COMMAND_BASH",
-		// get roll pitch from magwick fusion at given rate (-r) from bmi160 connected to shared i2c-1 interface
-		command: "killall -q -9 bmi160; sleep 0.5; exec chrt -r 10 taskset -c 2 ../tool/imu/bmi160/bmi160 -r 1000 -s /dev/i2c-1",
-	    },
-	    warming_time: 6.0,
-	    // positive roll makes left side up
-	    // positive pitch makes nose up
-	    mount_rpy: [0.04, 0.05, 0],
-            stream: [
-	    	// Note the very small yaw weight. It is supposed we get yaw from other sources
-		{ type: "DT_ORIENTATION_RPY", tag: "rpy", weight: [1.0, 1.0, 1e-10], mandatory:1, history_size:10, debug_level: 88},
-		{ type: "DT_DEBUG",           tag: "debug", debug_level: 22},
-            ],
-	},
-#endif
-
-#if 1
-	{
-	    name: "gyro-bmi-magwick-shm",
-	    connection : {
-		type: "DCT_COMMAND_BASH",
-		// get roll pitch from magwick fusion at given rate (-r) from bmi160 connected to shared i2c-1 interface
-		command: "killall -q -9 bmi160-shm; sleep 0.5; exec chrt -r 10 taskset -c 2 ../tool/imu/bmi160/bmi160-shm -r 2000 -s /dev/i2c-1",
-	    },
-	    warming_time: 6.0,
-	    // positive roll makes left side up
-	    // positive pitch makes nose up
-	    mount_rpy: [-0.0, 0.02, 0],
-            stream: [
-		{ type: "DT_ORIENTATION_RPY_SHM", tag: "rpy",  weight: [1.0, 1.0, 1.0], mandatory:1, history_size:4, latency: 0.001, debug_level: 88},
-		// { type: "DT_ORIENTATION_RPY_SHM", tag: "rpy2", weight: [0.0, 0.0, 1.0], mandatory:1, history_size:100, drift_fix_period:3, debug_level: 88},
-		{ type: "DT_DEBUG",               tag: "debug", debug_level: 88},
-            ],
-	},
-#endif
-
-#if 0
 	{
 	    name: "gyro-mpu-rowberg",
 	    connection : {
@@ -193,7 +152,6 @@
 		{ type: "DT_DEBUG",           tag: "debug", debug_level: 22},
             ],
 	},
-#endif
 
 #if 1
 	{
@@ -211,137 +169,6 @@
 		// { type: "DT_ORIENTATION_RPY", 	   tag: "rpy:", weight: [1e-20, 1e-20, 1], mandatory:1, history_size:10, latency: 0, debug_level: 88},
 		{ type: "DT_VOID",                 tag: "lat:", debug_level: 1},
 		{ type: "DT_DEBUG",                tag: "debug", debug_level: 22},
-            ],
-	},
-#endif
-
-#if 0
-	{
-	    name: "matek-3901-l0x",
-	    connection : {
-		type: "DCT_COMMAND_BASH",
-		command: "killall matek-3901-l0x; sleep 0.5; killall -q -9 matek-3901-l0x; sleep 0.5; exec chrt -r 10 taskset -c 3 ../tool/flow/matek-3901-L0X/matek-3901-l0x /dev/serial0",
-	    },
-	    data_ignore_unknown_tags: true,
-	    mount_position: [0.05, -0.02, -0.05],
-            stream: [
-		{ type: "DT_BOTTOM_RANGE",   tag: "range", weight: 1000.0, mandatory:1, min_range:0.05, max_range:1.8, history_size:3, debug_level: 88},
-		// Strangely, for history size 2 FLOW_XY diverges completely. For other values it doesn't.
-		{ type: "DT_FLOW_XY",        tag: "motion", weight: 0.1, mandatory:1, history_size:3, debug_level: 88},
-		{ type: "DT_DEBUG",          tag: "debug", debug_level: 22},
-            ],
-	},
-#endif
-
-#if 0
-	{
-	    name: "compass-hmc5883l",
-	    connection : {
-		type: "DCT_COMMAND_BASH",
-		command: "killall -q -9  hmc5883l; sleep 0.5; exec chrt -r 10 taskset -c 3 ../tool/imu/gy86/hmc5883l -r 50 -s /dev/i2c-3",
-	    },
-	    warming_time: 2.0,
-	    // positive pitch makes nose up
-	    // positive roll makes left side up
-	    mount_rpy: [-0.00, 0.14, -0.79],
-            stream: [
-		{ type: "DT_ORIENTATION_RPY", tag: "rpy", weight: 0.1, mandatory:0, history_size:3, debug_level: 88},
-		{ type: "DT_DEBUG",           tag: "debug", debug_level: 1},
-            ],
-	},
-#endif
-
-#if 0
-	{
-	    name: "altimeter",
-	    connection : {
-		type: "DCT_COMMAND_BASH",
-		command: "killall altimeter; sleep 0.5; killall -q -9 altimeter; sleep 0.5; exec chrt -r 10 taskset -c 3 ../tool/imu/altimeter/baro/bmp180/bmp180-master/src/imu/altimeter /dev/i2c-3 100",
-	    },
-	    warming_time: 1.0,
-	    // positive roll makes left side up
-	    // positive pitch makes nose up
-            stream: [
-		{ type: "DT_ALTITUDE",             tag: "alt", weight: 0.01, mandatory:1, history_size:500, debug_level: 88},
-		{ type: "DT_VOID",      	   tag: "temp", debug_level: 88},
-		{ type: "DT_DEBUG",                tag: "debug", debug_level: 1},
-            ],
-	},
-#endif
-
-#if 0
-	{
-	    name: "sonar",
-	    connection : {
-		type: "DCT_COMMAND_BASH",
-		command: "killall sonar-hcsr04; sleep 0.5; killall -q -9 sonar-hcsr04; sleep 0.5; exec chrt -r 10 taskset -c 3 ../tool/sonar/sonar-hcsr04/sonar-hcsr04 9 11",
-	    },
-	    mount_position: [0, 0.01, 0.04],
-            stream: [
-		{ type: "DT_GROUND_DISTANCE",   tag: "dist", weight: 1.0, mandatory:1, history_size:15, debug_level: 88},
-		{ type: "DT_DEBUG",             tag: "debug", debug_level: 22},
-            ],
-	},
-#endif
-
-#if 0
-	{
-	    name: "joystick",
-	    connection : {
-		type: "DCT_COMMAND_BASH",
-		command: "taskset -c 3 ssh vittek@192.168.1.100 jstest --event /dev/input/js0"
-	    },
-            stream: [
-		{ type: "DT_JSTEST", tag: "Event:", weight: 1.0, history_size:3, debug_level: 88},
-            ],
-	},
-#endif
-
-#if 0
-	{
-	    name: "neo-8m",
-	    connection : {
-		type: "DCT_COMMAND_BASH",
-		command: "taskset -c 3 cat /dev/serial0",
-	    },
-	    // GPS position 
-	    mount_position: [0, 0, 0],
-	    mount_pry: [0, 0, 0],
-	    data_ignore_unknown_tags: true,
-            stream: [
-	    	// TODO: Maybe implement some interface putting GPS, Glonass and Galileo together with the same tags
-		{ type: "DT_POSITION_NMEA_GPS",	     tag: "$GPGGA",  weight: 1, debug_level: 111},
-		{ type: "DT_POSITION_NMEA_GPS",	     tag: "$GLGGA",  weight: 1, debug_level: 111},
-		{ type: "DT_POSITION_NMEA_GPS",	     tag: "$GNGGA",  weight: 1, debug_level: 111},
-		{ type: "DT_DEBUG",                  tag: "debug", debug_level: 111},
-            ],
-	},
-#endif
-	
-#if 0
-	{
-	    name: "compass-hmc5883l",
-	    connection : {
-		type: "DCT_COMMAND_BASH",
-		command: "killall -q -9 compass; sleep 0.5; exec chrt -r 10 taskset -c 3 ../tool/imu/compass/HMC5883l/hmc5883l.c-master/imu/compass /dev/i2c-4",
-	    },
-	    // compass - magnetometer
-            stream: [
-		{ type: "DT_ORIENTATION_RPY_COMPASS", tag: "head",  weight: [0,0,0.0001], debug_level: 111},
-		{ type: "DT_DEBUG",                   tag: "debug", debug_level: 111},
-            ],
-	},
-#endif
-	
-#if 0
-	{
-	    name: "zeropose",
-	    connection : {
-		type: "DCT_INTERNAL_ZEROPOSE",
-	    },
-            stream: [
-		{ type: "DT_POSITION_VECTOR",        tag: "position", weight: 1e-100, debug_level: 1},
-		// { type: "DT_ORIENTATION_QUATERNION", weight: 1e-100, debug_level: 1},
             ],
 	},
 #endif
