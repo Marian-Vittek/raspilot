@@ -225,13 +225,15 @@ void missionMotorTest(int i) {
 // The mission to be executed by the drone
 void mission() {
 
-    // Uncomment following to calibrate one or all motor ESC (depending on argument)
-
     if (0) {
+	// calibrate one or all motor ESC (depending on argument)
 	missionMotorPwmCalibrationAndExit(1);
-    } else if (0) {
+    } else if (1) {
+	// rotate motors one after another
 	missionMotorTest(-1);
     } else {
+	// fly
+	
 	raspilotPreLaunchSequence();
 	
 	missionLoiter(30.0, 0.15);

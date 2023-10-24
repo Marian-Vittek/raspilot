@@ -133,7 +133,7 @@ another. The code will be:
 
 ```
   void mission() {
-    missionMotorTest(0);
+    missionMotorTest(-1);
   }
 ```
 
