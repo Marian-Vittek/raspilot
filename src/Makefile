@@ -10,8 +10,8 @@ OBJS=main.o common.o expmem.o json.o baio.o config.o device.o pilot.o mission.o 
 ########################################################
 
 #dev
-DRONE=d250
-#DRONE=piw
+#DRONE=d250
+DRONE=piw
 #DRONE=pc
 #DRONE=piz2
 ###
@@ -38,8 +38,10 @@ tools: libs
 
 # go through '../lib' and make every directory containing Makefile.raspilot
 libs: always
+	# for libraries like FussionMagwick, first run cmake if not yet done 
+	export RASPILOT_HOME=`dirname $$PWD`; find ../lib -name "CMakeLists.txt" -execdir bash -c "test -f Makefile || cmake ." \; || $(IGNORE_BUILD_ERROR)
 	export RASPILOT_HOME=`dirname $$PWD`; find ../lib -name "Makefile.raspilot" -execdir make -f Makefile.raspilot \; || $(IGNORE_BUILD_ERROR)
-
+	
 # go recursively through '../tool' and '../lib' and clean every directory containing Makefile.raspilot
 dirsclean: always
 	export RASPILOT_HOME=`dirname $$PWD`; find ../tool -name "Makefile.raspilot" -execdir make -f Makefile.raspilot clean \; || $(IGNORE_BUILD_ERROR)
