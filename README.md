@@ -112,13 +112,17 @@ it then:
 
 1.) Clone Raspilot to your Raspberry Pi
 
+``` cd your_destination_directory
+    git clone https://github.com/Marian-Vittek/raspilot.git
+```
+
 2.) Create/Edit configuration file for your drone in the directory
 "cfg". There are a few working configurations which can be used as
 templates. Then create a symbolic link to your configuration file in
 the "src" directory. The name of the link shall be "config.json".
 
 ```
-    cd src
+    cd raspilot/src
     ln -s -f ../cfg/raspilot-myconfiguration.json config.json
 ```
 
