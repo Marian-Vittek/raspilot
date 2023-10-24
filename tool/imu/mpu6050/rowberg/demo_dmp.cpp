@@ -70,7 +70,7 @@ float ypr[3];           // [yaw, pitch, roll]   yaw/pitch/roll container and gra
 uint8_t teapotPacket[14] = { '$', 0x02, 0,0, 0,0, 0,0, 0,0, 0x00, 0x00, '\r', '\n' };
 
 // command line options
-uint8_t	printRpy = 0;
+uint8_t	printRpy = 1;
 uint8_t	printQuaternion = 0;
 
 // ================================================================
@@ -83,6 +83,7 @@ static void setup(int argc, char **argv) {
   int	optSharedI2cFlag;
 
   i2cpath = (char*)"/dev/i2c-1";
+  optSharedI2cFlag = 0;
   
   // TODO: get also i2c device path from command line!
   for(i=1; i<argc; i++) {

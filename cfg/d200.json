@@ -136,11 +136,11 @@
 	    ],
 	},
 
+#if 1
 	{
-	    name: "gyro-mpu-rowberg",
+	    name: "gyro-mpu-fusion",
 	    connection : {
 		type: "DCT_COMMAND_BASH",
-		// get yaw from rowberg dmp from mpu6050 (rate 50Hz) from (software) i2c-3 interface
 		command: "killall -q -9 demo_dmp; sleep 0.5; exec chrt -r 10 taskset -c 3 ../tool/imu/mpu6050/rowberg/demo_dmp -rpy -s /dev/i2c-1",
 	    },
 	    warming_time: 20.0,
@@ -152,6 +152,7 @@
 		{ type: "DT_DEBUG",           tag: "debug", debug_level: 22},
             ],
 	},
+#endif
 
 #if 1
 	{
@@ -169,6 +170,25 @@
 		// { type: "DT_ORIENTATION_RPY", 	   tag: "rpy:", weight: [1e-20, 1e-20, 1], mandatory:1, history_size:10, latency: 0, debug_level: 88},
 		{ type: "DT_VOID",                 tag: "lat:", debug_level: 1},
 		{ type: "DT_DEBUG",                tag: "debug", debug_level: 22},
+            ],
+	},
+#endif
+
+#if 0
+	{
+	    name: "gyro-mpu-rowberg",
+	    connection : {
+		type: "DCT_COMMAND_BASH",
+		// get yaw from rowberg dmp from mpu6050 (rate 50Hz) from (software) i2c-3 interface
+		command: "killall -q -9 demo_dmp; sleep 0.5; exec chrt -r 10 taskset -c 3 ../tool/imu/mpu6050/rowberg/demo_dmp -rpy -s /dev/i2c-1",
+	    },
+	    warming_time: 20.0,
+	    // positive pitch makes nose up
+	    // positive roll makes left side up
+	    mount_rpy: [0, 0, 0],
+            stream: [
+		{ type: "DT_ORIENTATION_RPY", tag: "rpy", weight: [1e-10, 1e-10, 1.0], mandatory:1, history_size:3, debug_level: 88},
+		{ type: "DT_DEBUG",           tag: "debug", debug_level: 22},
             ],
 	},
 #endif

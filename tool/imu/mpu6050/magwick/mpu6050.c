@@ -10,6 +10,10 @@
 #include "pi2c.h"
 #include "MPU6050.h"
 
+#ifdef SHM
+#include "raspilotshm.h"
+#endif
+
 static inline double doubleGetTime() {
   struct timespec tt;
   clock_gettime(CLOCK_MONOTONIC, &tt);
@@ -29,6 +33,12 @@ int main(int argc, char **argv) {
     int		optSharedI2cFlag;
     char	*optI2cPath;
     double	optRate;
+    double	rpy[3];    
+
+#ifdef SHM
+    struct raspilotInputBuffer 	*shmbuf;
+    struct raspilotInputBuffer 	*shmbuf2;
+#endif
 
     optSharedI2cFlag = 0;
     optI2cPath = (char*)"/dev/i2c-1";
@@ -58,6 +68,12 @@ int main(int argc, char **argv) {
     // MPU6050_write_reg (0x6A, 0);
     // MPU6050_write_reg (0x37, 2);
     // MPU6050_write_reg (0x6B, 0);
+    
+#ifdef SHM
+    shmbuf = raspilotShmConnect((char *)"raspilot.gyro-mpu6050-magwick-shm.rpy");
+    shmbuf2 = raspilotShmConnect((char *)"raspilot.gyro-mpu6050-magwick-shm.rpy2");
+    if (shmbuf == NULL) exit(-1);
+#endif
     
     signal(SIGINT, taskStop);
   
@@ -90,17 +106,24 @@ int main(int argc, char **argv) {
         FusionAhrsUpdateNoMagnetometer(&ahrs, gyroscope, accelerometer, samplePeriod);
         const FusionEuler euler = FusionQuaternionToEuler(FusionAhrsGetQuaternion(&ahrs));
 
-	if (1) {
-	    // Print rpy in drone coordinates. This depends on how precisely the sensor is mounted on drone.
-	    // TODO: Maybe print in sensor's coordinates and make translation inside raspilot.
-	    printf("rpy %9.7f %9.7f %9.7f\n", euler.angle.pitch*M_PI/180.0, euler.angle.roll*M_PI/180.0, euler.angle.yaw*M_PI/180.0);
-	    fflush(stdout);
-	} else {
-	    // The original stuff printed by fusion
-	    printf("T:%6.4f: Roll %7.2f, Pitch %7.2f, Yaw %7.2f\n", samplePeriod, euler.angle.roll, euler.angle.pitch, euler.angle.yaw);
-	    fflush(stdout);
-	}
+	// pitch - negative == nose down;      positive == nose up
+	// roll  - negative == left wing down; positive == left wing up
+	// yaw   - positive == rotated counterclockwise (view from up)
+	rpy[0] = -euler.angle.pitch*M_PI/180.0;
+	rpy[1] = -euler.angle.roll*M_PI/180.0;
+	rpy[2] = euler.angle.yaw*M_PI/180.0;
 	
+#ifdef SHM
+	shmbuf->confidence = 1.0;
+	if (raspilotShmPush(shmbuf, t1, rpy, 3) != 0) exit(0);
+	if (shmbuf2 != NULL) if (raspilotShmPush(shmbuf2, t1, rpy, 3) != 0) exit(0);
+#else
+	printf("rpy %9.7f %9.7f %9.7f\n", rpy[0], rpy[1], rpy[2]);
+	fflush(stdout);
+#endif	
+	// The original stuff printed by fusion
+	//printf("T:%6.4f: Roll %7.2f, Pitch %7.2f, Yaw %7.2f\n", samplePeriod, euler.angle.roll, euler.angle.pitch, euler.angle.yaw);
+
 	t0 = t1;
 
 	if (samplePeriod > 1.0/optRate && usleepTime > 0) usleepTime--;

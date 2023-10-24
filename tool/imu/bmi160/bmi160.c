@@ -155,32 +155,24 @@ int main(int argc, char **argv) {
 	    FusionAhrsUpdateNoMagnetometer(&ahrs, gyroscope, accelerometer, samplePeriod);
 	    const FusionEuler euler = FusionQuaternionToEuler(FusionAhrsGetQuaternion(&ahrs));
 
-	    if (1) {
-		// Print rpy in drone coordinates. This depends on how precisely the sensor is mounted on drone.
-		// TODO: Maybe print in sensor's coordinates and make translation inside raspilot.
-		//if (ii++ % (int)optRate == 0) {
-		rpy[0] = -euler.angle.pitch*M_PI/180.0;
-		rpy[1] = -euler.angle.roll*M_PI/180.0;
-		rpy[2] = euler.angle.yaw*M_PI/180.0;
+	    // Print rpy in drone coordinates. This depends on how precisely the sensor is mounted on drone.
+	    // TODO: Maybe print in sensor's coordinates and make translation inside raspilot.
+	    // pitch - negative == nose down;      positive == nose up
+	    // roll  - negative == left wing down; positive == left wing up
+	    // yaw   - positive == rotated counterclockwise (view from up)
+	    rpy[0] = -euler.angle.pitch*M_PI/180.0;
+	    rpy[1] = -euler.angle.roll*M_PI/180.0;
+	    rpy[2] = euler.angle.yaw*M_PI/180.0;
 #ifdef SHM
-		shmbuf->confidence = 1.0;
-		if (raspilotShmPush(shmbuf, t1, rpy, 3) != 0) exit(0);
-		if (shmbuf2 != NULL) if (raspilotShmPush(shmbuf2, t1, rpy, 3) != 0) exit(0);
-		//printf("debug bmi160: %f pushing rpy %9.7f %9.7f %9.7f\n", t1, rpy[0], rpy[1], rpy[2]);
-		//raspilotRingBufferDump(&shmbuf->buffer);
+	    shmbuf->confidence = 1.0;
+	    if (raspilotShmPush(shmbuf, t1, rpy, 3) != 0) exit(0);
+	    if (shmbuf2 != NULL) if (raspilotShmPush(shmbuf2, t1, rpy, 3) != 0) exit(0);
 #else
-		printf("rpy %9.7f %9.7f %9.7f\n", rpy[0], rpy[1], rpy[2]);
-		fflush(stdout);
+	    printf("rpy %9.7f %9.7f %9.7f\n", rpy[0], rpy[1], rpy[2]);
+	    fflush(stdout);
 #endif		
-		//}
-	    } else {
-		// The original stuff printed by fusion
-		if (ii++ % 1000 == 0) {
-		    printf("T:%6.4f: Roll %7.2f, Pitch %7.2f, Yaw %7.2f\n", samplePeriod, euler.angle.roll, euler.angle.pitch, euler.angle.yaw);
-		    fflush(stdout);
-		}
-	    }
-	
+	    // The original stuff printed by fusion
+	    // printf("T:%6.4f: Roll %7.2f, Pitch %7.2f, Yaw %7.2f\n", samplePeriod, euler.angle.roll, euler.angle.pitch, euler.angle.yaw); fflush(stdout);
 	}
 
 	t0 = t1;
