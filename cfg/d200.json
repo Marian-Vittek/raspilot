@@ -141,14 +141,14 @@
 	    name: "gyro-mpu-fusion",
 	    connection : {
 		type: "DCT_COMMAND_BASH",
-		command: "killall -q -9 demo_dmp; sleep 0.5; exec chrt -r 10 taskset -c 3 ../tool/imu/mpu6050/rowberg/demo_dmp -rpy -s /dev/i2c-1",
+		command: "killall -q -9 mpu6050; sleep 0.5; exec chrt -r 10 taskset -c 3 ../tool/imu/mpu6050/magwick/mpu6050 -s -r 2000 /dev/i2c-1",
 	    },
-	    warming_time: 20.0,
+	    warming_time: 5.0,
 	    // positive pitch makes nose up
 	    // positive roll makes left side up
 	    mount_rpy: [0, 0, 0],
             stream: [
-		{ type: "DT_ORIENTATION_RPY", tag: "rpy", weight: [1e-10, 1e-10, 1.0], mandatory:1, history_size:3, debug_level: 88},
+		{ type: "DT_ORIENTATION_RPY_SHM", tag: "rpy",  weight: [1.0, 1.0, 1e-10], mandatory:1, history_size:4, latency: 0.001, debug_level: 88},
 		{ type: "DT_DEBUG",           tag: "debug", debug_level: 22},
             ],
 	},

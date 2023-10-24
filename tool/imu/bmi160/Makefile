@@ -6,7 +6,7 @@ all: bmi160 bmi160-shm
 
 
 bmi160: bmi160.c $(LIBBMI)/DFRobot_BMI160.cpp $(LIBBMI)/DFRobot_BMI160.h $(LIBI2C)/pi2c.c $(LIBI2C)/pi2c.h
-	g++ -o bmi160 -g bmi160.c -I$(LIBFUSION) -I$(LIBBMI) -I$(LIBI2C) $(LIBBMI)/DFRobot_BMI160.cpp $(LIBI2C)/pi2c.c -L$(LIBFUSION) -pthread -lFusion -lm 
+	g++ -o bmi160 -g bmi160.c -I$(LIBFUSION) -I$(LIBBMI) -I$(LIBI2C) $(LIBBMI)/DFRobot_BMI160.cpp $(LIBI2C)/pi2c.c -L$(LIBFUSION) -pthread -lFusion -lm -lrt
 
 bmi160-shm: bmi160.c $(LIBBMI)/DFRobot_BMI160.cpp $(LIBBMI)/DFRobot_BMI160.h $(LIBI2C)/pi2c.c $(LIBI2C)/pi2c.h $(RASPILOT_HOME)/src/raspilotshm.h
 	g++ -o bmi160-shm -g bmi160.c -DSHM -I$(RASPILOT_HOME)/src -I$(LIBFUSION) -I$(LIBBMI) -I$(LIBI2C) $(LIBBMI)/DFRobot_BMI160.cpp $(LIBI2C)/pi2c.c -L$(LIBFUSION) -lFusion -pthread -lm -lrt 
