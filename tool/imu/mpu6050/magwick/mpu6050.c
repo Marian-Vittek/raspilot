@@ -16,11 +16,12 @@
 
 static inline double doubleGetTime() {
   struct timespec tt;
-  clock_gettime(CLOCK_MONOTONIC, &tt);
+  clock_gettime(CLOCK_REALTIME, &tt);
   return(tt.tv_sec + tt.tv_nsec/1000000000.0);
 }
 
 static void taskStop(int signum) {
+    printf("Info: %s exiting\n", __FILE__); fflush(stdout);
     exit(0);
 }
 
@@ -56,7 +57,7 @@ int main(int argc, char **argv) {
 	    optI2cPath = argv[i];
 	}
     }	
-    
+
     if (optSharedI2cFlag) pi2cInit(optI2cPath, 1);
 
     // create mpu connection
@@ -78,6 +79,8 @@ int main(int argc, char **argv) {
     signal(SIGINT, taskStop);
   
     // turn off DLPF, it is only adding latency
+    // printf("Info %s:%d\n", __FILE__, __LINE__); fflush(stdout);
+
     mpu.setDLPFMode(0);
     mpu.setFullScaleGyroRange(MPU6050_GYRO_FS_250);
     mpu.setFullScaleAccelRange(MPU6050_ACCEL_FS_2);
@@ -115,8 +118,9 @@ int main(int argc, char **argv) {
 	
 #ifdef SHM
 	shmbuf->confidence = 1.0;
-	if (raspilotShmPush(shmbuf, t1, rpy, 3) != 0) exit(0);
-	if (shmbuf2 != NULL) if (raspilotShmPush(shmbuf2, t1, rpy, 3) != 0) exit(0);
+	if (raspilotShmPush(shmbuf, t1, rpy, 3) != 0) taskStop(0);
+	if (shmbuf2 != NULL) if (raspilotShmPush(shmbuf2, t1, rpy, 3) != 0) taskStop(0);
+	printf("debug: rpy %g: %9.7f %9.7f %9.7f\n", t1, rpy[0], rpy[1], rpy[2]);
 #else
 	printf("rpy %9.7f %9.7f %9.7f\n", rpy[0], rpy[1], rpy[2]);
 	fflush(stdout);

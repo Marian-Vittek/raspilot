@@ -228,7 +228,7 @@ void mission() {
     if (0) {
 	// calibrate one or all motor ESC (depending on argument)
 	missionMotorPwmCalibrationAndExit(1);
-    } else if (1) {
+    } else if (0) {
 	// rotate motors one after another
 	missionMotorTest(-1);
     } else {
@@ -236,7 +236,7 @@ void mission() {
 	
 	raspilotPreLaunchSequence();
 	
-	missionLoiter(30.0, 0.15);
+	missionLoiter(10.0, 0.2);
 	// missionJoystick(10.0);
 	// missionTestYawLoiter(0.10);
 	// missionSquare(0.10, 0.10, 1.0, 1);

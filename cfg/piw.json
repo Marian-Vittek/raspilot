@@ -82,12 +82,12 @@
     // PID controllers.
     
     // There are three sorts of PID controllers in raspilot. The first sort consists of two pid controllers named PidX and PidY.
-    // They are used to translate desired horizontal ground velocity of the drone to drone velocity relative to the air speed.
-    // They allow to fly in windy conditions. Values [0,0,0] may be used to block such a translation.
-    // It is perfectly OK to use values [0,0,0] for non-windy weather, flying in interior or during the calibration of the drone.
+    // They are used to translate target ground velocity to relative velocity w.r.t. to the air speed.
+    // They allow to fly in windy conditions. Values [1,0,0] define identical translation.
+    // It is perfectly OK to use values [1,0,0] for non-windy weather, flying in interior or during the calibration of the drone.
     // You configure the same values for both PidX and PidY controllers.
 
-    pidXY:        { p:0.01,  i:0.01,  d:0.01 },
+    pidXY:        { p:1.0,  i:0.0,  d:0.0 },
 
     // The second sort of PID controllers translates the desired drone rotation speed to motor thrust (i.e. to a value between 0 and 1).
     // That are PidRoll, PidPitch and PidYaw controllers.
@@ -151,9 +151,9 @@
 	    mount_position: [0, 0, -0.10],
 	    mount_rpy: [-0.010, 0.006, 0],
             stream: [
-		{ type: "DT_ORIENTATION_QUATERNION", tag: "quat",  mandatory:1, weight: 1.0, debug_level: 22},
-		{ type: "DT_POSITION_VECTOR",        tag: "pose",  mandatory:1, weight: 1.0, debug_level: 22},
-		{ type: "DT_DEBUG",                  tag: "debug", debug_level: 1},
+		{ type: "DT_ORIENTATION_RPY", tag: "rpy",  mandatory:1, weight: 1.0, debug_level: 22},
+		{ type: "DT_POSITION_VECTOR", tag: "pose",  mandatory:1, weight: 1.0, debug_level: 22},
+		{ type: "DT_DEBUG",           tag: "debug", debug_level: 1},
             ],
 	},
 	

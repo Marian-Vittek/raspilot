@@ -24,7 +24,7 @@
 // comma can occur after the last field and constant expressions can be used instead of constants.
 
 #define PI 3.1415926
-#define RATE 500
+#define RATE 250
 {
     autopilot_loop_Hz: RATE,
     stabilization_loop_Hz: RATE,
@@ -41,7 +41,7 @@
     // Similarly, there is a "short buffer" storing roll and pitch used to stabilize drone. This is usualy shorter then "large buffer"
     // because stabilization requires less latency.
     // Buffer_seconds must be larger than 1 tick which is 1/stabilization_loop_Hz.
-    short_buffer_seconds:	   2/RATE,
+    short_buffer_seconds:	   4/RATE,
     long_buffer_seconds:	   0.1,
 
     // waypoint shall not be lower than this altitude
@@ -58,19 +58,20 @@
     // Smaller values make drone more "nervous" more precise but you may reach drone physical
     // limits. Check that your drone can stabilize with "nearly empty" battery with your value.
     // Smaller value may also drain your battery.
-    pilot_reach_goal_orientation_time:	0.2,
+    pilot_reach_goal_orientation_time:	0.3,
     
     // This is the time in which autopilots wants to reach target position.
     // This time must be at least double of "pilot_reach_goal_orientation_time" because in our simple model
     // the drone first gets "go to target" orientation, then it moves to the half way, then it gets "braking"
     // orientation and makes another half way while braking to zero velocity at target position.
-    pilot_reach_goal_position_time:	1.0,
+    pilot_reach_goal_position_time:	3.0,
 
     // However, while moving between waypoints the drone is constrained by the following values as well
     // max speed contains also vertical speed, that's why there is higher number
     drone_max_speed: 		   1.0,
     drone_max_rotation_speed:	   PI/16,
     drone_max_inclination:	   PI/4,
+    drone_panic_inclination:	   PI/2,
 
     // minimal spin, i.e. the spin during "warning rotations" before launch
     motor_thrust_min_spin:         0.01,
@@ -79,28 +80,28 @@
     // PID controllers.
     
     // There are three sorts of PID controllers in raspilot. The first sort consists of two pid controllers named PidX and PidY.
-    // They are used to translate desired horizontal ground velocity of the drone to drone velocity relative to the air speed.
-    // They allow to fly in windy conditions. Values [0,0,0] may be used to block such a translation.
-    // It is perfectly OK to use values [0,0,0] for non-windy weather, flying in interior or during the calibration of the drone.
+    // They are used to translate target ground velocity to relative velocity w.r.t. to the air speed.
+    // They allow to fly in windy conditions. Values [1,0,0] define identical translation.
+    // It is perfectly OK to use values [1,0,0] for non-windy weather, flying in interior or during the calibration of the drone.
     // You configure the same values for both PidX and PidY controllers.
 
-    //pidXY:        { p:0,  i:0,  d:0 },
-    pidXY:        { p:0.2,  i:0.003,  d:0.005 },
+    pidXY:        { p:1.00,  i:09,  d:0.009 },
+    // pidXY:        { p:1.0,  i:0,  d:0 },
 
-    // The second sort of PID controllers translates the desired drone rotation speed to motor thrust (i.e. to a value between 0 and 1).
-    // That are PidRoll, PidPitch and PidYaw controllers.
+    // The second sort of PID controllers translates the desired drone roll pitch yaw rotation to motor thrust
+    // (i.e. to a value between 0 and 1). That are PidRoll, PidPitch and PidYaw controllers.
     // The "Integral" part of those controlers accumulates value representing unbalancing of the drone or its motors.
     // It is supposed that during a flight, the Integral part will accumulate the same value for the same drone
-    // no matter the flight conditions. However, under some circumstances the Interal part may "push"
+    // no matter the flight conditions. However, under some circumstances the Interal part of roll and pitch may "push"
     // against pidX and pidY controllers and all those controllers may diverge.
-    // This is why we suppose to set the I factor to zero and we allow to use a so called "constant integral" value "CI" representing
-    // the average I*Integral specific to your drone.
+    // This is why we suppose to set the I factor to zero for roll and pitch PIDs and we allow to use a so
+    // called "constant integral" value "CI" representing the average I*Integral specific to your drone.
 
-#define RPB 0.07
+#define RPB 0.1
 
-    pidRoll:     { p:RPB,  i:0,  d:0.00000, ci: 0 },
-    pidPitch:    { p:RPB,  i:0,  d:0.00000, ci: 0 },
-    pidYaw:      { p:0.06,  i:0.03,  d:0.00000, ci: 0 },
+    pidRoll:     { p:RPB,  i:0.0,  d:0.0, ci: 0 },
+    pidPitch:    { p:RPB,  i:0.0,  d:0.0, ci: 0 },
+    pidYaw:      { p:0.1,  i:0.05,  d:0.00000, ci: 0 },
 
     // The last sort of PID controller is pidAltitude. It translates desired vertical speed (usually 0)
     // to motor thrust. It shall have P factor large enough to launch and stabilize the drone altitude.
@@ -109,8 +110,8 @@
     // controller even if CI is set. The I factor in this case accumulates the difference between fully
     // charged and "nearly empty" batteries.
 
-    // pidAltitude: { p:0.1,  i:0.01,  d:0, ci:0.13 },
-    pidAltitude: { p:0.02,  i:0.04,  d:0.00001, ci:0.08 },
+    //pidAltitude: { p:0.,  i:0.0,  d:0, ci:0 },
+    pidAltitude: { p:0.1,  i:0.3,  d:0.00001, ci:0.20 },
 
     //////////////////////////////////////////////
     // sensors and other devices installed on the drone and usually connected through pipes
@@ -138,18 +139,36 @@
 
 #if 1
 	{
-	    name: "gyro-mpu-fusion",
+	    name: "gyro-mpu6050-magwick-shm",
 	    connection : {
 		type: "DCT_COMMAND_BASH",
-		command: "killall -q -9 mpu6050; sleep 0.5; exec chrt -r 10 taskset -c 3 ../tool/imu/mpu6050/magwick/mpu6050 -s -r 2000 /dev/i2c-1",
+		command: "killall -q -9 mpu6050-shm; sleep 0.5; exec chrt -r 10 taskset -c 3 ../tool/imu/mpu6050/magwick/mpu6050-shm -s -r 1000 /dev/i2c-1",
 	    },
-	    warming_time: 5.0,
-	    // positive pitch makes nose up
+	    warming_time: 25.0,
 	    // positive roll makes left side up
-	    mount_rpy: [0, 0, 0],
+	    // positive pitch makes nose up
+	    mount_rpy: [0.13, -0.01, 0],
             stream: [
-		{ type: "DT_ORIENTATION_RPY_SHM", tag: "rpy",  weight: [1.0, 1.0, 1e-10], mandatory:1, history_size:4, latency: 0.001, debug_level: 88},
+		{ type: "DT_ORIENTATION_RPY_SHM", tag: "rpy",  weight: [1.0, 1.0, 1e-10], mandatory:1, history_size:4, latency: 0.002, debug_level: 88},
 		{ type: "DT_DEBUG",           tag: "debug", debug_level: 22},
+            ],
+	},
+#endif
+
+#if 1
+	{
+	    name: "matek-3901-l0x",
+	    connection : {
+		type: "DCT_COMMAND_BASH",
+		command: "killall matek-3901-l0x; sleep 0.5; killall -q -9 matek-3901-l0x; sleep 0.5; exec chrt -r 10 taskset -c 3 ../tool/flow/matek-3901-L0X/matek-3901-l0x /dev/serial0",
+	    },
+	    data_ignore_unknown_tags: true,
+	    mount_position: [0.04, -0.01, -0.05],
+            stream: [
+		{ type: "DT_BOTTOM_RANGE",   tag: "range", weight: 1.0, mandatory:1, min_range:0.05, max_range:1.8, history_size:3, debug_level: 88},
+		// Strangely, for history size 2 FLOW_XY diverges completely. For other values it doesn't.
+		// { type: "DT_FLOW_XY",        tag: "motion", weight: 0.1, mandatory:1, history_size:3, debug_level: 88},
+		{ type: "DT_DEBUG",          tag: "debug", debug_level: 22},
             ],
 	},
 #endif
@@ -162,33 +181,14 @@
 		command: "taskset -c 3 ssh vittek@192.168.1.124 /home/vittek/dev/raspiapril/src/raspiapril",
 	    },
 	    // supposing apriltag reports the position to the middle of the tag
-	    mount_position: [0, 0, 0.05],
+	    mount_position: [0, 0, 0.0],
 	    warming_time: 1.0,
             stream: [
-		{ type: "DT_POSITION_VECTOR",      tag: "pose:",  mandatory:1, weight: [1.0, 1.0, 1.0], history_size:2, latency: 0.04, debug_level: 88},
+		{ type: "DT_POSITION_VECTOR",      tag: "pose:",  mandatory:1, weight: [1.0, 1.0, 1e-10], history_size:4, latency: 0.4, debug_level: 88},
 		// { type: "DT_POSITION_VECTOR",      tag: "pose:",  mandatory:1, weight: [0.0001, 0.0001, 0.0001], history_size:20, latency: 0.10, debug_level: 88},
 		// { type: "DT_ORIENTATION_RPY", 	   tag: "rpy:", weight: [1e-20, 1e-20, 1], mandatory:1, history_size:10, latency: 0, debug_level: 88},
 		{ type: "DT_VOID",                 tag: "lat:", debug_level: 1},
 		{ type: "DT_DEBUG",                tag: "debug", debug_level: 22},
-            ],
-	},
-#endif
-
-#if 0
-	{
-	    name: "gyro-mpu-rowberg",
-	    connection : {
-		type: "DCT_COMMAND_BASH",
-		// get yaw from rowberg dmp from mpu6050 (rate 50Hz) from (software) i2c-3 interface
-		command: "killall -q -9 demo_dmp; sleep 0.5; exec chrt -r 10 taskset -c 3 ../tool/imu/mpu6050/rowberg/demo_dmp -rpy -s /dev/i2c-1",
-	    },
-	    warming_time: 20.0,
-	    // positive pitch makes nose up
-	    // positive roll makes left side up
-	    mount_rpy: [0, 0, 0],
-            stream: [
-		{ type: "DT_ORIENTATION_RPY", tag: "rpy", weight: [1e-10, 1e-10, 1.0], mandatory:1, history_size:3, debug_level: 88},
-		{ type: "DT_DEBUG",           tag: "debug", debug_level: 22},
             ],
 	},
 #endif

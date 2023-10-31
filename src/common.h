@@ -312,7 +312,7 @@ enum deviceDataTypes {
     DT_FLOW_XY,
     DT_ALTITUDE,
     DT_ORIENTATION_RPY,
-    DT_ORIENTATION_QUATERNION,    
+    // DT_ORIENTATION_QUATERNION,    
     DT_POSITION_NMEA,
     DT_MAGNETIC_HEADING_NMEA,
     // Exotic stuff
@@ -747,6 +747,7 @@ struct config {
     double			pilot_reach_goal_orientation_time;
     double			pilot_reach_goal_position_time;
     double			drone_max_inclination;
+    double			drone_panic_inclination;
     double			drone_max_speed;
     double			drone_max_rotation_speed;
     double			drone_min_altitude;
@@ -801,6 +802,7 @@ struct universe {
 
     int				motorBaioMagic;
     double			pilotLaunchTime;		// time when pilot was started
+    double			previousTotalFlyTime;		// total fly time since last reset (battery change)
     double			flyStartTime;			// start flying time
     double			motorFirstSendTime;		// when we lastly send a command to motors
     double			motorLastSendTime;		// when we lastly send a command to motors

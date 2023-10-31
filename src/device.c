@@ -219,6 +219,7 @@ int parseJstestJoystickSetWaypoint(double *rr, char *tag, char *s, struct device
 /////////////////////////////////////////////////////////////////////////////////////////////////////
 // translate vector read from device to position and/or orientation of drone
 
+#if 0
 static void deviceDeduceMountOrientationFromQuaternion(struct deviceData *dd, double *vv) {
     double y,p,r;
     // Add mount RPY.
@@ -233,6 +234,7 @@ static void deviceDeduceMountOrientationFromQuaternion(struct deviceData *dd, do
     // lprintf(1, "%s: debug after sub mount %s\n", PPREFIX(), vec3ToString_st(&pp.pr[7]));
     rpyToQuat(r, p, y, vv);
 }
+#endif
 
 static void deviceSensorPositionToDronePosition(vec3 resDronePosition, vec3 sensorPosition, struct deviceData *dd, double time) {
     quat 	ii,droneOrientation;
@@ -415,11 +417,13 @@ void deviceParseInputStreamLineToInputBuffer(struct deviceData *dd, char *s, int
 	    case DT_ORIENTATION_RPY:
 		assert(deviceDataStreamVectorLength[ddd->type] == 3);
 		r = parseVector(inputVector, deviceDataStreamVectorLength[ddd->type], tag, t, dd, ddd);
-		break;		    
+		break;
+		/*
 	    case DT_ORIENTATION_QUATERNION:
 		assert(deviceDataStreamVectorLength[ddd->type] == 4);
 		r = parseVector(inputVector, deviceDataStreamVectorLength[ddd->type], tag, t, dd, ddd);
 		break;
+		*/
 	    case DT_POSITION_NMEA:
 		r = parseNmeaPosition(inputVector, tag, t, dd, ddd);
 		break;
@@ -510,6 +514,15 @@ void deviceTranslateInputToOutput(struct deviceStreamData *ddd) {
     for(; ii<imax; ii++) {
     	i = ii % ddd->input->buffer.size;
 	sampletime = ddd->input->buffer.a[i * (ddd->input->buffer.vectorsize+1)];
+	// Some basic chect to detect wrong time on sender side
+	// lprintf(1, "%s: %s.%s: checking time %g.\n", PPREFIX(), dd->name, ddd->name, sampletime);
+	if (sampletime < currentTime.dtime - 7*24*60*60 || sampletime > currentTime.dtime + 7*24*60*60) {
+	    static time_t msgtime = 0;
+	    if (time(NULL) != msgtime) {
+		lprintf(1, "%s: Error: %s.%s: wrong timestamp: %g.\n", PPREFIX(), dd->name, ddd->name, sampletime);
+		msgtime = time(NULL);
+	    }
+	}
 	inputVector = &ddd->input->buffer.a[i * (ddd->input->buffer.vectorsize+1)+1];
 	switch(ddd->type) {
 	case DT_VOID:
@@ -524,12 +537,14 @@ void deviceTranslateInputToOutput(struct deviceStreamData *ddd) {
 		// Yaw during launch shall be zero, so deduce launch yaw reported by the sensor
 		outputVector[2] -= ddd->launchData[2];
 	    }
-	    break;		    
+	    break;
+	    /*
 	case DT_ORIENTATION_QUATERNION:
 	    memcpy(outputVector, inputVector, 4 * sizeof(double));
 	    deviceDeduceMountOrientationFromQuaternion(dd, outputVector);
 	    // TODO: Yaw during launch shall be zero, so deduce launch yaw reported by the sensor
 	    break;
+	    */
 	case DT_POSITION_NMEA:
 	    // TODO: deduce launching point coordinates and mount point!!!
 	    break;

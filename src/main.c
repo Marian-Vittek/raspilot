@@ -11,23 +11,45 @@ enum statisticsActionEnum {
     STATISTIC_MAX,
 };
 
+void mainLoadPreviousFlyTime() {
+    FILE * ff;
+    uu->previousTotalFlyTime = 0;
+    ff = fopen("totalFlyTime.txt", "r");
+    if (ff != NULL) {
+	fscanf(ff, "%lf", &uu->previousTotalFlyTime);
+	fclose(ff);
+    }
+}
+
+void mainSavePreviousFlyTime() {
+    FILE * ff;
+    ff = fopen("totalFlyTime.txt", "w");
+    if (ff != NULL) {
+	fprintf(ff, "%f\n", uu->previousTotalFlyTime);
+	fclose(ff);
+    }
+}
+
 void mainStatisticsMotors(int action) {
     int 	i;
     double 	sum, max, tt;
 
     sum = 0; max = -1;
+    if (action == STATISTIC_PRINT) lprintf(0, "%s: Average motor thrusts: ", PPREFIX());
     for(i=0; i<uu->motor_number; i++) {
 	if (action == STATISTIC_INIT) {
 	    uu->motor[i].totalWork = 0;
 	}
 	tt = uu->motor[i].totalWork;
+	if (action == STATISTIC_PRINT) lprintf(0, "%g ", tt / (currentTime.dtime - uu->flyStartTime));
 	sum += tt;
 	if (tt > max) max = tt;
     }
+    if (action == STATISTIC_PRINT) lprintf(0, "\n");
     
     if (action != STATISTIC_PRINT) return;
     
-    lprintf(0, "%s: Average motor thrust: %g\n", PPREFIX(), sum / uu->motor_number / (currentTime.dtime - uu->flyStartTime));
+    lprintf(0, "%s: Total average motor thrust: %g\n", PPREFIX(), sum / uu->motor_number / (currentTime.dtime - uu->flyStartTime));
 
     if (0) {
 	lprintf(0, "%s: Proposed New motor_esc_corrections: ", PPREFIX());
@@ -124,11 +146,20 @@ void mainStatisticsPids(int action) {
 }
 
 void mainStatistics(int action) {
-    if (action == STATISTIC_INIT) uu->flyStartTime = currentTime.dtime;
+    if (action == STATISTIC_INIT) {
+	mainLoadPreviousFlyTime();
+	uu->flyStartTime = currentTime.dtime;
+    }
     if (action == STATISTIC_PRINT) {
+	double flyTime;
+
+	flyTime = currentTime.dtime - uu->flyStartTime;
 	lprintf(0, "%s: \n", PPREFIX());
 	lprintf(0, "%s: STATISTICS:\n", PPREFIX());
-	lprintf(0, "%s: Mission time: %gs\n", PPREFIX(), currentTime.dtime - uu->flyStartTime);
+	lprintf(0, "%s: Mission time: %gs\n", PPREFIX(), flyTime);
+	uu->previousTotalFlyTime += flyTime;
+	lprintf(0, "%s: Fly time since reset: %gs\n", PPREFIX(), uu->previousTotalFlyTime);
+	mainSavePreviousFlyTime();
     }
     
     mainStatisticsMotors(action);
@@ -337,7 +368,7 @@ void mainInitDeviceDataStreamVectorLengths(int motor_number) {
     deviceDataStreamVectorLength[DT_FLOW_XY] = 2;
     deviceDataStreamVectorLength[DT_ALTITUDE] = 1;
     deviceDataStreamVectorLength[DT_ORIENTATION_RPY] = 3;
-    deviceDataStreamVectorLength[DT_ORIENTATION_QUATERNION] = 4;
+    // deviceDataStreamVectorLength[DT_ORIENTATION_QUATERNION] = 4;
     deviceDataStreamVectorLength[DT_POSITION_NMEA] = 3;
     deviceDataStreamVectorLength[DT_MAGNETIC_HEADING_NMEA] = 1;
     deviceDataStreamVectorLength[DT_JSTEST] = 5;

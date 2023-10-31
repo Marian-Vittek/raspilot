@@ -12,7 +12,7 @@
 
 static inline double doubleGetTime() {
   struct timespec tt;
-  clock_gettime(CLOCK_MONOTONIC, &tt);
+  clock_gettime(CLOCK_REALTIME, &tt);
   return(tt.tv_sec + tt.tv_nsec/1000000000.0);
 }
 

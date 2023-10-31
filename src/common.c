@@ -747,7 +747,7 @@ void enumNamesInit() {
     ENUM_NAME_SET(deviceDataTypeNames, DT_FLOW_XY);
     ENUM_NAME_SET(deviceDataTypeNames, DT_ALTITUDE);
     ENUM_NAME_SET(deviceDataTypeNames, DT_ORIENTATION_RPY);
-    ENUM_NAME_SET(deviceDataTypeNames, DT_ORIENTATION_QUATERNION);
+    // ENUM_NAME_SET(deviceDataTypeNames, DT_ORIENTATION_QUATERNION);
     ENUM_NAME_SET(deviceDataTypeNames, DT_POSITION_NMEA);
     ENUM_NAME_SET(deviceDataTypeNames, DT_MAGNETIC_HEADING_NMEA);
     ENUM_NAME_SET(deviceDataTypeNames, DT_JSTEST);

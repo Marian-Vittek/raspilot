@@ -24,6 +24,37 @@ quat rotation = {0, -0.70710678118655, 0, 0.70710678118655};
 // transformation on it, you have to take into  account the orientation how the sensor is mounted on the drone.
 // The position is the position of the sensor in the same coordinate system as the orientation.
 
+static void wikiQuaternionToEulerAngles(quat q, double *yaw, double *pitch, double *roll) {
+    double x, y, z, w;
+    double sinr_cosp, cosr_cosp, sinp, siny_cosp, cosy_cosp;
+    
+    x = q[0];
+    y = q[1];
+    z = q[2];
+    w = q[3];
+    
+    // roll (x-axis rotation)
+    sinr_cosp = 2 * (w * x + y * z);
+    cosr_cosp = 1 - 2 * (x * x + y * y);
+    *roll = atan2(sinr_cosp, cosr_cosp);
+
+    // pitch (y-axis rotation)
+    // [MV] I had to change the sign here to get my pitch
+    sinp = 2 * (w * y - z * x);
+    if (fabs(sinp) >= 1) {
+        *pitch = - copysign(M_PI / 2, sinp); // use 90 degrees if out of range
+    } else {
+        *pitch = - asin(sinp);
+    }
+	
+    // yaw (z-axis rotation)
+    siny_cosp = 2 * (w * z + x * y);
+    cosy_cosp = 1 - 2 * (y * y + z * z);
+    *yaw = atan2(siny_cosp, cosy_cosp);
+	
+}
+
+
 // Teh translation used here is for T265 pointing downward and usb connector is on the right side of the drone.
 // I determined the translation by experimenting, I have no idea why the translation is like that.
 void translateAndPrintPose(double x, double y, double z) {
@@ -35,12 +66,15 @@ void translateAndPrintPose(double x, double y, double z) {
 }
 void translateAndPrintOrientation(double x, double y, double z, double w) {
   quat p, q, i;
+  double roll, pitch, yaw;
   q[0] = -z;
   q[1] = -x;
   q[2] = y;
   q[3] = w;
   quat_mul(p, q, rotation);
-  printf("quat %f %f %f %f\n", p[0], p[1], p[2], p[3]);
+  // printf("quat %f %f %f %f\n", p[0], p[1], p[2], p[3]);
+  wikiQuaternionToEulerAngles(p, &yaw, &pitch, &roll);
+  printf("rpy %f %f %f\n", roll, pitch, yaw);
 }
 
 int main(int argc, char * argv[]) try

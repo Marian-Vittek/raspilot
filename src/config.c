@@ -442,7 +442,8 @@ void configLoadFromJsonNode(struct jsonnode *cc, char *path, char *context) {
 	lprintf(0, "%s: Error: pilot_reach_goal_position_time has to be 2*pilot_reach_goal_orientation_time plus the time of fly\n", PPREFIX());
 	cfg->pilot_reach_goal_position_time = 2 * cfg->pilot_reach_goal_orientation_time;
     }
-    LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(cc, context, cfg, drone_max_inclination, 0.3);
+    LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(cc, context, cfg, drone_max_inclination, M_PI/8);
+    LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(cc, context, cfg, drone_panic_inclination, M_PI/2);
     LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(cc, context, cfg, drone_max_speed, 1.0);
     LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(cc, context, cfg, drone_max_rotation_speed, 0.5);
     LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(cc, context, cfg, drone_min_altitude, 0.05);
