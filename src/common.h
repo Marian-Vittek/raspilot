@@ -827,9 +827,6 @@ struct universe {
     double 			targetRoll, targetPitch, targetYaw;
     double			targetYawRotationSpeed, targetRollRotationSpeed, targetPitchRotationSpeed;
 
-    // Thrust to be sent to motors for altitude goal.
-    double			altitudeThrust;
-    
     // hold a few seconds of historical poses for case somebody needs it
     // TODO: split into historyPosition and historyRpy, so that position sensors
     // can find the new orientation there
@@ -1011,7 +1008,7 @@ void pilotRegularStabilizationLoopRescheduleToSoon() ;
 void pilotRegularSendPings(void *d) ;
 void pilotRegularSaveTrajectory(void *d) ;
 void pilotRegularWaitForDevicesAndStartPilot(void *d) ;
-void pilotUpdateBufferAndRecomputeMotorThrust() ;
+void pilotInitiatePids() ;
 
 // baio.c
 extern int baioDebugLevel;

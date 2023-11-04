@@ -153,7 +153,11 @@ void mainStatistics(int action) {
     if (action == STATISTIC_PRINT) {
 	double flyTime;
 
-	flyTime = currentTime.dtime - uu->flyStartTime;
+	if (uu->flyStartTime == 0) {
+	    flyTime = 0;
+	} else {
+	    flyTime = currentTime.dtime - uu->flyStartTime;
+	}
 	lprintf(0, "%s: \n", PPREFIX());
 	lprintf(0, "%s: STATISTICS:\n", PPREFIX());
 	lprintf(0, "%s: Mission time: %gs\n", PPREFIX(), flyTime);
@@ -551,7 +555,7 @@ void raspilotPreLaunchSequence() {
     lprintf(5, "%s: Info: Prefly sequence done.\n", PPREFIX());
 
     mainStatistics(STATISTIC_INIT);
-    pilotUpdateBufferAndRecomputeMotorThrust();		// initiate PIDs
+    pilotInitiatePids();
 }
 
 void raspilotLaunch(double altitude) {
@@ -591,8 +595,7 @@ void raspilotLaunch(double altitude) {
     //uu->config.pilot_reach_goal_orientation_time = PILOT_LAUNCH_GOAL_ORIENTATION_TIME;
     //uu->config.pilot_reach_goal_position_time = PILOT_LAUNCH_GOAL_POSITION_TIME;
     
-    // initiate PID
-    pilotUpdateBufferAndRecomputeMotorThrust();
+    pilotInitiatePids();
     
     tt = currentTime.dtime;
     while(0 && raspilotCurrentAltitude() < altitude && currentTime.dtime < tt + PILOT_LAUNCH_MAX_TIME) raspilotPoll();

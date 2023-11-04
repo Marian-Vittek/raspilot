@@ -170,7 +170,7 @@ int parseJstestJoystickSetWaypoint(double *rr, char *tag, char *s, struct device
     char 		*snumber;
     char 		*svalue;
     int 		type, number, value;
-    vec3		offset;
+    double		offset[20];
     
     stype = strstr(s, "type ");
     if (stype == NULL) return(-1);
@@ -185,7 +185,7 @@ int parseJstestJoystickSetWaypoint(double *rr, char *tag, char *s, struct device
 
     if (type == 1) {
 	// button click
-	// For the moment evry button is emergency land
+	// For the moment every button is emergency land
 	missionLandImmediately();
     }
     
@@ -193,25 +193,41 @@ int parseJstestJoystickSetWaypoint(double *rr, char *tag, char *s, struct device
     
     switch (number) {
     case 0:
-	// In my joystick, axes 0 controls X
-	offset[0] = value / 32767.0 / 10.0;
+	// In my joystick, axes 0 is roll
+	offset[0] = value / 32768.0;
 	break;
     case 1:
-	// In my joystick, axes 1 controls Y
-	offset[1] = - value / 32767.0 / 10.0;
+	// In my joystick, axes 1 is pitch
+	offset[1] = value / 32768.0;
+	break;
+    case 2:
+	// In my joystick, axes 2 is yaw
+	offset[2] = - value / 32768.0;
 	break;
     case 3:
-	// In my joystick, axes 3 controls Z
-	offset[2] = (32767.0 - value) / 32767.0 / 10.0;
+	// In my joystick, axes 3 is altitude
+	offset[3] = - value / 32768.0;
 	break;
     default:
 	break;
     }
 
-    lprintf(10, "%s: Joystick setting waypoint to: %s\n", PPREFIX(), vec3ToString_st(offset));
+    lprintf(10, "%s: Joystick getting offsets: %s\n", PPREFIX(), vec4ToString_st(offset));
     // actually you can not add to the waypoint all the time, instead set it hard
     // TODO: figure this out.
-    vec3_assign(uu->currentWaypoint.position, offset);
+    
+    // Joystick roll, pitch set directly drone roll and pitch
+    uu->targetRoll = offset[0];
+    uu->targetPitch = offset[1];
+
+    // Joystick yaw sets the yaw rotation speed
+    // TODO: this shall be continuous in some way
+    // uu->currentWaypoint.yawIncrement = uu->droneLastRpy[2];
+
+    // altitude is directly the altitude
+    uu->currentWaypoint.position[2] = 1 + offset[3];
+
+    // TODO: Solve how this messes up autopilot and flight controller.
     
     return(0);
 }
