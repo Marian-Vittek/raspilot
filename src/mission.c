@@ -12,13 +12,13 @@ void missionLoiter(double loiterTime, double altitude) {
     lprintf(1, "%s: mission: Begin loiter(%g, %g)!\n", PPREFIX(), loiterTime, altitude);
     
     // loiter 10 seconds
-    raspilotGotoWaypoint(0, 0, altitude, 0);
+    raspilotWaypointSet(0, 0, altitude, 0);
     raspilotBusyWait(loiterTime);
 
     lprintf(1, "%s: mission: End   loiter(%g, %g)!\n", PPREFIX(), loiterTime, altitude);
 
     // Hmm. if we are too low, it may hit the ground and fail roll,pitch goals
-    raspilotGotoWaypoint(0, 0, 0.10, 0);
+    // raspilotGotoWaypoint(0, 0, 0.10, 0);
     raspilotLand(0, 0);    
 }
 
@@ -231,12 +231,19 @@ void mission() {
     } else if (0) {
 	// rotate motors one after another
 	missionMotorTest(-1);
+    } else if (0) {
+	// Joystick conrolled.
+	// Flight controller only. (TODO: To be finished).
+	raspilotPreLaunchSequence(1);
+	uu->currentWaypoint.position[2] = 0.20;
+	uu->flyStage = FS_FLY;
+	// raspilotBusyWait(15);
+	lprintf(0, "%s: Info: launched.\n", PPREFIX());
+	for(;;) raspilotPoll();
     } else {
-	// fly
-	
-	raspilotPreLaunchSequence();
-	
-	missionLoiter(10.0, 0.2);
+	// autopilot mission mode
+	raspilotPreLaunchSequence(0);
+	missionLoiter(120.0, 0.15);
 	// missionJoystick(10.0);
 	// missionTestYawLoiter(0.10);
 	// missionSquare(0.10, 0.10, 1.0, 1);

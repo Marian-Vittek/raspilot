@@ -110,7 +110,7 @@
     // charged and "nearly empty" batteries.
 
     // pidAltitude: { p:0.1,  i:0.01,  d:0, ci:0.13 },
-    pidAltitude: { p:0.02,  i:0.04,  d:0.00001, ci:0.08 },
+    pidAltitude: { p:0.02,  i:0.08,  d:0.00001, ci:0.10 },
 
     //////////////////////////////////////////////
     // sensors and other devices installed on the drone and usually connected through pipes
@@ -147,7 +147,7 @@
 	    warming_time: 6.0,
 	    // positive roll makes left side up
 	    // positive pitch makes nose up
-	    mount_rpy: [0.04, 0.05, 0],
+	    mount_rpy: [0.03, 0.03, 0],
             stream: [
 	    	// Note the very small yaw weight. It is supposed we get yaw from other sources
 		{ type: "DT_ORIENTATION_RPY", tag: "rpy", weight: [1.0, 1.0, 1e-10], mandatory:1, history_size:10, debug_level: 88},

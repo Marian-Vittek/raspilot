@@ -68,10 +68,12 @@ motors are running in separate processes and are connected to the
 autopilot via Linux pipes and/or shared memory. Software runs
 asynchronously and the input is read as it comes.  The autopilot
 itself runs an infinite loop at an adjustable frequency. Frequency is
-configurable and ranges between 50Hz and 5kHz. Smaller drones require
-higher frequency. Software that physically controls ESCs runs in a
-separate process too. This architecture makes it easy to integrate
-specific sensors, ESC protocols or specific motor hardware.
+configurable and ranges between 50Hz and 5kHz. Less stable designs
+with a centre of gravity above propellers require higher frequency.
+Most of our drones (small and large) were operated at around 200 Hz.
+Software that physically controls ESCs runs in a separate process
+too. This architecture makes it easy to integrate specific sensors,
+ESC protocols or specific motor hardware.
 
 
 From the user point of view, the whole autopilot behaves like a

@@ -320,11 +320,12 @@ void configLoadDeviceStreams(struct jsonnode *c, struct deviceData	*dl, char *pa
 	    LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(d, context, ddl, mandatory, 0);
 	    LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(d, context, ddl, history_size, 2);
 	    LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(d, context, ddl, debug_level, 30);
-	    configVectorMaybeSpecifiedByUniqueNumber(d, ddl->weight, 4, "weight", 1.0, path, context);
+	    configVectorMaybeSpecifiedByUniqueNumber(d, ddl->weight, deviceDataStreamVectorLength[ddl->type], "weight", 1.0, path, context);
 	    //if (ddl->weight[0] != ddl->weight[1]) {
 	    //lprintf(0,"%s: Warning: different weight for X and Y axis! Not yet implemented!\n", PPREFIX());
 	    //}
-	     LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(d, context, ddl, drift_fix_period, 0);
+	    configLoadVectorWithDefaultValue(d, ddl->drift_auto_fix_period, deviceDataStreamVectorLength[ddl->type], "drift_auto_fix_period", 0, path, context, 0);
+	    configLoadVectorWithDefaultValue(d, ddl->drift_offset_per_second, deviceDataStreamVectorLength[ddl->type], "drift_offset_per_second", 0, path, context, 0);
 	    // we usually process all pending input from ParsedVector to RegressionBuffer at each tick
 	    configInputBufferInit(dl, ddl);
 	    regressionBufferInit(&ddl->outputBuffer, deviceDataStreamVectorLength[ddl->type], ddl->history_size, "%s.%s stream out buffer", dl->name, ddl->name);

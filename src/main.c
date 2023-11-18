@@ -375,7 +375,7 @@ void mainInitDeviceDataStreamVectorLengths(int motor_number) {
     // deviceDataStreamVectorLength[DT_ORIENTATION_QUATERNION] = 4;
     deviceDataStreamVectorLength[DT_POSITION_NMEA] = 3;
     deviceDataStreamVectorLength[DT_MAGNETIC_HEADING_NMEA] = 1;
-    deviceDataStreamVectorLength[DT_JSTEST] = 5;
+    deviceDataStreamVectorLength[DT_JSTEST] = 0;
     deviceDataStreamVectorLength[DT_POSITION_SHM] = 3;
     deviceDataStreamVectorLength[DT_ORIENTATION_RPY_SHM] = 3;
 
@@ -505,7 +505,7 @@ int raspilotInit(int argc, char **argv) {
     return(0);
 }
 
-void raspilotPreLaunchSequence() {
+void raspilotPreLaunchSequence(int flightControllerOnlyMode) {
     double	thrust;
     int		i, n;
     int64_t	nextTickUsec;
@@ -516,7 +516,10 @@ void raspilotPreLaunchSequence() {
     setCurrentTime();
     
     uu->flyStage = FS_WAITING_FOR_SENSORS;
-    timeLineInsertEvent(UTIME_AFTER_MSEC(1), pilotAutopilotLoopTick, NULL);
+
+    if (flightControllerOnlyMode == 0) {
+	timeLineInsertEvent(UTIME_AFTER_MSEC(1), pilotAutopilotLoopTick, NULL);
+    }
     timeLineInsertEvent(UTIME_AFTER_MSEC(2), pilotRegularStabilizationTick, NULL);
 
     lprintf(1, "%s: Info: Starting prefly sequence.\n", PPREFIX());

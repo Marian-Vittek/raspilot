@@ -1134,6 +1134,15 @@ int vec3TruncateToSize(vec3 r, double size, int warningFlag, char *warningId) {
     return(res);
 }
 
+double vectorLength(double *a, int dim) {
+    int 	i;
+    double 	s;
+
+    s = 0;
+    for(i=0; i<dim; i++) s += a[i] * a[i];
+    return(sqrt(s));
+}
+
 //////////////////////////////////////////////////////////////////////////////////////////////
 
 void pidControllerReset(struct pidController *pp) {

@@ -82,7 +82,7 @@
 #define MOTOR_MAX			16
 #define DEVICE_MAX			64
 #define DEVICE_DATA_MAX			32
-#define DEVICE_DATA_VECTOR_MAX 		16
+#define DEVICE_DATA_VECTOR_MAX 		8
 // In order to speed up parsing of thrust sent to motorsd, we are sending integers instead of double.
 // The actual thrust <0..1> will be multiplied by this factor before being sent to motors.
 #define MOTOR_STREAM_THRUST_FACTOR			10000
@@ -517,7 +517,7 @@ typedef callBackHookFunType callBackHookFunArgType;
 
 struct callBackHook {
     callBackHookFunType    *a;
-    int                         i, dim;
+    int                    i, dim;
 };
 
 struct baio {
@@ -654,11 +654,21 @@ struct deviceStreamData {
     double			max_range;		// minimal valid range for rangefinders (radar)
     double			min_altitude;		// min valid altitude (for flow detectors)
     double			max_altitude;		// max valid altitude (for flow detectors)
-    vec4			weight;			// weight is per axis in GBASE, or rpy per quat elem for quat
-    double			drift_fix_period;	// Not yet implemented, period to recalibrate drift of drifting devices
     uint8_t			mandatory;		// whether device has to be active before launch
     int				history_size;   	// the size of the history saved for linear interpolation, rename to regression_points or similar
     int				debug_level;
+    double			weight[DEVICE_DATA_VECTOR_MAX];			// weight is per axis in GBASE, or rpy or whatever
+
+    // For devices having regular drift value (like yaw in accelerometer) we increase
+    // the output by a driftOffset. driftOffset is increased at each tick by 'drift_offset_per_second' * timeDelta.
+    // 'drift_offset_per_second' is the main value to set up when defining a drifting device manually.
+    // Otherwise soecify drift_auto_fix_period as time to auto recompute 'drift_offset_per_second'.
+    double			drift_auto_fix_period[DEVICE_DATA_VECTOR_MAX];
+    double   			drift_offset_per_second[DEVICE_DATA_VECTOR_MAX];
+    double			driftOffset[DEVICE_DATA_VECTOR_MAX];
+    double			driftOffsetLastIncrementTime;
+
+
     struct deviceData		*dd;			// "back" pointer to device data where I belong
 
     // This is the place where the 'raw' values read from the device are stored.
@@ -690,7 +700,12 @@ struct deviceStreamData {
 
     // devicedata are linked also by the type of data for faster fusion of sensors
     struct deviceStreamData 	*nextWithSameType;
+};
 
+// this is auxiliary data structure used as argument to deviceRegularAdjustementOfDrifts
+struct deviceStreamDataDriftUpdateStr {
+    struct deviceStreamData 	*ddd;
+    int				i;	// index in result vector which has a drift
 };
 
 struct connection {
@@ -793,6 +808,9 @@ struct universe {
 
     // Following optimizes sensor fusion
     struct deviceStreamData	*deviceStreamDataByType[DT_MAX];	// lists by data types
+    
+    // device with drifting values are enchained in this list
+    struct deviceStreamData	*autoDriftingStreamsList;
     
     // run time values
     int				flyStage; 		// enum flyStageEnum
@@ -928,6 +946,7 @@ int regressionBufferEstimateForTime(struct regressionBuffer *hh, double time, do
 int vec1TruncateToSize(double *r, double size, int warningFlag, char *warningId) ;
 int vec2TruncateToSize(vec2 r, double size, int warningFlag, char *warningId) ;
 int vec3TruncateToSize(vec3 r, double size, int warningFlag, char *warningId) ;
+double vectorLength(double *a, int dim) ;
 void pidControllerReset(struct pidController *pp) ;
 char *pidControllerStatistics(struct pidController *pp, int showProposedCiFlag) ;
 double pidControllerStep(struct pidController *pp, double setpoint, double measured_value, double dt) ;
@@ -981,7 +1000,7 @@ void raspilotBusyWait(double sleeptime) ;
 int raspilotInit(int argc, char **argv) ;
 int raspilotShutDownAndExit() ;
 void raspilotLand(double x, double y) ;
-void raspilotPreLaunchSequence() ;
+void raspilotPreLaunchSequence(int flightControllerOnlyMode) ;
 void raspilotLaunch(double altitude) ;
 void raspilotWaypointSet(double x, double y, double z, double yaw) ;
 void raspilotGotoWaypoint(double x, double y, double z, double yaw) ;

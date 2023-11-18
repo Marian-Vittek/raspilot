@@ -165,12 +165,15 @@ int parseNmeaPosition(double *rr, char *tag, char *s, struct deviceData *dd, str
 }
 
 // Joystick lines look like: Event: type 2, time 8695440, number 0, value 6808
-int parseJstestJoystickSetWaypoint(double *rr, char *tag, char *s, struct deviceData *dd, struct deviceStreamData *ddd) {
+int parseJstestJoystickFlighControl(double *rr, char *tag, char *s, struct deviceData *dd, struct deviceStreamData *ddd) {
     char 		*stype;
     char 		*snumber;
     char 		*svalue;
-    int 		type, number, value;
-    double		offset[20];
+    int 		type, number;
+    double		value;
+
+    // ignore any input until pre_fly stage. There may be some junk in buffer at the beginning.
+    if (uu->flyStage < FS_PRE_FLY) return(0);
     
     stype = strstr(s, "type ");
     if (stype == NULL) return(-1);
@@ -181,54 +184,48 @@ int parseJstestJoystickSetWaypoint(double *rr, char *tag, char *s, struct device
     
     type = atoi(stype + strlen("type "));
     number = atoi(snumber + strlen("number "));
-    value = atoi(svalue + strlen("value "));
-
+    value = atoi(svalue + strlen("value ")) / 32768.0;
+    
     if (type == 1) {
 	// button click
-	// For the moment every button is emergency land
-	missionLandImmediately();
+	// For the moment every button is emergency stop/land
+	lprintf(0, "%s: Joystick button pressed. Going down\n", PPREFIX());
+	raspilotShutDownAndExit();
+	// missionLandImmediately();
     }
     
     if (type != 2) return(0);
     
     switch (number) {
     case 0:
-	// In my joystick, axes 0 is roll
-	offset[0] = value / 32768.0;
+	// In my joystick, ax 0 is roll
+	uu->targetRoll = value / 2.0;
+	lprintf(10, "%s: Joystick roll: %g\n", PPREFIX(), value);
 	break;
     case 1:
-	// In my joystick, axes 1 is pitch
-	offset[1] = value / 32768.0;
+	// In my joystick, ax 1 is pitch
+	uu->targetPitch = value / 2.0;
+	lprintf(10, "%s: Joystick pitch: %g\n", PPREFIX(), value);
 	break;
     case 2:
-	// In my joystick, axes 2 is yaw
-	offset[2] = - value / 32768.0;
+	// In my joystick, ax 2 is inversed yaw
+	value = - value / 50.0;
+	ddd->drift_offset_per_second[0] = 0;
+	ddd->drift_offset_per_second[1] = 0;
+	ddd->drift_offset_per_second[2] = value;
+	ddd->driftOffsetLastIncrementTime = currentTime.dtime;
+	lprintf(10, "%s: Joystick yaw increment: %g\n", PPREFIX(), value);
 	break;
     case 3:
-	// In my joystick, axes 3 is altitude
-	offset[3] = - value / 32768.0;
+	// In my joystick, ax 3 is inversed altitude
+	value = - value;
+	// uu->currentWaypoint.position[2] = 0.5 + value;
+	lprintf(10, "%s: Joystick altitude: %g\n", PPREFIX(), value);
 	break;
     default:
 	break;
     }
 
-    lprintf(10, "%s: Joystick getting offsets: %s\n", PPREFIX(), vec4ToString_st(offset));
-    // actually you can not add to the waypoint all the time, instead set it hard
-    // TODO: figure this out.
-    
-    // Joystick roll, pitch set directly drone roll and pitch
-    uu->targetRoll = offset[0];
-    uu->targetPitch = offset[1];
-
-    // Joystick yaw sets the yaw rotation speed
-    // TODO: this shall be continuous in some way
-    // uu->currentWaypoint.yawIncrement = uu->droneLastRpy[2];
-
-    // altitude is directly the altitude
-    uu->currentWaypoint.position[2] = 1 + offset[3];
-
-    // TODO: Solve how this messes up autopilot and flight controller.
-    
     return(0);
 }
 
@@ -448,8 +445,7 @@ void deviceParseInputStreamLineToInputBuffer(struct deviceData *dd, char *s, int
 		r = 0;
 		break;
 	    case DT_JSTEST:
-		lprintf(0, "%s: Not yet implemented\n", PPREFIX());
-		// r = parseJstestJoystickSetWaypoint(inputVector, tag, t, dd, ddd);
+		r = parseJstestJoystickFlighControl(inputVector, tag, t, dd, ddd);
 		break;
 	    case DT_POSITION_VECTOR:
 		assert(deviceDataStreamVectorLength[ddd->type] == 3);
@@ -489,14 +485,109 @@ void deviceParseInputStreamLineToInputBuffer(struct deviceData *dd, char *s, int
     return;
 }
 
+static void deviceMaybeAddDriftToOutputVector(struct deviceData *dd, struct deviceStreamData *ddd, double outputVector[DEVICE_DATA_VECTOR_MAX]) {
+    int 	i;
+    double 	td;
+    
+    if (ddd->driftOffsetLastIncrementTime != 0) {
+	td = currentTime.dtime - ddd->driftOffsetLastIncrementTime;
+	if (td < 0 || td > 10.0) {
+	    lprintf(0, "%s: %s: %s: Drift offset time delta %g out of range.\n", PPREFIX(), dd->name, ddd->name, td);
+	} else {
+	    for(i=0; i<deviceDataStreamVectorLength[ddd->type]; i++) {
+		ddd->driftOffset[i] += td * ddd->drift_offset_per_second[i];
+		outputVector[i] = outputVector[i] + ddd->driftOffset[i];
+	    }
+	    ddd->driftOffsetLastIncrementTime = currentTime.dtime;
+	}
+    }
+}
+
+static void deviceRegularAdjustementOfDrifts(void *aaa) {
+    struct deviceStreamDataDriftUpdateStr 	*a;
+    struct deviceData 				*dd;
+    struct deviceStreamData 			*ddd;
+    int						i;
+    double					vv[DEVICE_DATA_VECTOR_MAX];
+    double					actualValue, deviceValue;
+    double					drift;
+    double					driftFixTime;
+    
+    a = (struct deviceStreamDataDriftUpdateStr *) aaa;
+    ddd = a->ddd;
+    i = a->i;
+    dd = ddd->dd;
+
+    lprintf(60, "%s: driftAutoUpdate: %s:%s:%d\n", PPREFIX(), dd->name, ddd->name, i);
+    
+    // schedule next update
+    timeLineInsertEvent(currentTime.usec+ddd->drift_auto_fix_period[i]*1000000, deviceRegularAdjustementOfDrifts, a);
+
+    // Fix drift also during waiting for sensors, for now.
+    if (uu->flyStage < FS_PRE_FLY) return;
+
+    regressionBufferEstimateForTime(&ddd->outputBuffer, currentTime.dtime, vv);
+    deviceValue = vv[i];
+
+    //double			drift_auto_fix_period[DEVICE_DATA_VECTOR_MAX];
+    //double   			drift_offset_per_second[DEVICE_DATA_VECTOR_MAX];
+    //double			driftOffset[DEVICE_DATA_VECTOR_MAX];
+    //double			driftOffsetLastIncrementTime;
+
+    switch (ddd->type) {
+    case DT_ORIENTATION_RPY:
+    case DT_ORIENTATION_RPY_SHM:
+	// for now we are only fixing drifting in yaw
+	if (i != 2) {
+	    lprintf(0, "%s: driftAutoUpdate %s: %s:%s. Only yaw drift is implemented at the moment.\n",
+		    PPREFIX(), deviceDataTypeNames[ddd->type], dd->name, ddd->name
+		);
+	    return;
+	}
+	actualValue = uu->droneLastRpy[2];
+	drift = actualValue - deviceValue;
+	// we are supposed to fix the drift in drift_auto_fix_period * 2;
+	driftFixTime = ddd->drift_auto_fix_period[i] * 2;
+	ddd->drift_offset_per_second[i] = drift / driftFixTime;
+	lprintf(20, "%s: driftAutoUpdate %s: %s:%s. Yaw drift set to %g.\n",
+		PPREFIX(), deviceDataTypeNames[ddd->type], dd->name, ddd->name, ddd->drift_offset_per_second[i]
+	    );
+	ddd->driftOffsetLastIncrementTime = currentTime.dtime;
+	break;
+    default:
+	lprintf(0, "%s: driftAutoUpdate for type %s: %s:%s not yet implemented\n", PPREFIX(), deviceDataTypeNames[ddd->type], dd->name, ddd->name);
+	break;
+    }    
+    
+}
+
+static void deviceInitiateRegularAdjustementOfDrifts(struct deviceData *dd) {
+    int 					j, i;
+    struct deviceStreamData 			*ddd;
+    struct deviceStreamDataDriftUpdateStr 	*a;
+
+    for(j=0; j<dd->ddtMax; j++) {
+	ddd = dd->ddt[j];
+	for(i=0; i<deviceDataStreamVectorLength[ddd->type]; i++) {
+	    if (ddd->drift_auto_fix_period[i] != 0) {
+		ALLOC(a, struct deviceStreamDataDriftUpdateStr);
+		a->ddd = ddd;
+		a->i = i;
+		timeLineInsertEvent(UTIME_AFTER_MSEC(100), deviceRegularAdjustementOfDrifts, a);
+	    }
+	}
+    }
+}
+
 
 // This is the main function translating inputBuffer to outputBuffer, i.e. translating raw data read from the device
 // to the drone position and/or orientation to be fused by pilot.
 void deviceTranslateInputToOutput(struct deviceStreamData *ddd) {
     struct deviceData			*dd;
-    double				previousSampleTime, sampletime;
+    double				previousSampleTime, sampletime, td;
     double				*inputVector;
     double				outputVector[DEVICE_DATA_VECTOR_MAX];
+    double				drift[DEVICE_DATA_VECTOR_MAX];
     int					i, imax, count, li, ii;
     
     dd = ddd->dd;
@@ -551,7 +642,7 @@ void deviceTranslateInputToOutput(struct deviceStreamData *ddd) {
 	    vec3_sub(outputVector, inputVector, dd->mount_rpy);
 	    if (ddd->launchPoseSetFlag) {
 		// Yaw during launch shall be zero, so deduce launch yaw reported by the sensor
-		outputVector[2] -= ddd->launchData[2];
+		//& outputVector[2] -= ddd->launchData[2];
 	    }
 	    break;
 	    /*
@@ -606,6 +697,8 @@ void deviceTranslateInputToOutput(struct deviceStreamData *ddd) {
 	    break;
 	}
 	if (ddd->outputBuffer.vectorsize > 0) {
+	    // For drifting devices add the drift
+	    deviceMaybeAddDriftToOutputVector(dd, ddd, outputVector);
 	    regressionBufferAddElem(&ddd->outputBuffer, sampletime, outputVector);
 	    ddd->confidence = ddd->input->confidence;
 	    lprintf(100 - ddd->debug_level, "%s: %s: %s: Translating %16.6f: %s --> %s\n", PPREFIX(), dd->name, ddd->name, sampletime, arrayWithDimToStr_st(inputVector, ddd->input->buffer.vectorsize), arrayWithDimToStr_st(outputVector, ddd->outputBuffer.vectorsize));
@@ -769,6 +862,8 @@ void deviceInitiate(int i) {
     callBackAddToHook(&bb->callBackOnError, (callBackHookFunArgType) baioLineInputDevCallBackOnError);
     callBackAddToHook(&bb->callBackOnDelete, (callBackHookFunArgType) baioLineInputDevCallBackOnDelete);
     bb->userParam[0].i = i;
+
+    deviceInitiateRegularAdjustementOfDrifts(dd);
 }
 
 void deviceFinalize(int i) {
