@@ -235,7 +235,7 @@ void mission() {
 	// Joystick conrolled.
 	// Flight controller only. (TODO: To be finished).
 	raspilotPreLaunchSequence(1);
-	uu->currentWaypoint.position[2] = 0.20;
+	uu->currentWaypoint.position[2] = 0.3;
 	uu->flyStage = FS_FLY;
 	// raspilotBusyWait(15);
 	lprintf(0, "%s: Info: launched.\n", PPREFIX());
@@ -243,7 +243,7 @@ void mission() {
     } else {
 	// autopilot mission mode
 	raspilotPreLaunchSequence(0);
-	missionLoiter(120.0, 0.15);
+	missionLoiter(120.0, 0.4);
 	// missionJoystick(10.0);
 	// missionTestYawLoiter(0.10);
 	// missionSquare(0.10, 0.10, 1.0, 1);

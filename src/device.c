@@ -164,14 +164,32 @@ int parseNmeaPosition(double *rr, char *tag, char *s, struct deviceData *dd, str
     return(0);
 }
 
+struct deviceData *deviceFindByName(char *name) {
+    int i;
+    for(i=0; i<uu->deviceMax; i++) {
+	if (strcmp(uu->device[i]->name, name) == 0) return(uu->device[i]);
+    }
+    return(NULL);
+}
+
+struct deviceStreamData *deviceFindStreamByName(struct deviceData *dd, char *name) {
+    int i;
+    for(i=0; i<dd->ddtMax; i++) {
+	if (strcmp(dd->ddt[i]->name, name) == 0) return(dd->ddt[i]);
+    }
+    return(NULL);
+}
+
 // Joystick lines look like: Event: type 2, time 8695440, number 0, value 6808
 int parseJstestJoystickFlighControl(double *rr, char *tag, char *s, struct deviceData *dd, struct deviceStreamData *ddd) {
-    char 		*stype;
-    char 		*snumber;
-    char 		*svalue;
-    int 		type, number;
-    double		value;
-
+    char 			*stype;
+    char 			*snumber;
+    char 			*svalue;
+    int 			type, number;
+    double			value;
+    struct deviceData 		*gyro;
+    struct deviceStreamData 	*ggg;
+    
     // ignore any input until pre_fly stage. There may be some junk in buffer at the beginning.
     if (uu->flyStage < FS_PRE_FLY) return(0);
     
@@ -199,27 +217,40 @@ int parseJstestJoystickFlighControl(double *rr, char *tag, char *s, struct devic
     switch (number) {
     case 0:
 	// In my joystick, ax 0 is roll
-	uu->targetRoll = value / 2.0;
+	uu->targetRoll = value / 4.0;
 	lprintf(10, "%s: Joystick roll: %g\n", PPREFIX(), value);
 	break;
     case 1:
 	// In my joystick, ax 1 is pitch
-	uu->targetPitch = value / 2.0;
+	uu->targetPitch = value / 4.0;
 	lprintf(10, "%s: Joystick pitch: %g\n", PPREFIX(), value);
 	break;
     case 2:
+	if (uu->flyStage <= FS_PRE_FLY) return(0);
 	// In my joystick, ax 2 is inversed yaw
-	value = - value / 50.0;
-	ddd->drift_offset_per_second[0] = 0;
-	ddd->drift_offset_per_second[1] = 0;
-	ddd->drift_offset_per_second[2] = value;
-	ddd->driftOffsetLastIncrementTime = currentTime.dtime;
+	value = value / 1.0;
+	// TODO: Do this more universal!
+	gyro = deviceFindByName("gyro-mpu6050-magwick-shm");
+	if (gyro == NULL) {
+	    lprintf(0, "%s: gyro-mpu6050-magwick-shm not found!\n", PPREFIX());
+	    return(0);
+	}
+	ggg = deviceFindStreamByName(gyro, "rpy");
+	if (ggg == NULL) {
+	    lprintf(0, "%s: rpy not found in gyro-mpu6050-magwick-shm!\n", PPREFIX());
+	    return(0);
+	}
+	memset(ggg->drift_auto_fix_period, 0, sizeof(ggg->drift_auto_fix_period));
+	ggg->drift_offset_per_second[0] = 0;
+	ggg->drift_offset_per_second[1] = 0;
+	ggg->drift_offset_per_second[2] = value;
+	ggg->driftOffsetLastIncrementTime = currentTime.dtime;
 	lprintf(10, "%s: Joystick yaw increment: %g\n", PPREFIX(), value);
 	break;
     case 3:
 	// In my joystick, ax 3 is inversed altitude
 	value = - value;
-	// uu->currentWaypoint.position[2] = 0.5 + value;
+	uu->currentWaypoint.position[2] = 0.9 + value;	// this makes altitude range -0.10 .. 1.90 m.
 	lprintf(10, "%s: Joystick altitude: %g\n", PPREFIX(), value);
 	break;
     default:
@@ -503,7 +534,7 @@ static void deviceMaybeAddDriftToOutputVector(struct deviceData *dd, struct devi
     }
 }
 
-static void deviceRegularAdjustementOfDrifts(void *aaa) {
+static void deviceRegularAutoAdjustementOfDrifts(void *aaa) {
     struct deviceStreamDataDriftUpdateStr 	*a;
     struct deviceData 				*dd;
     struct deviceStreamData 			*ddd;
@@ -519,9 +550,18 @@ static void deviceRegularAdjustementOfDrifts(void *aaa) {
     dd = ddd->dd;
 
     lprintf(60, "%s: driftAutoUpdate: %s:%s:%d\n", PPREFIX(), dd->name, ddd->name, i);
+
+    // if somebody set drift_auto_fix_period to zero do nothing more.
+    driftFixTime = ddd->drift_auto_fix_period[i] * 2;
+    if (driftFixTime == 0) {
+	lprintf(0, "%s: Info: Removing stream from drift auto updates.\n",
+		PPREFIX(), deviceDataTypeNames[ddd->type], dd->name, ddd->name
+	    );
+	return;
+    }
     
     // schedule next update
-    timeLineInsertEvent(currentTime.usec+ddd->drift_auto_fix_period[i]*1000000, deviceRegularAdjustementOfDrifts, a);
+    timeLineInsertEvent(currentTime.usec+ddd->drift_auto_fix_period[i]*1000000, deviceRegularAutoAdjustementOfDrifts, a);
 
     // Fix drift also during waiting for sensors, for now.
     if (uu->flyStage < FS_PRE_FLY) return;
@@ -539,7 +579,7 @@ static void deviceRegularAdjustementOfDrifts(void *aaa) {
     case DT_ORIENTATION_RPY_SHM:
 	// for now we are only fixing drifting in yaw
 	if (i != 2) {
-	    lprintf(0, "%s: driftAutoUpdate %s: %s:%s. Only yaw drift is implemented at the moment.\n",
+	    lprintf(0, "%s: Error: driftAutoUpdate %s: %s:%s. Only yaw drift is implemented at the moment.\n",
 		    PPREFIX(), deviceDataTypeNames[ddd->type], dd->name, ddd->name
 		);
 	    return;
@@ -547,21 +587,20 @@ static void deviceRegularAdjustementOfDrifts(void *aaa) {
 	actualValue = uu->droneLastRpy[2];
 	drift = actualValue - deviceValue;
 	// we are supposed to fix the drift in drift_auto_fix_period * 2;
-	driftFixTime = ddd->drift_auto_fix_period[i] * 2;
 	ddd->drift_offset_per_second[i] = drift / driftFixTime;
-	lprintf(20, "%s: driftAutoUpdate %s: %s:%s. Yaw drift set to %g.\n",
+	lprintf(20, "%s: Info: driftAutoUpdate %s: %s:%s. Yaw drift set to %g.\n",
 		PPREFIX(), deviceDataTypeNames[ddd->type], dd->name, ddd->name, ddd->drift_offset_per_second[i]
 	    );
 	ddd->driftOffsetLastIncrementTime = currentTime.dtime;
 	break;
     default:
-	lprintf(0, "%s: driftAutoUpdate for type %s: %s:%s not yet implemented\n", PPREFIX(), deviceDataTypeNames[ddd->type], dd->name, ddd->name);
+	lprintf(0, "%s: Error: driftAutoUpdate for type %s: %s:%s not yet implemented\n", PPREFIX(), deviceDataTypeNames[ddd->type], dd->name, ddd->name);
 	break;
     }    
     
 }
 
-static void deviceInitiateRegularAdjustementOfDrifts(struct deviceData *dd) {
+static void deviceInitiateRegularAutoAdjustementOfDrifts(struct deviceData *dd) {
     int 					j, i;
     struct deviceStreamData 			*ddd;
     struct deviceStreamDataDriftUpdateStr 	*a;
@@ -573,7 +612,7 @@ static void deviceInitiateRegularAdjustementOfDrifts(struct deviceData *dd) {
 		ALLOC(a, struct deviceStreamDataDriftUpdateStr);
 		a->ddd = ddd;
 		a->i = i;
-		timeLineInsertEvent(UTIME_AFTER_MSEC(100), deviceRegularAdjustementOfDrifts, a);
+		timeLineInsertEvent(UTIME_AFTER_MSEC(100), deviceRegularAutoAdjustementOfDrifts, a);
 	    }
 	}
     }
@@ -863,7 +902,7 @@ void deviceInitiate(int i) {
     callBackAddToHook(&bb->callBackOnDelete, (callBackHookFunArgType) baioLineInputDevCallBackOnDelete);
     bb->userParam[0].i = i;
 
-    deviceInitiateRegularAdjustementOfDrifts(dd);
+    deviceInitiateRegularAutoAdjustementOfDrifts(dd);
 }
 
 void deviceFinalize(int i) {

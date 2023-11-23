@@ -64,7 +64,7 @@
     // the drone first gets "go to target" orientation, then it moves to the half way, then it gets "braking"
     // orientation and makes another half way while braking to zero velocity at target position.
     // larger values make the drone more stable and less "nervous".
-    pilot_reach_goal_position_time:	1.2,
+    pilot_reach_goal_position_time:	1.0,
 
     // While moving between waypoints the drone is constrained by the following values.
     // max speed contains also vertical speed, that's why there is higher number
@@ -88,7 +88,7 @@
     // You configure the same values for both PidX and PidY controllers.
 
     // pidXY:        { p:1.00,  i:00,  d:0.000 },
-    pidXY:        { p:0.9,  i:0.1,  d:0.01 },
+    pidXY:        { p:1.0,  i:1.0,  d:0.01 },
 
     // The second sort of PID controllers translates the desired drone roll pitch yaw rotation to motor thrust
     // (i.e. to a value between 0 and 1). 
@@ -98,7 +98,7 @@
     // against pidX and pidY controllers and all those controllers may diverge.
     // This is why we suppose to set the I factor to zero on those controllers.
 
-#define RPB 0.08
+#define RPB 0.07
 
     pidRoll:     { p:RPB,  i:0.0,  d:0.00002},
     pidPitch:    { p:RPB,  i:0.0,  d:0.00002},
@@ -113,7 +113,7 @@
 
     //pidAltitude: { p:0.,  i:0.0,  d:0, ci:0 },
     //pidAltitude: { p:0.1,  i:0.3,  d:0.00001, ci:0.20 },
-    pidAltitude: { p:0.1,  i:0.3,  d:0.00001, ci:0.25 },
+    pidAltitude: { p:0.1,  i:0.5,  d:0.00001, ci:0.25 },
 
     //////////////////////////////////////////////
     // sensors and other devices installed on the drone and usually connected through pipes
@@ -149,9 +149,9 @@
 	    warming_time: 25.0,
 	    // positive roll makes left side up
 	    // positive pitch makes nose up
-	    mount_rpy: [0.092, 0.004, 0],
+	    mount_rpy: [0.091, -0.027, 0],
             stream: [
-		{ type: "DT_ORIENTATION_RPY_SHM", tag: "rpy",  weight: [1.0, 1.0, 1.0], mandatory:1, drift_auto_fix_period:[0,0,1], history_size:4, latency: 0.002, debug_level: 88},
+		{ type: "DT_ORIENTATION_RPY_SHM", tag: "rpy",  weight: [1.0, 1.0, 1.0], mandatory:1, drift_auto_fix_period:[0,0,0.5], history_size:4, latency: 0.002, debug_level: 88},
 		{ type: "DT_DEBUG",           tag: "debug", debug_level: 22},
             ],
 	},
@@ -180,13 +180,13 @@
 	    name: "apriltag",
 	    connection : {
 		type: "DCT_COMMAND_BASH",
-		command: "taskset -c 3 ssh vittek@192.168.1.124 /home/vittek/dev/raspiapril/src/raspiapril",
+		command: "taskset -c 3 ssh vittek@192.168.1.124 /home/vittek/dev/raspiapril/src/raspiapril -s 0.053",
 	    },
 	    // supposing apriltag reports the position to the middle of the tag
 	    mount_position: [0, 0, 0.0],
 	    warming_time: 1.0,
             stream: [
-		{ type: "DT_POSITION_VECTOR",      tag: "pose:",  mandatory:1, weight: [1.0, 1.0, 1e-10], history_size:2, latency: 0.1, debug_level: 88},
+		{ type: "DT_POSITION_VECTOR",      tag: "pose:",  mandatory:1, weight: [1.0, 1.0, 1e-10], history_size:2, latency: 0.2, debug_level: 88},
 		// { type: "DT_POSITION_VECTOR",      tag: "pose:",  mandatory:1, weight: [0.0001, 0.0001, 0.0001], history_size:20, latency: 0.10, debug_level: 88},
 		{ type: "DT_ORIENTATION_RPY", 	   tag: "rpy:", weight: [1e-20, 1e-20, 1], mandatory:1, history_size:10, latency: 0, debug_level: 88},
 		{ type: "DT_VOID",                 tag: "lat:", debug_level: 1},

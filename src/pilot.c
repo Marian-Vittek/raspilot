@@ -864,7 +864,7 @@ static void pilotComputeTargetRollPitchYawForWaypoint() {
     vec2		targetPositionVector, targetPositionDroneFrame;
     double 		roll, pitch, yaw;
     double		tdTick, tdRpyFix;	// td stands for Time Delta
-    vec3		posEstimatedAtHalfRpyFixTime;
+    vec3		posEstimatedInRpyFixTime;
     vec2		movingVelocity;
     vec2		movingVelocityDroneFrame;
     vec2		targetGroundVelocity, targetVelocityDroneFrame, diffVelocityDroneFrame, targetVelocityThrustDroneFrame;
@@ -898,9 +898,9 @@ static void pilotComputeTargetRollPitchYawForWaypoint() {
 
     // We consider as starting position for our computation the estimated position/orientation at time in tdRpyFix/2.0 seconds,
     // i.e. when we suppose that the new orientation of the drone will start taking effect.
-    regressionBufferEstimateForTime(&uu->longBufferPosition, currentTime.dtime + tdRpyFix/2.0, posEstimatedAtHalfRpyFixTime);
+    regressionBufferEstimateForTime(&uu->longBufferPosition, currentTime.dtime + tdRpyFix, posEstimatedInRpyFixTime);
 
-    lprintf(30, "%s: Regression from buffer: Position     : %s\n", PPREFIX(), vec2ToString_st(posEstimatedAtHalfRpyFixTime));
+    lprintf(30, "%s: Regression from buffer: Position     : %s\n", PPREFIX(), vec2ToString_st(posEstimatedInRpyFixTime));
     lprintf(30, "%s: Regression from buffer: Velocity     : %s\n", PPREFIX(), vec2ToString_st(movingVelocity));
 
     // Get current roll, pitch and yaw from current position pose.
@@ -913,7 +913,7 @@ static void pilotComputeTargetRollPitchYawForWaypoint() {
     yaw   = cRpy[2];
     
     // some very basic self bug check
-    if (vec3_has_nan(cRpy) || vec3_has_nan(posEstimatedAtHalfRpyFixTime) || vec2_has_nan(movingVelocity)) {
+    if (vec3_has_nan(cRpy) || vec3_has_nan(posEstimatedInRpyFixTime) || vec2_has_nan(movingVelocity)) {
 	// bug, bug, bug, panic.
 	lprintf(0, "%s: Some key value has wrong value. Panic!\n", PPREFIX());
 	mainStandardShutdown(NULL);
@@ -938,7 +938,7 @@ static void pilotComputeTargetRollPitchYawForWaypoint() {
     // much to get the orientation. Those times shall be infered from current orientation, rotation speed
     // and drone max rotation speed. For both acceleration and braking.
     
-    vec2_sub(targetPositionVector, uu->currentWaypoint.position, posEstimatedAtHalfRpyFixTime);
+    vec2_sub(targetPositionVector, uu->currentWaypoint.position, posEstimatedInRpyFixTime);
     for(i=0; i<2; i++) {
 	// Restrict targetPositionVector so that we do not need to go over max size in any direction
 	// I think this is here to restrict vertical speed in particular, so that drone does not try to climb/descent
@@ -959,7 +959,7 @@ static void pilotComputeTargetRollPitchYawForWaypoint() {
     // Attention: What we currently consider as drone frame is not rotated by drone pitch and roll!!!
     // We compute the target position relative to the drone's position, gravity and drone's yaw.
 
-    vec2_sub(targetPositionDroneFrame, uu->currentWaypoint.position, posEstimatedAtHalfRpyFixTime);
+    vec2_sub(targetPositionDroneFrame, uu->currentWaypoint.position, posEstimatedInRpyFixTime);
     vec2Rotate(targetPositionDroneFrame, targetPositionDroneFrame, -yaw);
     vec2_assign(movingVelocityDroneFrame, movingVelocity);
     vec2Rotate(movingVelocityDroneFrame, movingVelocityDroneFrame, -yaw);
@@ -999,6 +999,8 @@ static void pilotComputeTargetRollPitchYawForWaypoint() {
     uu->targetRoll = normalizeToRange(uu->targetRoll, -M_PI, M_PI);
     uu->targetPitch = truncateToRange(uu->targetPitch, -uu->config.drone_max_inclination, uu->config.drone_max_inclination, "target pitch");
     uu->targetRoll = truncateToRange(uu->targetRoll, -uu->config.drone_max_inclination, uu->config.drone_max_inclination, "target roll");
+
+    lprintf(30, "%s: Pilot Target RPY: [%g, %g, %g]\n", PPREFIX(), uu->targetRoll, uu->targetPitch, uu->targetYaw);
 }
 
 

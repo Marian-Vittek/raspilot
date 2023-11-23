@@ -988,6 +988,8 @@ void mainLoadMissionFile() ;
 
 // device.c
 int deviceIsSharedMemoryDataStream(struct deviceStreamData *ddl) ;
+struct deviceData *deviceFindByName(char *name) ;
+struct deviceStreamData *deviceFindStreamByName(struct deviceData *dd, char *name) ;
 void deviceParseInputStreamLineToInputBuffer(struct deviceData *dd, char *s, int n) ;
 void deviceTranslateInputToOutput(struct deviceStreamData *ddd) ;
 void deviceInitiate(int i) ;
