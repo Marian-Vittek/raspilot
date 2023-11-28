@@ -231,11 +231,16 @@ void mission() {
     } else if (0) {
 	// rotate motors one after another
 	missionMotorTest(-1);
-    } else if (0) {
+    } else if (1) {
 	// Joystick conrolled.
 	// Flight controller only. (TODO: To be finished).
+	uu->manual.altitude = -0.1;
 	raspilotPreLaunchSequence(1);
-	uu->currentWaypoint.position[2] = 0.3;
+	if (uu->manual.altitude <= 0) {
+	    lprintf(0, "%s: Error: Launch altitude not set during prefly. Exiting!\n", PPREFIX());
+	    raspilotShutDownAndExit();
+	}
+	timeLineInsertEvent(UTIME_AFTER_MSEC(10), pilotRegularManualControl, NULL);
 	uu->flyStage = FS_FLY;
 	// raspilotBusyWait(15);
 	lprintf(0, "%s: Info: launched.\n", PPREFIX());

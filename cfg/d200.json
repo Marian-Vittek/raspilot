@@ -18,9 +18,9 @@
 
 */
 
-// This file is preprocessed by C preprocessor before being read by raspilot, this
-// allows to use preprocessor directives like #define and #if.
-// File format is an "extended" JSON which is JSON format where field names can be used without quotes,
+// This file is preprocessed by C preprocessor before being read by raspilot, you
+// can use preprocessor directives like #define and #if.
+// File format is an "extended" JSON which is JSON where field names can be used without quotes,
 // comma can occur after the last field and constant expressions can be used instead of constants.
 
 #define PI 3.1415926
@@ -41,8 +41,8 @@
     // Similarly, there is a "short buffer" storing roll and pitch used to stabilize drone. This is usualy shorter then "large buffer"
     // because stabilization requires less latency.
     // Buffer_seconds must be larger than 1 tick which is 1/stabilization_loop_Hz.
-    short_buffer_seconds:	   4/RATE,
     long_buffer_seconds:	   0.2,
+    short_buffer_seconds:	   4/RATE,
 
     // waypoint shall not be lower than this altitude
     drone_min_altitude:            0.01,
@@ -66,25 +66,28 @@
     // larger values make the drone more stable and less "nervous".
     pilot_reach_goal_position_time:	1.0,
 
-    // While moving between waypoints the drone is constrained by the following values.
+    // While moving between waypoints the autopilot is constrained by the following values.
     // max speed contains also vertical speed, that's why there is higher number
     drone_max_speed: 		   5.0,
     drone_max_rotation_speed:	   PI/2,
     drone_max_inclination:	   PI/4,
+
     // drone_panic_inclination is a security value. It is the inclination at which drone turns off to avoid damages.
     drone_panic_inclination:	   PI/2,
 
     // minimal spin, i.e. the spin during "warning rotations" before launch
     motor_thrust_min_spin:         0.01,
     
+    // Maximal value sent to motor for holding altitude. With the right value the drone gently lands when the battery is empty.
+    motor_altitude_thrust_max:     0.15,
+    
     //////////////////////////////////////////////
     // PID controllers.
     
-    // There are three sorts of PID controllers in raspilot. The first sort consists of two pid controllers named PidX and PidY
-    // controlling how much is autopilot pushing on movement in X,Y coordinates. Values [1,0,0] means that the autopilot
-    // does not push at all. Target velocity will be based purely on the distance to the target point.
-    // It is perfectly OK to use values [1,0,0] for non-windy weather, perfectly equilibrated drone and flying in
-    // the interior or during the calibration of the drone.
+    // There are three sorts of PID controllers in raspilot. The first sort are PidX and PidY controllers
+    // managing how much the autopilot is pushing on the movement in X,Y coordinates. Values [1,0,0] means that the autopilot
+    // does not push at all. It is perfectly OK to use those values ([1,0,0]) for non-windy weather, perfectly
+    // equilibrated drone and flying in the interior or during the calibration of the drone.
     // You configure the same values for both PidX and PidY controllers.
 
     // pidXY:        { p:1.00,  i:00,  d:0.000 },
@@ -92,31 +95,30 @@
 
     // The second sort of PID controllers translates the desired drone roll pitch yaw rotation to motor thrust
     // (i.e. to a value between 0 and 1). 
-    // The "Integral" part of those controlers accumulates value representing unbalancing of the drone or its motors.
-    // It is supposed that during a flight, the Integral part will accumulate the same value for the same drone
-    // no matter the flight conditions. However, under some circumstances the Integral part of roll and pitch may "push"
-    // against pidX and pidY controllers and all those controllers may diverge.
-    // This is why we suppose to set the I factor to zero on those controllers.
 
-#define RPB 0.07
+#define RPB 0.23
 
-    pidRoll:     { p:RPB,  i:0.0,  d:0.00002},
-    pidPitch:    { p:RPB,  i:0.0,  d:0.00002},
-    pidYaw:      { p:0.2,  i:0.1,  d:0.00001},
+    pidRoll:     { p:RPB,  i:RPB/10,  d:0.00002},
+    pidPitch:    { p:RPB,  i:RPB/10,  d:0.00002},
+    pidYaw:      { p:0.6,  i:0.3,  d:0.00003},
 
     // The last sort of PID controller is pidAltitude. It translates desired vertical speed (usually 0)
     // to motor thrust. It shall have P factor large enough to launch and stabilize the drone altitude.
     // In order not to start I part from zero we have added a CI constant to start I value at some previously
-    // determined constant value. Contrary to previous controllers you shall keep the I factor non zero in this
-    // controller even if CI is set. The I factor in this case accumulates the difference between fully
-    // charged and "nearly empty" batteries.
+    // determined constant value. Check your value with different levels of battery. The I factor in this
+    // case accumulates the difference between fully charged and "nearly empty" batteries. BTW it is used by
+    // raspilot to determine the status of the battery.
 
     //pidAltitude: { p:0.,  i:0.0,  d:0, ci:0 },
     //pidAltitude: { p:0.1,  i:0.3,  d:0.00001, ci:0.20 },
-    pidAltitude: { p:0.1,  i:0.5,  d:0.00001, ci:0.25 },
+    pidAltitude: { p:0.1,  i:0.2,  d:0.00001, ci:0.10 },
 
-    //////////////////////////////////////////////
-    // sensors and other devices installed on the drone and usually connected through pipes
+
+
+    /////////////////////////////////////////////////////////////////////////////////////////////////////
+    /////////////////////////////////////////////////////////////////////////////////////////////////////
+    // Following part of the configuration defines sensors and other devices installed on the drone and
+    // connected either by a shared memory or Linux pipes.
 
     device: [
 
@@ -126,16 +128,16 @@
 	    	// direct dshot connection of ESC to raspberry pi pinouts. Numeric arguments of motor-dshot are gpio pins where ESC is connected.
 		type: "DCT_COMMAND_BASH",
 		command: "killall motor-dshot; sleep 0.5; killall -q -9 motor-dshot; sleep 0.5; ulimit -c unlimited; exec chrt -f 99 taskset -c 1 ../tool/motor/motor-dshot/motor-dshot - - 6 26 13 5 "
+		// command: "killall motor-null; sleep 0.5; killall -q -9 motor-null; sleep 0.5; ulimit -c unlimited; exec chrt -f 99 taskset -c 1 ../tool/motor/motor-null/motor-null - - 6 26 13 5 "
 	    },
 	    shutdownExit: true,
 	    stream: [
 	    	// sending
 		{ type:"DT_PING",       tag: "ping",  debug_level: 10},
 		{ type:"DT_THRUST",     tag: "mt4",   debug_level: 10},
-		// { type:"DT_THRUST_SHM", debug_level: 110},
 		// reading
 		{ type:"DT_PONG",	tag: "pong",  debug_level: 10},
-		{ type:"DT_DEBUG", 	tag: "debug", debug_level: 100},
+		{ type:"DT_DEBUG", 	tag: "debug", debug_level: 80},
 	    ],
 	},
 
@@ -147,9 +149,9 @@
 		command: "killall -q -9 mpu6050-shm; sleep 0.5; exec chrt -r 10 taskset -c 3 ../tool/imu/mpu6050/magwick/mpu6050-shm -s -r 1000 /dev/i2c-1",
 	    },
 	    warming_time: 25.0,
-	    // positive roll makes left side up
-	    // positive pitch makes nose up
-	    mount_rpy: [0.091, -0.027, 0],
+	    // positive roll in mount_rpy makes left side up
+	    // positive pitch in mount_rpy makes nose up
+	    mount_rpy: [0.098, 0.05, 0],
             stream: [
 		{ type: "DT_ORIENTATION_RPY_SHM", tag: "rpy",  weight: [1.0, 1.0, 1.0], mandatory:1, drift_auto_fix_period:[0,0,0.5], history_size:4, latency: 0.002, debug_level: 88},
 		{ type: "DT_DEBUG",           tag: "debug", debug_level: 22},
@@ -165,7 +167,7 @@
 		command: "killall matek-3901-l0x; sleep 0.5; killall -q -9 matek-3901-l0x; sleep 0.5; exec chrt -r 10 taskset -c 3 ../tool/flow/matek-3901-L0X/matek-3901-l0x /dev/serial0",
 	    },
 	    data_ignore_unknown_tags: true,
-	    mount_position: [0.04, -0.01, -0.05],
+	    mount_position: [0.04, -0.01, -0.01],
             stream: [
 		{ type: "DT_BOTTOM_RANGE",   tag: "range", weight: 1.0, mandatory:1, min_range:0.05, max_range:1.8, history_size:3, debug_level: 88},
 		// Strangely, for history size 2 FLOW_XY diverges completely. For other values it doesn't.
@@ -175,7 +177,7 @@
 	},
 #endif
 
-#if 1
+#if 0
 	{
 	    name: "apriltag",
 	    connection : {
@@ -183,7 +185,7 @@
 		command: "taskset -c 3 ssh vittek@192.168.1.124 /home/vittek/dev/raspiapril/src/raspiapril -s 0.053",
 	    },
 	    // supposing apriltag reports the position to the middle of the tag
-	    mount_position: [0, 0, 0.0],
+	    mount_position: [0, 0, 0],
 	    warming_time: 1.0,
             stream: [
 		{ type: "DT_POSITION_VECTOR",      tag: "pose:",  mandatory:1, weight: [1.0, 1.0, 1e-10], history_size:2, latency: 0.2, debug_level: 88},
@@ -195,7 +197,7 @@
 	},
 #endif
 
-#if 0
+#if 1
 	{
 	    name: "joystick",
 	    connection : {
@@ -203,6 +205,7 @@
 		command: "taskset -c 3 ssh vittek@192.168.1.100 jstest --event /dev/input/js0"
 	    },
             stream: [
+		// TODO: Implement something so that I can set "mandatory:1" for joystick
 		{ type: "DT_JSTEST", tag: "Event:", weight: 1.0, history_size:3, debug_level: 1},
             ],
 	},

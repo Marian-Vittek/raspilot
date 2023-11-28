@@ -66,6 +66,9 @@
 #define PID_USES_ERROR_BASED_DERIVATIVE 	0
 #define PID_PREVENT_INTEGRAL_WINDUP		1
 
+// whether to increase thrust depending on roll, pitch to hold the same altitude
+#define ALTITUDE_THRUST_CORRECTION_FOR_ROLL_PITCH	1
+
 //////////////////////////////////////////////////////////////
 
 #if 0
@@ -590,13 +593,22 @@ struct pidControllerConstants {
 };
 
 struct pidControllerData {
-    double 	integral;
 
+    // "naive" implementation
+    double 	integral;
     double 	previous_error;
     double 	previous_output;
     double 	previous_setpoint;
     double 	previous_measured_value;
 
+    // implementation with IIR filter
+    double 	A0, A1;
+    double 	error[3];
+    double 	A0d, A1d, A2d;
+    double	alpha;
+    double 	d0, d1, fd0, fd1;
+    double 	output;
+    
     // some values for statistics
     int		statNumberOfSamples;
     double	statIntegralSum;
@@ -759,6 +771,7 @@ struct waypoint {
 
 struct config {
     double			motor_thrust_min_spin;
+    double			motor_altitude_thrust_max;
     double			pilot_reach_goal_orientation_time;
     double			pilot_reach_goal_position_time;
     double			drone_max_inclination;
@@ -773,6 +786,13 @@ struct config {
     double			long_buffer_seconds;
 };
 
+struct manualControl {
+    double roll;
+    double pitch;
+    double yawIncrementPerSecond;
+    double altitude;
+};
+    
 struct universe {
     // configuration
     char			*cfgFileName;
@@ -833,6 +853,8 @@ struct universe {
     struct regressionBuffer	shortBufferPosition;
     struct regressionBuffer	shortBufferRpy;
 
+    double			batteryStatusRpyFactor;		// this should accumulate charging status of the battery
+    
     // Those values may be used as the current position, orientation and velocity of the drone
     vec3			droneLastPosition;
     vec3			droneLastRpy;
@@ -845,6 +867,8 @@ struct universe {
     double 			targetRoll, targetPitch, targetYaw;
     double			targetYawRotationSpeed, targetRollRotationSpeed, targetPitchRotationSpeed;
 
+    struct manualControl	manual;
+    
     // hold a few seconds of historical poses for case somebody needs it
     // TODO: split into historyPosition and historyRpy, so that position sensors
     // can find the new orientation there
@@ -947,7 +971,7 @@ int vec1TruncateToSize(double *r, double size, int warningFlag, char *warningId)
 int vec2TruncateToSize(vec2 r, double size, int warningFlag, char *warningId) ;
 int vec3TruncateToSize(vec3 r, double size, int warningFlag, char *warningId) ;
 double vectorLength(double *a, int dim) ;
-void pidControllerReset(struct pidController *pp) ;
+void pidControllerReset(struct pidController *pp, double dt) ;
 char *pidControllerStatistics(struct pidController *pp, int showProposedCiFlag) ;
 double pidControllerStep(struct pidController *pp, double setpoint, double measured_value, double dt) ;
 void quatToRpy(quat qq, double *roll, double *pitch, double *yaw);
@@ -1020,6 +1044,7 @@ void motorsEmmergencyLand() ;
 void motorsEmmergencyShutdown() ;
 void pilotImmediateLanding() ;
 void pilotInteractiveInputRegularCheck(void *d) ;
+void pilotRegularManualControl(void *d) ;
 void pilotRegularSpecialModeTick(void *d) ;
 void pilotRegularStabilizationTick(void *d) ;
 void pilotAutopilotLoopTick(void *d) ;

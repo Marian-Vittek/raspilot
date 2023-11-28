@@ -702,10 +702,16 @@ static int pilotNormalizeMotorThrustByRelaxingYaw() {
     return(res);
 }
 
-static int pilotNormalizeMotorThrustByRelaxingAltitude(double tmin, double tmax) {
+static int pilotNormalizeMotorThrustByRelaxingAltitude() {
     int		i;
-    double 	t, nt, shift;
+    double 	tmin, tmax, t, nt, shift;
     
+    tmin = DBL_MAX; tmax = -DBL_MAX; 
+    for(i=0; i<uu->motor_number; i++) {
+	t = uu->motor[i].thrust;
+	if (t < tmin) tmin = t;
+	if (t > tmax) tmax = t;
+    }
     
     if (tmax - tmin > 1.0) {
 	// lprintf(PILOT_THRUST_NORMALIZATION_DEBUG_LEVEL, "\n%s: Error: Thrust can not be normalized tmax - tmin == %f.\n", PPREFIX(), tmax-tmin);
@@ -733,23 +739,16 @@ static int pilotNormalizeMotorThrustByRelaxingAltitude(double tmin, double tmax)
 
 static int pilotNormalizeMotorThrust() {
     int 	i, r;
-    double 	t, nt, tmin, tmax, tsum;
+    double 	f, t, nt, tmin, tmax, tsum;
 
-    tmin = DBL_MAX; tmax = -DBL_MAX; tsum = 0;
-    for(i=0; i<uu->motor_number; i++) {
-	t = uu->motor[i].thrust;
-	tsum += t;
-	if (t < tmin) tmin = t;
-	if (t > tmax) tmax = t;
-    }
     lprintf(PILOT_THRUST_NORMALIZATION_DEBUG_LEVEL, "%s: Normalizing motor thrusts\n", PPREFIX());
-
+    
     // First try to normalize by relaxing yaw stability
     r = pilotNormalizeMotorThrustByRelaxingYaw();
     if (r == 0) return(0);
     
     // Then try to normalize by relaxing altitude stability
-    r = pilotNormalizeMotorThrustByRelaxingAltitude(tmin, tmax);
+    r = pilotNormalizeMotorThrustByRelaxingAltitude();
     if (r == 0) return(0);
     
     // still not normalized simply truncate thrusts
@@ -1004,10 +1003,30 @@ static void pilotComputeTargetRollPitchYawForWaypoint() {
 }
 
 
+static void pilotAltitudeThrustToBatteryStatus(double altitudeThrust) {
+    static time_t 	currentSumSecond;
+    static double 	lastSecondSum = 0;
+    static int 		lastSecondNumOfSample = 0;
+
+    if (currentSumSecond == currentTime.sec) {
+	lastSecondSum += altitudeThrust;
+	lastSecondNumOfSample ++;
+    } else {
+	// for the moment battery status factor is simply the average of altitudeThrusts for the last second
+	// avoid division by zero
+	if (lastSecondNumOfSample != 0) uu->batteryStatusRpyFactor = lastSecondSum / lastSecondNumOfSample;
+	lastSecondSum = 0;
+	lastSecondNumOfSample = 0;
+	currentSumSecond = currentTime.sec;
+    }
+    
+}
+
 // This is the main function computing main thrust to reach altitude goal
 static int pilotComputeTargetAltitudeThrustForWaypoint(double targetAltitude, double *altitudeThrust) {
     double		tdTick;	// td stands for Time Delta
     double 		altitude, altitudeSpeed, targetAltitudeSpeed;
+    double 		thrust, rpFactor;
     
     // if not enough of data do nothing
     if (uu->longBufferPosition.n <= 2) return(-1);
@@ -1030,7 +1049,24 @@ static int pilotComputeTargetAltitudeThrustForWaypoint(double targetAltitude, do
     lprintf(30, "%s: Info: Altitude target: %g current: %g. Altitude speed target: %g current: %g\n", PPREFIX(), targetAltitude, altitude, targetAltitudeSpeed, altitudeSpeed);
     
     // get the Altitude thrust
-    *altitudeThrust = pidControllerStep(&uu->pidAltitude, targetAltitudeSpeed, altitudeSpeed, tdTick);
+    thrust = pidControllerStep(&uu->pidAltitude, targetAltitudeSpeed, altitudeSpeed, tdTick);
+
+    // truncate to configured value.
+    thrust = truncateToRange(thrust, 0, uu->config.motor_altitude_thrust_max, "Battery low? Altitude thrust");
+
+    // use the new thrust to estimate battery status factor for roll, pitch, yaw control
+    pilotAltitudeThrustToBatteryStatus(thrust);
+
+#if ALTITUDE_THRUST_CORRECTION_FOR_ROLL_PITCH
+    // Make a correction to altitude thrust due to current roll, pitch
+    rpFactor = fabs(cos(uu->droneLastRpy[0]) * cos(uu->droneLastRpy[0]));
+    // avoid excessing thrust from division by small values and/or zero.
+    if (rpFactor <= 0.25) rpFactor = 0.25;
+    thrust = thrust / rpFactor;
+#endif
+    
+    *altitudeThrust = thrust;
+    
     return(0);
 }
 
@@ -1103,6 +1139,7 @@ static int pilotComputeMotorThrustsForRpyStabilization(vec3 rpyThrusts) {
 
     // Use PID controllers to compute final roll, pitch yaw thrusts to achieve target rotation speeds from current rotation speeds
     // In this case a P controller shall do the job!
+    // TODO: roll,pitch yaw thrust shall be multiplied by altitude integral or something to absorb full/empty battery changes
     rollThrust = pidControllerStep(&uu->pidRoll, uu->targetRollRotationSpeed, rollRotationSpeed, tdTick);
     pitchThrust = pidControllerStep(&uu->pidPitch, uu->targetPitchRotationSpeed, pitchRotationSpeed, tdTick);
     yawThrust = pidControllerStep(&uu->pidYaw, uu->targetYawRotationSpeed, yawRotationSpeed, tdTick);
@@ -1110,6 +1147,12 @@ static int pilotComputeMotorThrustsForRpyStabilization(vec3 rpyThrusts) {
     rpyThrusts[0] = rollThrust;
     rpyThrusts[1] = pitchThrust;
     rpyThrusts[2] = yawThrust;
+
+#if 1 || TEST
+    rpyThrusts[0] = rollThrust  * uu->batteryStatusRpyFactor ;
+    rpyThrusts[1] = pitchThrust * uu->batteryStatusRpyFactor ;
+    rpyThrusts[2] = yawThrust * uu->batteryStatusRpyFactor ;
+#endif    
 
     return(0);
 }
@@ -1207,6 +1250,14 @@ void pilotRegularStabilizationTick(void *d) {
     if (uu->flyStage >= FS_PRE_FLY) {
 	pilotSendThrusts(NULL);
     }
+}
+
+void pilotRegularManualControl(void *d) {
+    pilotScheduleNextTick(uu->autopilot_loop_Hz, pilotRegularManualControl, NULL);
+    uu->targetRoll = uu->manual.roll;
+    uu->targetPitch = uu->manual.pitch;
+    uu->targetYaw += uu->manual.yawIncrementPerSecond / uu->autopilot_loop_Hz;
+    uu->currentWaypoint.position[2] = uu->manual.altitude;
 }
 
 void pilotRegularSpecialModeTick(void *d) {

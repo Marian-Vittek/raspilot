@@ -37,78 +37,29 @@
     motor_pitch_forces:	   [ 1, -1, -1,  1],
     motor_roll_forces:	   [-1, -1,  1,  1],
 
-    // What we call "short history" is the buffer of poses from which we compute supposed position of the drone.
-    // The main reason why we do that is that sensors may be noisy and the buffer is used to "smooth" or "average"
-    // some noise spikes. We use linear regression of buffered values to get current pose.
-    // The size of short history buffer is in seconds. If you have good sensors you can put smaller numbers.
-    // If you sensors are noisy you have to put larger value.
-    // The short history must be larger than 1 tick which is 1/stabilization_loop_Hz. The default (recommended) value
-    // is around 5/stabilization_loop_Hz.
     short_history_seconds:	   0.05,
-
-    // waypoint shall not be lower than this altitude
     drone_min_altitude:            0.01,
-    
-    // waypoint shall not be higher than this altitude. Also if drone happens to be higher than this, minimal thrust is applied
     drone_max_altitude:            1.00, 
     
-    // waypoint is considered as reached when the drone happens to be within that distance and orientation range
     drone_waypoint_reached_range:    0.03,
     drone_waypoint_reached_angle:    0.10,
 
-    // This is the time in which autopilots wants to reach target roll and pitch orientation. 
-    // Smaller values make drone more "nervous" more precise but you may reach drone physical
-    // limits. Check that your drone can stabilize with "nearly empty" battery with your value.
-    // Smaller value may also drain your battery.
     pilot_reach_goal_orientation_time:	0.3,
-    
-    // This is the time in which autopilots wants to reach target position.
-    // This time must be at least double of pilot_reach_goal_orientation_time because in our simple model
-    // the drone first gets "go to target" orientation, then it moves to the half way, then it gets "braking"
-    // orientation and makes another half way while braking to zero velocity at target position.
     pilot_reach_goal_position_time:	0.7,
 
-    // However, while moving between waypoints the drone is constrained by the following values as well
     drone_max_speed: 		   0.5,
     drone_max_rotation_speed:	   PI/4,
     drone_max_inclination:	   PI/4,
 
-    // Two values for drone launch sequence, they are in the range 0..1
-    // 0 meaning no spinning, 1 meaning maximal spinning.
-    // minimal spin, i.e. the spin during "warning rotations" before launch
     motor_thrust_min_spin:         0.005,
     
     //////////////////////////////////////////////
     // PID controllers.
     
-    // There are three sorts of PID controllers in raspilot. The first sort consists of two pid controllers named PidX and PidY.
-    // They are used to translate target ground velocity to relative velocity w.r.t. to the air speed.
-    // They allow to fly in windy conditions. Values [1,0,0] define identical translation.
-    // It is perfectly OK to use values [1,0,0] for non-windy weather, flying in interior or during the calibration of the drone.
-    // You configure the same values for both PidX and PidY controllers.
-
-    pidXY:        { p:1.0,  i:0.0,  d:0.0 },
-
-    // The second sort of PID controllers translates the desired drone rotation speed to motor thrust (i.e. to a value between 0 and 1).
-    // That are PidRoll, PidPitch and PidYaw controllers.
-    // The "Integral" part of those controlers accumulates value representing unbalancing of the drone or its motors.
-    // It is supposed that during a flight, the Integral part will accumulate the same value for the same drone
-    // no matter the flight conditions. However, under some circumstances the I part of those controllers may "push"
-    // against pidX and pidY controllers and all those controllers may diverge.
-    // This is why we recommend to set the I factor to zero and we allow to use a so called "constant integral" value "CI" representing
-    // the average I*Integral specific to your drone. See the manual to learn how to determine CI value.
-    
+    pidXY:       { p:1.0,  i:0.0,  d:0.0 },
     pidRoll:     { p:0.10,  i:0.00,  d:0.0010, ci: 0.0060 },
     pidPitch:    { p:0.10,  i:0.00,  d:0.0010, ci: 0.0033 },
     pidYaw:      { p:0.20,  i:0.00,  d:0.0015, ci:-0.0314 },
-
-    // The last sort of PID controller is pidAltitude. It translates desired vertical speed (usually 0)
-    // to motor thrust. It shall have P factor large enough to launch and stabilize the drone altitude.
-    // Similarly to previous controllers you can use CI constant to start PID rotation at some previously
-    // determined constant value. Contrary to previous controllers you shall keep the I facor non zero in this
-    // controller even if CI is set. The I factor in this case accumulates the difference between fully
-    // charged and "nearly empty" batteries.
-
     pidAltitude: { p:0.40,  i:0.10,  d:0.0100, ci:0.28 },
 
     //////////////////////////////////////////////

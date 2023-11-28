@@ -437,6 +437,7 @@ void configLoadFromJsonNode(struct jsonnode *cc, char *path, char *context) {
     }
     
     LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(cc, context, cfg, motor_thrust_min_spin, 0.01);
+    LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(cc, context, cfg, motor_altitude_thrust_max, 0.9);
     LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(cc, context, cfg, pilot_reach_goal_orientation_time, 0.2);
     LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(cc, context, cfg, pilot_reach_goal_position_time, cfg->pilot_reach_goal_orientation_time*2+0.5);
     if (cfg->pilot_reach_goal_position_time < 2*cfg->pilot_reach_goal_orientation_time) {
@@ -464,16 +465,16 @@ void configLoadFromJsonNode(struct jsonnode *cc, char *path, char *context) {
     uu->pidY = pp;
     configLoadPidController(cc, &uu->pidRoll, "pidRoll", 1.0, 0.05, path, context);
     configLoadPidController(cc, &uu->pidPitch, "pidPitch", 1.0, 0.05, path, context);
-    configLoadPidController(cc, &uu->pidYaw, "pidYaw", 1.0, 0.05, path, context);
-    configLoadPidController(cc, &uu->pidAltitude, "pidAltitude", 1.0, 0.1, path, context);
+    configLoadPidController(cc, &uu->pidYaw, "pidYaw", 5.0, 0.05, path, context);
+    configLoadPidController(cc, &uu->pidAltitude, "pidAltitude", 2.0, 0.1, path, context);
 
     
     is1 = fabs(uu->pidX.constant.i) + fabs(uu->pidY.constant.i);
     is2 = fabs(uu->pidRoll.constant.i) + fabs(uu->pidPitch.constant.i);
-    if (is1 != 0 && is2 != 0) {
-	lprintf(0, "%s: Warning: Both pid{X,Y} and pid{Roll,Pitch} have I factor non-zero!\n", PPREFIX());
-	lprintf(0, "%s: Warning: It is higly recommended to set I to zero for either pidX and pidY or pidRoll and pidPitch!\n", PPREFIX());
-    }
+    //if (is1 != 0 && is2 != 0) {
+	//lprintf(0, "%s: Warning: Both pid{X,Y} and pid{Roll,Pitch} have I factor non-zero!\n", PPREFIX());
+	//lprintf(0, "%s: Warning: It is higly recommended to set I to zero for either pidX and pidY or pidRoll and pidPitch!\n", PPREFIX());
+    //}
     
     for(ll=configFindFieldList(cc, "device", JSON_NODE_TYPE_ARRAY, context); ll!=NULL; ll=ll->next) {
 	c = ll->val;

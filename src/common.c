@@ -1145,8 +1145,35 @@ double vectorLength(double *a, int dim) {
 
 //////////////////////////////////////////////////////////////////////////////////////////////
 
-void pidControllerReset(struct pidController *pp) {
+void pidControllerReset(struct pidController *pp, double dt) {
+    struct pidControllerData	*d;
+    double 			Kp, Ki, Kd;
+    int				N;
+    double			tau;
+    
+    // "naive"
     memset(&pp->d, 0, sizeof(pp->d));
+    // IIR
+    d = &pp->d;
+    Kp = pp->constant.p;
+    Ki = pp->constant.i;
+    Kd = pp->constant.d;
+    d->A0 = Kp + Ki*dt;
+    d->A1 = -Kp;
+    d->error[2] = 0; // e(t-2)
+    d->error[1] = 0; // e(t-1)
+    d->error[0] = 0; // e(t)
+    d->output = 0; // u0;  // Usually the current value of the actuator
+    d->A0d = Kd/dt;
+    d->A1d = - 2.0*Kd/dt;
+    d->A2d = Kd/dt;
+    N = 5;
+    tau = Kd / (Kp*N); // IIR filter time constant
+    d->alpha = dt / (2*tau);
+    d->d0 = 0;
+    d->d1 = 0;
+    d->fd0 = 0;
+    d->fd1 = 0;    
 }
 
 char *pidControllerStatistics(struct pidController *pp, int showProposedCiFlag) {
@@ -1238,6 +1265,31 @@ double pidControllerStep(struct pidController *pp, double setpoint, double measu
     return(output);
 }
 
+double pidIirControllerStep(struct pidController *pp, double setpoint, double measured_value, double dt) {
+    struct pidControllerData	*d;
+    double 			Kp, Ki, Kd;
+    int				N;
+    
+    d = &pp->d;
+    Kp = pp->constant.p;
+    Ki = pp->constant.i;
+    Kd = pp->constant.d;
+
+    d->error[2] = d->error[1];
+    d->error[1] = d->error[0];
+    d->error[0] = setpoint - measured_value;
+    
+    // PI
+    d->output = d->output + d->A0 * d->error[0] + d->A1 * d->error[1];
+    // Filtered D
+    d->d1 = d->d0;
+    d->d0 = d->A0d * d->error[0] + d->A1d * d->error[1] + d->A2d * d->error[2];
+    d->fd1 = d->fd0;
+    d->fd0 = ((d->alpha) / (d->alpha + 1)) * (d->d0 + d->d1) - ((d->alpha - 1) / (d->alpha + 1)) * d->fd1;
+    d->output = d->output + d->fd0;
+    return(d->output);
+}
+    
 /////////////////////////////////////////////////////////////////////////////////////////////
 // those two functions were deliberately copied from Jeff Rowberg's demo_dmp.cpp of MPU6050
 

@@ -186,12 +186,11 @@ int parseJstestJoystickFlighControl(double *rr, char *tag, char *s, struct devic
     char 			*snumber;
     char 			*svalue;
     int 			type, number;
-    double			value;
+    int				ivalue;
+    int				loglevel;
+    double			dvalue, alt;
     struct deviceData 		*gyro;
     struct deviceStreamData 	*ggg;
-    
-    // ignore any input until pre_fly stage. There may be some junk in buffer at the beginning.
-    if (uu->flyStage < FS_PRE_FLY) return(0);
     
     stype = strstr(s, "type ");
     if (stype == NULL) return(-1);
@@ -202,61 +201,78 @@ int parseJstestJoystickFlighControl(double *rr, char *tag, char *s, struct devic
     
     type = atoi(stype + strlen("type "));
     number = atoi(snumber + strlen("number "));
-    value = atoi(svalue + strlen("value ")) / 32768.0;
+    ivalue = atoi(svalue + strlen("value "));
+    dvalue = ivalue / 32768.0;
     
     if (type == 1) {
-	// button click
-	// For the moment every button is emergency stop/land
-	lprintf(0, "%s: Joystick button pressed. Going down\n", PPREFIX());
-	raspilotShutDownAndExit();
-	// missionLandImmediately();
-    }
-    
-    if (type != 2) return(0);
-    
-    switch (number) {
-    case 0:
-	// In my joystick, ax 0 is roll
-	uu->targetRoll = value / 4.0;
-	lprintf(10, "%s: Joystick roll: %g\n", PPREFIX(), value);
-	break;
-    case 1:
-	// In my joystick, ax 1 is pitch
-	uu->targetPitch = value / 4.0;
-	lprintf(10, "%s: Joystick pitch: %g\n", PPREFIX(), value);
-	break;
-    case 2:
-	if (uu->flyStage <= FS_PRE_FLY) return(0);
-	// In my joystick, ax 2 is inversed yaw
-	value = value / 1.0;
-	// TODO: Do this more universal!
-	gyro = deviceFindByName("gyro-mpu6050-magwick-shm");
-	if (gyro == NULL) {
-	    lprintf(0, "%s: gyro-mpu6050-magwick-shm not found!\n", PPREFIX());
-	    return(0);
+	
+	// buttton
+	if (number == 6) {
+	    // turn yaw left
+	    if (ivalue) {
+		uu->manual.yawIncrementPerSecond = 1;
+	    } else {
+		uu->manual.yawIncrementPerSecond = 0;
+	    }
+	    lprintf(10, "%s: Joystick yaw increment: %g\n", PPREFIX(), uu->manual.yawIncrementPerSecond);
+	} else if (number == 7) {
+	    // turn yaw right
+	    if (ivalue) {
+		uu->manual.yawIncrementPerSecond = -1;
+	    } else {
+		uu->manual.yawIncrementPerSecond = 0;
+	    }	    
+	    lprintf(10, "%s: Joystick yaw increment: %g\n", PPREFIX(), uu->manual.yawIncrementPerSecond);
+	} else {
+	    if (uu->flyStage >= FS_PRE_FLY) {
+		lprintf(0, "%s: Unknown joystick button pressed. Going down\n", PPREFIX());
+		raspilotShutDownAndExit();
+	    }
 	}
-	ggg = deviceFindStreamByName(gyro, "rpy");
-	if (ggg == NULL) {
-	    lprintf(0, "%s: rpy not found in gyro-mpu6050-magwick-shm!\n", PPREFIX());
-	    return(0);
+	
+    } else if (type == 2) {
+	
+	// joystick control
+	switch (number) {
+	case 0:
+	    // In my joystick, ax 0 is roll
+	    uu->manual.roll = dvalue / 4.0;
+	    lprintf(10, "%s: Joystick roll: %g\n", PPREFIX(), dvalue);
+	    break;
+	case 1:
+	    // In my joystick, ax 1 is pitch
+	    uu->manual.pitch = dvalue / 4.0;
+	    lprintf(10, "%s: Joystick pitch: %g\n", PPREFIX(), dvalue);
+	    break;
+#if 0
+	case 2:
+	    if (uu->flyStage <= FS_PRE_FLY) return(0);
+	    // In my joystick, ax 2 is inversed yaw
+	    uu->manual.yawIncrementPerSecond = - dvalue / 2.0;
+	    lprintf(10, "%s: Joystick yaw increment: %g\n", PPREFIX(), dvalue);
+	    break;
+#endif	    
+	case 3:
+	    // In my joystick, ax 3 is inversed altitude
+	    alt = 0.9 - dvalue; 	// this makes altitude range -0.10 .. 1.90 m.
+	    // during prefly time display selected altitude, to be able to set it up for launch
+	    if (uu->flyStage > FS_PRE_FLY) {
+		uu->manual.altitude = alt;
+		lprintf(10, "%s: Manual altitude: %g\n", PPREFIX(), alt);
+	    } else if (uu->flyStage >= FS_WAITING_FOR_SENSORS
+		       && uu->flyStage <= FS_PRE_FLY
+		       && alt >= 0.1
+		       && fabs(alt-uu->manual.altitude) >= 0.02
+		) {
+		uu->manual.altitude = alt;
+		lprintf(1, "%s: Launch altitude: %g\n", PPREFIX(), alt);
+	    }
+	    break;
+	default:
+	    break;
 	}
-	memset(ggg->drift_auto_fix_period, 0, sizeof(ggg->drift_auto_fix_period));
-	ggg->drift_offset_per_second[0] = 0;
-	ggg->drift_offset_per_second[1] = 0;
-	ggg->drift_offset_per_second[2] = value;
-	ggg->driftOffsetLastIncrementTime = currentTime.dtime;
-	lprintf(10, "%s: Joystick yaw increment: %g\n", PPREFIX(), value);
-	break;
-    case 3:
-	// In my joystick, ax 3 is inversed altitude
-	value = - value;
-	uu->currentWaypoint.position[2] = 0.9 + value;	// this makes altitude range -0.10 .. 1.90 m.
-	lprintf(10, "%s: Joystick altitude: %g\n", PPREFIX(), value);
-	break;
-    default:
-	break;
+	
     }
-
     return(0);
 }
 
@@ -322,6 +338,7 @@ static void deviceTranslateBottomRangeToAltitude(struct deviceData *dd, struct d
     } else {
 	raspilotRingBufferFindRecordForTime(uu->historyPose, sampleTime, NULL, &pose);
 	alt = range * fabs(cos(pose[3]) * cos(pose[4]));
+	// lprintf(0, "range, r,p alt == %8f, %8f, %8f --> %8f\n", range, pose[3], pose[4], alt);
 	alt -= ddd->launchData[0];
     }
     *altitude = alt;

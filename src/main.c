@@ -23,6 +23,10 @@ void mainLoadPreviousFlyTime() {
 
 void mainSavePreviousFlyTime() {
     FILE * ff;
+
+    // do not touch if did not fly at all
+    if (uu->flyStage < FS_FLY) return;
+    
     ff = fopen("totalFlyTime.txt", "w");
     if (ff != NULL) {
 	fprintf(ff, "%f\n", uu->previousTotalFlyTime);
@@ -32,8 +36,12 @@ void mainSavePreviousFlyTime() {
 
 void mainStatisticsMotors(int action) {
     int 	i;
-    double 	sum, max, tt;
+    double 	sum, max, tt, flightTime;
 
+    flightTime = (currentTime.dtime - uu->flyStartTime);
+    // avoid division by zero
+    if (flightTime == 0) flightTime = 1;
+    
     sum = 0; max = -1;
     if (action == STATISTIC_PRINT) lprintf(0, "%s: Average motor thrusts: ", PPREFIX());
     for(i=0; i<uu->motor_number; i++) {
@@ -41,7 +49,7 @@ void mainStatisticsMotors(int action) {
 	    uu->motor[i].totalWork = 0;
 	}
 	tt = uu->motor[i].totalWork;
-	if (action == STATISTIC_PRINT) lprintf(0, "%g ", tt / (currentTime.dtime - uu->flyStartTime));
+	if (action == STATISTIC_PRINT) lprintf(0, "%g ", tt / flightTime);
 	sum += tt;
 	if (tt > max) max = tt;
     }
@@ -49,7 +57,7 @@ void mainStatisticsMotors(int action) {
     
     if (action != STATISTIC_PRINT) return;
     
-    lprintf(0, "%s: Total average motor thrust: %g\n", PPREFIX(), sum / uu->motor_number / (currentTime.dtime - uu->flyStartTime));
+    lprintf(0, "%s: Total average motor thrust: %g\n", PPREFIX(), sum / uu->motor_number / flightTime);
 
     if (0) {
 	lprintf(0, "%s: Proposed New motor_esc_corrections: ", PPREFIX());
@@ -125,12 +133,12 @@ void mainStatisticsPids(int action) {
 
 
     if (action == STATISTIC_INIT) {
-	pidControllerReset(&uu->pidX);
-	pidControllerReset(&uu->pidY);
-	pidControllerReset(&uu->pidAltitude);
-	pidControllerReset(&uu->pidRoll);
-	pidControllerReset(&uu->pidPitch);
-	pidControllerReset(&uu->pidYaw);
+	pidControllerReset(&uu->pidX, 1/uu->autopilot_loop_Hz);
+	pidControllerReset(&uu->pidY, 1/uu->autopilot_loop_Hz);
+	pidControllerReset(&uu->pidAltitude, 1.0/uu->stabilization_loop_Hz);
+	pidControllerReset(&uu->pidRoll, 1.0/uu->stabilization_loop_Hz);
+	pidControllerReset(&uu->pidPitch, 1.0/uu->stabilization_loop_Hz);
+	pidControllerReset(&uu->pidYaw, 1.0/uu->stabilization_loop_Hz);
     }
     
     if (action == STATISTIC_PRINT) {
@@ -147,7 +155,6 @@ void mainStatisticsPids(int action) {
 
 void mainStatistics(int action) {
     if (action == STATISTIC_INIT) {
-	mainLoadPreviousFlyTime();
 	uu->flyStartTime = currentTime.dtime;
     }
     if (action == STATISTIC_PRINT) {
@@ -163,7 +170,6 @@ void mainStatistics(int action) {
 	lprintf(0, "%s: Mission time: %gs\n", PPREFIX(), flyTime);
 	uu->previousTotalFlyTime += flyTime;
 	lprintf(0, "%s: Fly time since reset: %gs\n", PPREFIX(), uu->previousTotalFlyTime);
-	mainSavePreviousFlyTime();
     }
     
     mainStatisticsMotors(action);
@@ -192,10 +198,18 @@ void mainStandardShutdown(void *d) {
     
     lprintf(0, "%s: Raspilot is going down\n", PPREFIX());
     motorsStop(NULL);
+
+    // do not change flight status before savign total flight time
+    uu->flyStage = FS_SHUTDOWN;
+    
+    
     motorsStandby(NULL);
     if (uu->deviceMotors >= 0 && uu->device[uu->deviceMotors] != NULL && uu->device[uu->deviceMotors]->shutdownExit) motorsExit(NULL);
+
     if (1) mainStatistics(STATISTIC_PRINT);
-    
+    // save flight time after statistics where it is updated
+    mainSavePreviousFlyTime();
+
     shutDownInProgress = 1;
 
     // Deinitialize/close all devices
@@ -450,6 +464,9 @@ static void initConfiguredPilot() {
     }
 
     motorsSendStreamThrustFactor(NULL);
+
+    // initial value for batteryStatusRpFactor
+    uu->batteryStatusRpyFactor = uu->pidAltitude.constant.ci;
 }
     
 //////////////////////////////////////////////////////////////////////////////////////////
@@ -557,6 +574,7 @@ void raspilotPreLaunchSequence(int flightControllerOnlyMode) {
 
     lprintf(5, "%s: Info: Prefly sequence done.\n", PPREFIX());
 
+    mainLoadPreviousFlyTime();
     mainStatistics(STATISTIC_INIT);
     pilotInitiatePids();
 }
