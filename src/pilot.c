@@ -1003,7 +1003,7 @@ static void pilotComputeTargetRollPitchYawForWaypoint() {
 }
 
 
-static void pilotAltitudeThrustToBatteryStatus(double altitudeThrust) {
+static void pilotAltitudeThrustAverageAndBatteryStatus(double altitudeThrust) {
     static time_t 	currentSumSecond;
     static double 	lastSecondSum = 0;
     static int 		lastSecondNumOfSample = 0;
@@ -1012,9 +1012,12 @@ static void pilotAltitudeThrustToBatteryStatus(double altitudeThrust) {
 	lastSecondSum += altitudeThrust;
 	lastSecondNumOfSample ++;
     } else {
-	// for the moment battery status factor is simply the average of altitudeThrusts for the last second
 	// avoid division by zero
-	if (lastSecondNumOfSample != 0) uu->batteryStatusRpyFactor = lastSecondSum / lastSecondNumOfSample;
+	if (lastSecondNumOfSample != 0) {
+	    uu->averageAltitudeThrust = lastSecondSum / lastSecondNumOfSample;
+	    // for the moment the battery status factor is simply the average of altitudeThrusts for the last second
+	    uu->batteryStatusRpyFactor = uu->averageAltitudeThrust;
+	}
 	lastSecondSum = 0;
 	lastSecondNumOfSample = 0;
 	currentSumSecond = currentTime.sec;
@@ -1032,6 +1035,14 @@ static int pilotComputeTargetAltitudeThrustForWaypoint(double targetAltitude, do
     if (uu->longBufferPosition.n <= 2) return(-1);
     if (uu->longBufferRpy.n <= 2) return(-1);
 
+    // If we run out of battery land!
+    if (uu->averageAltitudeThrust >= uu->config.motor_altitude_thrust_max && uu->flyStage != FS_LAND) {
+	lprintf(1, "%s: Info: Battery low. Forced landing!\n", PPREFIX());
+	uu->flyStage = FS_LAND;
+    }
+
+    if (uu->flyStage == FS_LAND) targetAltitude = - 0.1;
+    
     // TODO: compute tdTick as a real time between previous execution time and the current one
     // tdTick = 1.0/uu->autopilot_loop_Hz;
     tdTick = 1.0/uu->stabilization_loop_Hz;
@@ -1051,11 +1062,8 @@ static int pilotComputeTargetAltitudeThrustForWaypoint(double targetAltitude, do
     // get the Altitude thrust
     thrust = pidControllerStep(&uu->pidAltitude, targetAltitudeSpeed, altitudeSpeed, tdTick);
 
-    // truncate to configured value.
-    thrust = truncateToRange(thrust, 0, uu->config.motor_altitude_thrust_max, "Battery low? Altitude thrust");
-
     // use the new thrust to estimate battery status factor for roll, pitch, yaw control
-    pilotAltitudeThrustToBatteryStatus(thrust);
+    pilotAltitudeThrustAverageAndBatteryStatus(thrust);
 
 #if ALTITUDE_THRUST_CORRECTION_FOR_ROLL_PITCH
     // Make a correction to altitude thrust due to current roll, pitch

@@ -466,7 +466,8 @@ static void initConfiguredPilot() {
     motorsSendStreamThrustFactor(NULL);
 
     // initial value for batteryStatusRpFactor
-    uu->batteryStatusRpyFactor = uu->pidAltitude.constant.ci;
+    uu->averageAltitudeThrust = uu->pidAltitude.constant.ci;
+    uu->batteryStatusRpyFactor = uu->averageAltitudeThrust;
 }
     
 //////////////////////////////////////////////////////////////////////////////////////////

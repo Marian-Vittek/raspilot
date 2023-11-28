@@ -853,6 +853,7 @@ struct universe {
     struct regressionBuffer	shortBufferPosition;
     struct regressionBuffer	shortBufferRpy;
 
+    double			averageAltitudeThrust;		// moving average altitude thrust 
     double			batteryStatusRpyFactor;		// this should accumulate charging status of the battery
     
     // Those values may be used as the current position, orientation and velocity of the drone
