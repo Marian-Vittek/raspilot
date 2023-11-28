@@ -8,11 +8,6 @@ waypoints is original.  Here is a
 [video](https://www.youtube.com/watch?v=454NIqCr8b4) of one of the
 first succesfull flights.
 
-The "main" branch in github repository contains the last stable
-version of the software. The "development" branch contains the version
-which is under active development. So far we do not have any official
-versioning and/or releases.
-
 ### Why to do it?
 
 This project began as a professional assignment. The aim was to
