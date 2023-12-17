@@ -7,6 +7,8 @@ developed from the scratch, the code for stabilisation and reaching
 waypoints is original.  Here is a
 [video](https://www.youtube.com/watch?v=454NIqCr8b4) of one of the
 first succesfull flights.
+[PiFly](https://www.xrefactory.com/pifly/) is a project building DIY drone
+under 250g running raspilot.
 
 ### Why to do it?
 
@@ -35,7 +37,7 @@ floating-point arithmetic which we use for all our calculations.
 Of course, there are obvious drawbacks to using Raspberry Pi. After
 connecting the battery, you have to wait until Linux boots. You have
 to shut down Linux before you disconnect the battery. And, of course,
-Linux is not a real-time operating system, and precise timing can be a
+Linux is not a real-time operating system and precise timing can be a
 problem.
 
 
@@ -64,11 +66,8 @@ autopilot via Linux pipes and/or shared memory. Software runs
 asynchronously and the input is read as it comes.  The autopilot
 itself runs an infinite loop at an adjustable frequency. Frequency is
 configurable and ranges between 50Hz and 5kHz. Less stable designs
-with a centre of gravity above propellers require higher frequency.
+with the centre of gravity above propellers require higher frequency.
 Most of our drones (small and large) were operated at around 200 Hz.
-Software that physically controls ESCs runs in a separate process
-too. This architecture makes it easy to integrate specific sensors,
-ESC protocols or specific motor hardware.
 
 
 From the user point of view, the whole autopilot behaves like a
@@ -94,12 +93,13 @@ controllers.
 
 At the moment Raspilot supports T265 Intel intellisense positioning
 and orientation sensor; MPU-6050 family of gyroscopes; BMI160
-gyroscope; HC-SR04 distance sensor; any NMEA GPS sensor and others. It
-implements PWM and DSHOT 150 protocols to control motor ESCs.  To see
-all supported hardware go through subdirectories under 'tool'
-directory. If your hardware is not there, it is quite easy to add it.
-All you need to do is to hack a demo example that comes with the
-sensor and make it to print measurements to the standard output.
+gyroscope; HC-SR04 distance sensor; Matek 3901 L0X sensor; NMEA GPS
+sensors and others. It implements PWM and DSHOT 150 protocols to
+control motor ESCs.  To see all supported hardware go through
+subdirectories under 'tool' directory. If your hardware is not there,
+it is quite easy to add it.  All you need to do is to hack a demo
+example that comes with the sensor and make it to print measurements
+to the standard output.
 
 ### Getting Started
 

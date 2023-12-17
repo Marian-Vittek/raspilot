@@ -112,8 +112,8 @@ int main(int argc, char **argv) {
 	// pitch - negative == nose down;      positive == nose up
 	// roll  - negative == left wing down; positive == left wing up
 	// yaw   - positive == rotated counterclockwise (view from up)
-	rpy[0] = -euler.angle.pitch*M_PI/180.0;
-	rpy[1] = -euler.angle.roll*M_PI/180.0;
+	rpy[0] = euler.angle.pitch*M_PI/180.0;
+	rpy[1] = euler.angle.roll*M_PI/180.0;
 	rpy[2] = euler.angle.yaw*M_PI/180.0;
 	
 #ifdef SHM

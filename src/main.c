@@ -199,17 +199,17 @@ void mainStandardShutdown(void *d) {
     lprintf(0, "%s: Raspilot is going down\n", PPREFIX());
     motorsStop(NULL);
 
-    // do not change flight status before savign total flight time
-    uu->flyStage = FS_SHUTDOWN;
-    
-    
     motorsStandby(NULL);
     if (uu->deviceMotors >= 0 && uu->device[uu->deviceMotors] != NULL && uu->device[uu->deviceMotors]->shutdownExit) motorsExit(NULL);
 
     if (1) mainStatistics(STATISTIC_PRINT);
     // save flight time after statistics where it is updated
-    mainSavePreviousFlyTime();
 
+    // do not change flight status before savign total flight time
+    mainSavePreviousFlyTime();
+    uu->flyStage = FS_SHUTDOWN;
+    
+    
     shutDownInProgress = 1;
 
     // Deinitialize/close all devices

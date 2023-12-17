@@ -1646,7 +1646,7 @@ void pingToHostInit() {
 
 void pingToHostRegularCheck(void *d) {
     // we have to receive ping answer within 2 seconds
-    if (pingToHostLastAnswerTime < currentTime.dtime - 2.0) {
+    if (pingToHostLastAnswerTime < currentTime.dtime - 3.0) {
 	// problem. We have lost the connection.
 	lprintf(0, "%s: Error: connection to host %s lost. Immediate landing !!!\n", PPREFIX(), uu->pingToHost);
 	raspilotShutDownAndExit();

@@ -79,7 +79,7 @@ https://stackoverflow.com/questions/69425540/execute-mmap-on-linux-kernel
 
 #define DSHOT_MAX_TIMING_ERROR_ns       2000
 // how many times we retry to send dshot frame if previous was not timed well
-#define DSHOT_MAX_RETRY                 3
+#define DSHOT_MAX_RETRY                 10
 #define USLEEP_BEFORE_REBROADCAST       100
 
 
@@ -97,7 +97,7 @@ https://stackoverflow.com/questions/69425540/execute-mmap-on-linux-kernel
 #define GPIO_SET                (*(dshotGpio+7))
 #define GPIO_CLR                (*(dshotGpio+10))
 
-#define NUM_PINS                27
+#define DSHOT_NUM_PINS                27
 
 enum {
     DSHOT_CMD_MOTOR_STOP = 0,
@@ -233,7 +233,7 @@ void dshotSendFrames(int motorPins[], int motorMax, unsigned frame[]) {
     uint32_t    clearMasks[16];
     uint32_t    msk, allMotorsMask;
 
-    assert(motorMax < NUM_PINS);
+    assert(motorMax < DSHOT_NUM_PINS);
 
     allMotorsMask = dshotGetAllMotorsPinMask(motorPins, motorMax);
 
@@ -318,7 +318,7 @@ static void dshotSetupIo() {
 
 // Send a command repeatedly during a given perion of time
 static void dshotRepeatSendCommand(int motorPins[], int motorMax, int cmd, int telemetry, int timePeriodMsec) {
-    unsigned    frame[NUM_PINS+1];
+    unsigned    frame[DSHOT_NUM_PINS+1];
     int         i;
     int64_t     t;
     
@@ -383,10 +383,10 @@ void motorImplementationFinalize(int motorPins[], int motorMax) {
 
 void motorImplementationSendThrottles(int motorPins[], int motorMax, double motorThrottle[]) {
     int         i;
-    unsigned    frame[NUM_PINS+1];
+    unsigned    frame[DSHOT_NUM_PINS+1];
     int         val;
 
-    assert(motorMax < NUM_PINS);
+    assert(motorMax < DSHOT_NUM_PINS);
 
     for(i=0; i<motorMax; i++) {
         if (dshot3dMode) {

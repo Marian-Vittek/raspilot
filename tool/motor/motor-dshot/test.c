@@ -8,7 +8,7 @@ extern void motorImplementationSendThrottles(int motorPins[], int motorMax, doub
 
 // let's say we have 4 motors connected to GPIO6, GPIO13, GPIO19 and GPIO26
 #define N 4
-int motorPins[N] = {6, 13, 19, 26};
+int motorPins[N] = {8, 13, 19, 26};
 
 double throttles[N];
 
@@ -20,17 +20,17 @@ int main() {
     printf("Initializing ESC / Arm, waiting 5 seconds.\n");
     // send 0 throttle during 5 seconds
     for(i=0; i<N; i++) throttles[i] = 0;
-    for(i=0; i<500; i++) {
+    for(i=0; i<5000; i++) {
         motorImplementationSendThrottles(motorPins, N, throttles);
-        usleep(10000);
+        usleep(1000);
     }
 
     printf("Spinning.\n");
     // make motors spinning on 15% throttle during 5 seconds
     for(i=0; i<N; i++) throttles[i] = 0.15;
-    for(i=0; i<500; i++) {
+    for(i=0; i<5000; i++) {
 	motorImplementationSendThrottles(motorPins, N, throttles);
-	usleep(10000);
+	usleep(1000);
     }
     
     printf("Stop.\n");

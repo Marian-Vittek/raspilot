@@ -1037,11 +1037,11 @@ static int pilotComputeTargetAltitudeThrustForWaypoint(double targetAltitude, do
 
     // If we run out of battery land!
     if (uu->averageAltitudeThrust >= uu->config.motor_altitude_thrust_max && uu->flyStage != FS_LAND) {
-	lprintf(1, "%s: Info: Battery low. Forced landing!\n", PPREFIX());
+	lprintf(1, "%s: Info: Battery low. Landing!\n", PPREFIX());
 	uu->flyStage = FS_LAND;
     }
 
-    if (uu->flyStage == FS_LAND) targetAltitude = - 0.1;
+    if (uu->flyStage == FS_LAND) targetAltitude = -0.1;
     
     // TODO: compute tdTick as a real time between previous execution time and the current one
     // tdTick = 1.0/uu->autopilot_loop_Hz;

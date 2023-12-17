@@ -231,7 +231,7 @@ void mission() {
     } else if (0) {
 	// rotate motors one after another
 	missionMotorTest(-1);
-    } else if (1) {
+    } else if (0) {
 	// Joystick conrolled.
 	// Flight controller only. (TODO: To be finished).
 	uu->manual.altitude = -0.1;
@@ -248,7 +248,7 @@ void mission() {
     } else {
 	// autopilot mission mode
 	raspilotPreLaunchSequence(0);
-	missionLoiter(120.0, 0.4);
+	missionLoiter(120.0, 0.60);
 	// missionJoystick(10.0);
 	// missionTestYawLoiter(0.10);
 	// missionSquare(0.10, 0.10, 1.0, 1);
