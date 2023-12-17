@@ -7,8 +7,8 @@ developed from the scratch, the code for stabilisation and reaching
 waypoints is original.  Here is a
 [video](https://www.youtube.com/watch?v=454NIqCr8b4) of one of the
 first succesfull flights.
-[PiFly](https://www.xrefactory.com/pifly/) is a project building DIY drone
-under 250g running raspilot.
+[PiFly](https://www.xrefactory.com/pifly/) is a project to build a DIY drone
+under 250g running Raspilot.
 
 ### Why to do it?
 
