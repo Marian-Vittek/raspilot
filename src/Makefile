@@ -11,9 +11,9 @@ OBJS=main.o common.o expmem.o json.o baio.o config.o device.o pilot.o mission.o 
 
 #dev
 #DRONE=d250
-#DRONE=pifly
+DRONE=pifly
 #DRONE=pc
-DRONE=p2
+#DRONE=p2
 ###
 
 #set IGNORE_BUILD_ERROR to true if you want to ignore build errors

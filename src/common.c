@@ -279,6 +279,12 @@ char *fileLoadToNewlyAllocatedString(char *path, int useCppFlag) {
     return(b);
 }
 
+double signd(double x) {
+    if (x > 0) return(1.0);
+    if (x < 0) return(-1.0);
+    return(0);
+}
+
 double normalizeToRangeOld(double value, double min, double max) {
     double res;
     double r;
@@ -740,6 +746,8 @@ void enumNamesInit() {
     ENUM_NAME_SET(deviceDataTypeNames, DT_PING);
     ENUM_NAME_SET(deviceDataTypeNames, DT_THRUST);
     ENUM_NAME_SET(deviceDataTypeNames, DT_THRUST_SHM);
+    ENUM_NAME_SET(deviceDataTypeNames, DT_GIMBAL_X);
+    ENUM_NAME_SET(deviceDataTypeNames, DT_GIMBAL_Y);
     ENUM_NAME_SET(deviceDataTypeNames, DT_DEBUG);
     ENUM_NAME_SET(deviceDataTypeNames, DT_PONG);
     ENUM_NAME_SET(deviceDataTypeNames, DT_POSITION_VECTOR);

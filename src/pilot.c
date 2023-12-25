@@ -1260,12 +1260,69 @@ void pilotRegularStabilizationTick(void *d) {
     }
 }
 
+static void pilotGimbalSendAxis(int streamType, int value) {
+    struct deviceStreamData 	*ddl;
+    struct baio 		*bb;
+    
+    for(ddl=uu->deviceStreamDataByType[streamType]; ddl!=NULL; ddl=ddl->nextWithSameType) {
+	bb = baioFromMagic(ddl->dd->baioMagic);
+	if (bb != NULL) {
+	    // lprintf(0, "%s: sending gimbal: %s %d\n", PPREFIX(), ddl->tag, value);
+	    baioPrintfToBuffer(bb, "%s %d\n", ddl->tag, value);
+	}
+    }
+}
+
+void pilotRegularSendGimbalPwm(void *d) {
+    // TODO: !!!
+    static int 			lastx = 5000;
+    static int 			lasty = 5000;
+    char			ttt[TMP_STRING_SIZE];
+    struct baio			*bb;
+    struct deviceStreamData 	*ddl;
+    double			gx, gy;
+    int				x, y;
+
+    if (shutDownInProgress) return;
+
+    pilotScheduleNextTick(200, pilotRegularSendGimbalPwm, NULL);
+
+    gx = uu->targetGimbalX + uu->droneLastRpy[0];
+    gy = uu->targetGimbalY - uu->droneLastRpy[1];
+    
+    // translate -Pi/2 Pi/2 to 0 - 1000
+    x = 5000 + gx / M_PI * 10000;
+    y = 5000 + gy / M_PI * 10000;
+
+    // lprintf(0, "%s: gimbal x,y == %d, %d\n", PPREFIX(), x, y);
+
+    if (x<0 || x>=10000 || y<0 || y>=10000) {
+	lprintf(0, "%s: Internal error: wrong gimbal values %d %d.\n", PPREFIX(), x, y);
+	return;
+    }
+
+    if (x != lastx) {
+	lastx = x;
+	pilotGimbalSendAxis(DT_GIMBAL_X, x);
+    }
+    if (y != lasty) {
+	lasty = y;
+	pilotGimbalSendAxis(DT_GIMBAL_Y, y);
+    }
+    
+}
+
+
+
 void pilotRegularManualControl(void *d) {
     pilotScheduleNextTick(uu->autopilot_loop_Hz, pilotRegularManualControl, NULL);
     uu->targetRoll = uu->manual.roll;
     uu->targetPitch = uu->manual.pitch;
     uu->targetYaw += uu->manual.yawIncrementPerSecond / uu->autopilot_loop_Hz;
     uu->currentWaypoint.position[2] = uu->manual.altitude;
+
+    uu->targetGimbalX += uu->manual.gimbalXIncrementPerSecond / uu->autopilot_loop_Hz;
+    uu->targetGimbalY += uu->manual.gimbalYIncrementPerSecond / uu->autopilot_loop_Hz;
 }
 
 void pilotRegularSpecialModeTick(void *d) {

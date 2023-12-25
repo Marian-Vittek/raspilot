@@ -396,6 +396,8 @@ void mainInitDeviceDataStreamVectorLengths(int motor_number) {
     deviceDataStreamVectorLength[DT_PING] = 1;
     deviceDataStreamVectorLength[DT_THRUST] = motor_number;
     deviceDataStreamVectorLength[DT_THRUST_SHM] = motor_number;
+    deviceDataStreamVectorLength[DT_GIMBAL_X] = 1;
+    deviceDataStreamVectorLength[DT_GIMBAL_Y] = 1;
 
     // check that we did not forget anything.
     for(i=0; i<DT_MAX; i++) {
@@ -513,7 +515,9 @@ int raspilotInit(int argc, char **argv) {
     timeLineInsertEvent(UTIME_AFTER_MSEC(10), pilotInteractiveInputRegularCheck, NULL);
     // start saving trajectory
     timeLineInsertEvent(UTIME_AFTER_MSEC(30), pilotRegularSaveTrajectory, NULL);
-
+    // TODO: only if gimbal configured
+    timeLineInsertEvent(UTIME_AFTER_MSEC(20), pilotRegularSendGimbalPwm, NULL);
+    
     // check that ping to master host is still alive, give him some time before the first check
     if (uu->pingToHost != NULL) timeLineInsertEvent(UTIME_AFTER_SECONDS(50), pingToHostRegularCheck, NULL);
 

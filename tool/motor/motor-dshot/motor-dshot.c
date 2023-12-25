@@ -29,52 +29,54 @@ https://stackoverflow.com/questions/69425540/execute-mmap-on-linux-kernel
 #define DSHOT_VERSION 150
 #endif
 
-// This ad-hoc value have to be "guessed".  It specifies how much in
-// advance we are going to clear zero bits in dshot frames. Too small
-// value makes ESC to interpret 0 bits as being 1. Too large will
-// make ESC not to recognize the protocol.
-#ifndef DSHOT_AD_HOC_OFFSET
-#define DSHOT_AD_HOC_OFFSET     (DSHOT_T0H_ns / 5)
-// #define DSHOT_AD_HOC_OFFSET     (10)
-#endif
-
-// Which clocks to use for timing. Standard CLOCK_... from time.h can
-// be used as well as a special value "DSHOT_USE_CPU_CLOCK" which
-// we have added. "DSHOT_USE_CPU_CLOCK" will work on ARM only and
-// will use internal cpu clock.
-#ifndef DSHOT_USE_CLOCK
-#define DSHOT_USE_CLOCK     	CLOCK_MONOTONIC_RAW
-#endif
 
 //////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////
-#define DSHOT_USE_CPU_CLOCK	4242
+// DSHOT_BIT_ns specifies the length of 1 bit in nanoseconds for
+// various Dshot protocols.
 
 #if DSHOT_VERSION == 150
 
 // DSHOT_150
-#define DSHOT_T0H_ns 2500
-#define DSHOT_BIT_ns 6670
+// Theoretical value from protocol definition
+//#define DSHOT_BIT_ns 6670
+// Value for my cheap ESC
+#define DSHOT_BIT_ns 5300
 
 #elif DSHOT_VERSION == 300
 
 // DSHOT_300
-#define DSHOT_T0H_ns 1250
-#define DSHOT_BIT_ns 3330
+// Theoretical values from protocol definition
+//#define DSHOT_BIT_ns 3330
+// Value for my cheap ESC
+#define DSHOT_BIT_ns 2700
 
 #elif DSHOT_VERSION == 600
 
 // DSHOT_600
-#define DSHOT_T0H_ns 0625
+// Not tested
 #define DSHOT_BIT_ns 1670
 
 #elif DSHOT_VERSION == 1200
 
 // DSHOT_1200
-#define DSHOT_T0H_ns 313
+// Not tested
 #define DSHOT_BIT_ns 830
 
+#endif
+
+
+// Define the length of T0H depending on the bit-rate
+// Theoretical value from protocol definition
+//#define DSHOT_T0H_ns (DSHOT_BIT_ns * 3 / 8)
+// Real value for my cheap ESC
+#define DSHOT_T0H_ns (DSHOT_BIT_ns * 3 / 9)
+
+// Which clocks to use for timing. Standard constants CLOCK_... from
+// time.h can be used here.
+#ifndef DSHOT_USE_CLOCK
+#define DSHOT_USE_CLOCK     	CLOCK_MONOTONIC_RAW
 #endif
 
 #define DSHOT_MAX_TIMING_ERROR_ns       2000
@@ -142,15 +144,9 @@ static int dshot3dMode = 0;
 
 
 static inline uint64_t dshotGetNanoseconds() {
-#if 0 && DSHOT_USE_CLOCK == DSHOT_USE_CPU_CLOCK
-    uint32_t cc = 0;
-    __asm__ volatile ("mrc p15, 0, %0, c9, c13, 0":"=r" (cc));
-    return cc;
-#else
     struct timespec tt;
     clock_gettime(DSHOT_USE_CLOCK, &tt);
     return(TIMESPEC_TO_INT(tt));
-#endif
 }
 
 
@@ -178,7 +174,7 @@ static void dshotSend(uint32_t allMotorsPinMask, uint32_t *clearMasks) {
     gpioclear = &GPIO_CLR;
 
 
-    offset1 = DSHOT_T0H_ns - DSHOT_AD_HOC_OFFSET;
+    offset1 = DSHOT_T0H_ns;
     offset2 = DSHOT_T0H_ns;
     offset3 = DSHOT_BIT_ns - offset1 - offset2;
 

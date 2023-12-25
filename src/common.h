@@ -305,6 +305,8 @@ enum deviceDataTypes {
     DT_PING,
     DT_THRUST,
     DT_THRUST_SHM,
+    DT_GIMBAL_X,
+    DT_GIMBAL_Y,
 
     // Reading streams from sensors
     // Text based streams through pipes/sockets
@@ -671,6 +673,13 @@ struct deviceStreamData {
     int				debug_level;
     double			weight[DEVICE_DATA_VECTOR_MAX];			// weight is per axis in GBASE, or rpy or whatever
 
+    struct deviceData		*dd;			// "back" pointer to device data where I belong
+    // devicedata are linked also by the type of data for faster fusion of sensors
+    struct deviceStreamData 	*nextWithSameType;
+
+
+    // Run time data
+    
     // For devices having regular drift value (like yaw in accelerometer) we increase
     // the output by a driftOffset. driftOffset is increased at each tick by 'drift_offset_per_second' * timeDelta.
     // 'drift_offset_per_second' is the main value to set up when defining a drifting device manually.
@@ -680,8 +689,6 @@ struct deviceStreamData {
     double			driftOffset[DEVICE_DATA_VECTOR_MAX];
     double			driftOffsetLastIncrementTime;
 
-
-    struct deviceData		*dd;			// "back" pointer to device data where I belong
 
     // This is the place where the 'raw' values read from the device are stored.
     // Old way.
@@ -710,8 +717,6 @@ struct deviceStreamData {
     double   			launchData[DEVICE_DATA_VECTOR_MAX];
     uint8_t			launchPoseSetFlag;	// whether we have yet stored the launch pose
 
-    // devicedata are linked also by the type of data for faster fusion of sensors
-    struct deviceStreamData 	*nextWithSameType;
 };
 
 // this is auxiliary data structure used as argument to deviceRegularAdjustementOfDrifts
@@ -791,6 +796,9 @@ struct manualControl {
     double pitch;
     double yawIncrementPerSecond;
     double altitude;
+
+    double gimbalXIncrementPerSecond;
+    double gimbalYIncrementPerSecond;
 };
     
 struct universe {
@@ -868,6 +876,11 @@ struct universe {
     double 			targetRoll, targetPitch, targetYaw;
     double			targetYawRotationSpeed, targetRollRotationSpeed, targetPitchRotationSpeed;
 
+    // gimbal
+    double			targetGimbalX;
+    double			targetGimbalY;
+
+    // manual
     struct manualControl	manual;
     
     // hold a few seconds of historical poses for case somebody needs it
@@ -919,6 +932,7 @@ int isspaceString(char *s) ;
 void writeToFd(int fd, char *buf, int bufsize) ;
 char *printPrefix_st(struct universe *uu, char *file, int line) ;
 void dumpHex(char *msg, char *d, int len) ;
+double signd(double x) ;
 double normalizeToRange(double value, double min, double max) ;
 double angleSubstract(double a1, double a2) ;
 char *fileLoadToNewlyAllocatedString(char *path, int useCppFlag) ;
@@ -1045,6 +1059,7 @@ void motorsEmmergencyLand() ;
 void motorsEmmergencyShutdown() ;
 void pilotImmediateLanding() ;
 void pilotInteractiveInputRegularCheck(void *d) ;
+void pilotRegularSendGimbalPwm(void *d) ;
 void pilotRegularManualControl(void *d) ;
 void pilotRegularSpecialModeTick(void *d) ;
 void pilotRegularStabilizationTick(void *d) ;

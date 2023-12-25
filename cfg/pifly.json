@@ -1,4 +1,5 @@
 // d250 is raspberry pi installed on my 250g drone.
+// Configuration for 3S battery pack.
 /*
 	All values here are in SI units, i.e. meters, seconds, meter/second, etc.
 	All angles are in radians, i.e. radians, radians/second, etc.
@@ -64,7 +65,7 @@
     // the drone first gets "go to target" orientation, then it moves to the half way, then it gets "braking"
     // orientation and makes another half way while braking to zero velocity at target position.
     // larger values make the drone more stable and less "nervous".
-    pilot_reach_goal_position_time:	1.2,
+    pilot_reach_goal_position_time:	1.0,
 
     // While moving between waypoints the autopilot is constrained by the following values.
     // max speed contains also vertical speed, that's why there is higher number
@@ -79,7 +80,7 @@
     motor_thrust_min_spin:         0.01,
     
     // Maximal value sent to motor for holding altitude. With the right value the drone gently lands when the battery is empty.
-    motor_altitude_thrust_max:     0.80,
+    motor_altitude_thrust_max:     0.16,
     
     //////////////////////////////////////////////
     // PID controllers.
@@ -91,12 +92,12 @@
     // You configure the same values for both PidX and PidY controllers.
 
     // pidXY:        { p:1.00,  i:00,  d:0.000 },
-    pidXY:        { p:1.0,  i:0.01,  d:0.000 },
+    pidXY:        { p:1.0,  i:0.1,  d:0.000 },
 
     // The second sort of PID controllers translates the desired drone roll pitch yaw rotation to motor thrust
     // (i.e. to a value between 0 and 1). 
 
-#define RPB 0.19
+#define RPB 0.2
 
     pidRoll:     { p:RPB,  i:RPB/10,  d:0.00002},
     pidPitch:    { p:RPB,  i:RPB/10,  d:0.00002},
@@ -111,7 +112,7 @@
 
     //pidAltitude: { p:0.,  i:0.0,  d:0, ci:0 },
     //pidAltitude: { p:0.1,  i:0.3,  d:0.00001, ci:0.20 },
-    pidAltitude: { p:0.1,  i:0.1,  d:0.000, ci:0.25 },
+    pidAltitude: { p:0.05,  i:0.06,  d:0.000, ci:0.10 },
 
 
 
@@ -127,8 +128,8 @@
 	    connection : {
 	    	// direct dshot connection of ESC to raspberry pi pinouts. Numeric arguments of motor-dshot are gpio pins where ESC is connected.
 		type: "DCT_COMMAND_BASH",
-		command: "killall motor-dshot; sleep 0.5; killall -q -9 motor-dshot; sleep 0.5; ulimit -c unlimited; exec chrt -f 99 taskset -c 1 ../tool/motor/motor-dshot/motor-dshot - - 13 5 6 26 "
-		// command: "killall motor-null; sleep 0.5; killall -q -9 motor-null; sleep 0.5; ulimit -c unlimited; exec chrt -f 99 taskset -c 1 ../tool/motor/motor-null/motor-null - - 13 5 6 26 "
+		command: "killall motor-dshot-smi; sleep 0.5; killall -q -9 motor-dshot-smi; sleep 0.5; ulimit -c unlimited; exec chrt -f 99 taskset -c 1 ../tool/motor/motor-dshot-smi/motor-dshot-smi - - 21 16 20 19 "
+		// command: "killall motor-null; sleep 0.5; killall -q -9 motor-null; sleep 0.5; ulimit -c unlimited; exec chrt -f 99 taskset -c 1 ../tool/motor/motor-null/motor-null - - 21 16 20 19 "
 	    },
 	    shutdownExit: true,
 	    stream: [
@@ -146,15 +147,15 @@
 	    name: "gyro-mpu6050-magwick-shm",
 	    connection : {
 		type: "DCT_COMMAND_BASH",
-		command: "killall -q -9 mpu6050-shm; sleep 0.5; exec chrt -r 10 taskset -c 3 ../tool/imu/mpu6050/magwick/mpu6050-shm -s -r 2000 /dev/i2c-1",
+		command: "killall -q -9 mpu6050-shm; sleep 0.5; exec chrt -r 10 taskset -c 3 ../tool/imu/mpu6050/magwick/mpu6050-shm -s -r 1000 /dev/i2c-1",
 	    },
 	    warming_time: 15.0,
 	    // positive roll in mount_rpy makes left side up
 	    // positive pitch in mount_rpy makes nose up
 	    //mount_rpy: [0.098, 0.05, 0],
-	    mount_rpy: [-0.093, -0.03, 0],
+	    mount_rpy: [-0.13, -0.06, 0],
             stream: [
-		{ type: "DT_ORIENTATION_RPY_SHM", tag: "rpy",  weight: [1.0, 1.0, 1.0], mandatory:1, drift_auto_fix_period:[0,0,0.5], history_size:16, latency: 0.0005, debug_level: 88},
+		{ type: "DT_ORIENTATION_RPY_SHM", tag: "rpy",  weight: [1.0, 1.0, 1.0], mandatory:1, drift_auto_fix_period:[0,0,0.5], history_size:16, latency: 0.001, debug_level: 88},
 		{ type: "DT_DEBUG",           tag: "debug", debug_level: 22},
             ],
 	},
@@ -178,7 +179,7 @@
 	},
 #endif
 
-#if 1
+#if 0
 	{
 	    name: "apriltag",
 	    connection : {
@@ -189,7 +190,7 @@
 	    mount_position: [0, 0, 0],
 	    warming_time: 1.0,
             stream: [
-		{ type: "DT_POSITION_VECTOR",      tag: "pose:",  mandatory:1, weight: [1.0, 1.0, 1e-10], history_size:2, latency: 0.15, debug_level: 88},
+		{ type: "DT_POSITION_VECTOR",      tag: "pose:",  mandatory:1, weight: [1.0, 1.0, 1e-10], history_size:2, latency: 0.1, debug_level: 88},
 		// { type: "DT_POSITION_VECTOR",      tag: "pose:",  mandatory:1, weight: [0.0001, 0.0001, 0.0001], history_size:20, latency: 0.10, debug_level: 88},
 		{ type: "DT_ORIENTATION_RPY", 	   tag: "rpy:", weight: [1e-20, 1e-20, 1], mandatory:1, history_size:10, latency: 0, debug_level: 88},
 		{ type: "DT_VOID",                 tag: "lat:", debug_level: 1},
@@ -198,7 +199,7 @@
 	},
 #endif
 
-#if 0
+#if 1
 	{
 	    name: "joystick",
 	    connection : {

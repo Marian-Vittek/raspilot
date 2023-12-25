@@ -1,0 +1,12 @@
+
+all: motor-dshot-smi
+
+
+motor-dshot-smi: motor-dshot-smi.c rpi_dma_utils.c rpi_dma_utils.h ../motor-common.c ../motor-common.h 
+	gcc -g -O2 -Wall -o motor-dshot-smi ../motor-common.c motor-dshot-smi.c rpi_dma_utils.c -lm
+
+clean: always
+	rm -f *~ motor-dshot-smi test test2 
+
+.PHONY: always
+

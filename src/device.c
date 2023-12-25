@@ -268,6 +268,14 @@ int parseJstestJoystickFlighControl(double *rr, char *tag, char *s, struct devic
 		lprintf(1, "%s: Launch altitude: %g\n", PPREFIX(), alt);
 	    }
 	    break;
+	case 4:
+	    // gimbal X
+	    uu->manual.gimbalXIncrementPerSecond = signd(dvalue) * M_PI / 2;
+	    break;
+	case 5:
+	    // gimbal Y
+	    uu->manual.gimbalYIncrementPerSecond = - signd(dvalue) * M_PI / 2;
+	    break;	    
 	default:
 	    break;
 	}
