@@ -105,7 +105,7 @@ to the standard output.
 
 You need to have at least a basic understanding of Linux and C
 programming in order to use Raspilot. Different modules in ./tool
-directory uses various 3rd party libraries. If you use those modules
+directory use various 3rd party libraries. If you use those modules
 you will need to install corresponding libraries. That are common
 libraries like 'pigpio' and/or 'bcm2835'.
 
