@@ -286,7 +286,7 @@ static void dshotSetupIo() {
     
     /* open /dev/mem */
    if ((mem_fd = open("/dev/mem", O_RDWR|O_SYNC) ) < 0) {
-      printf("debug Error: Can't open /dev/mem \n");
+      printf("debug Error: Can't open /dev/mem, run using sudo! \n");
       exit(-1);
    }
 

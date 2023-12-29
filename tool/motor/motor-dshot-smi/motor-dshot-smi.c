@@ -231,7 +231,8 @@ extern MEM_MAP gpio_regs, dma_regs;
 MEM_MAP vc_mem, smi_regs;
 extern MEM_MAP clk_regs;
 
-int sample_count = DSHOT_BROADCAST_BYTES;
+static int sample_count = DSHOT_BROADCAST_BYTES;
+static int previousTransfer = 0;
 
 volatile SMI_CS_REG  *smi_cs;
 volatile SMI_L_REG   *smi_l;
@@ -351,7 +352,7 @@ static void dshotDmaSmiSend() {
     uint8_t 	*txdata;
 
     // first check if the previous transfer finished
-    if (dma_transfer_len(DMA_CHAN_A)!=0) {
+    if (previousTransfer && dma_transfer_len(DMA_CHAN_A)!=0) {
 	printf("debug: Error: Previous DMA transfer timeout.\n");
     }
     // stop the previous dma
@@ -379,6 +380,7 @@ static void dshotDmaSmiSend() {
     start_dma(&vc_mem, DMA_CHAN_A, &cbs[0], 0);
     smi_cs->start = 1;
     
+    previousTransfer = 1;
     //dma_wait(DMA_CHAN_A);
     //if (smi_regs.virt) *REG32(smi_regs, SMI_CS) = 0;
     //stop_dma(DMA_CHAN_A);
