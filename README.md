@@ -104,8 +104,13 @@ to the standard output.
 ### Getting Started
 
 You need to have at least a basic understanding of Linux and C
-programming in order to use Raspilot. If you have the courage to try
-it then:
+programming in order to use Raspilot. Different modules in ./tool
+directory uses various 3rd party libraries. If you use those modules
+you will need to install corresponding libraries. That are common
+libraries like 'pigpio' and/or 'bcm2835'.
+
+If you have the courage to compile and try Raspilot then:
+
 
 1.) Clone Raspilot to your Raspberry Pi
 
