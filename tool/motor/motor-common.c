@@ -27,26 +27,29 @@
 
 int debug = 0;
 
-// TODO: Maybe replace pipes with shared memeory
+// TODO: Maybe replace pipes with shared memory
 
 /*
 
 Motor controller is a separate task teking some argument determining number and connection of each motor.
 A usual invocation is 
 
-  motor <pin0> ... <pin_n> 
+  motor <input pipe> <output_pipe> <pin0> ... <pin_n> 
 
-where n is the number of motors and pin_i is the connection to i-th motor. When started this task is
-reading stdin for the lines containign one of the following commands:
+where <input pipe>/<output_pipe> can be '-' for stdin/stdout
+respectively, n is the number of motors and pin_i is the connection to
+i-th motor. 
 
-  "mt<n> <throttle0> ... <throttle_n>" - set the rotation of n-motors (n must match the number of command line arguments)
+When started this task is reading <input_pipe> (or stdin) for the lines containign one of the following commands:
+
+  "mt<n> <throttle0> ... <throttle_n>" - set the rotation of n-motors (n must match the number in command line arguments)
                                          throttle_i is in the range 0 - 1000.
   "hb" - heartbeat (keep previous throttle)
   "stan" - goto stanby mode (i.e. send minimal throttle pwn to hold motors stopped
   "fin" or "stop" - stop motors and exit
   "land" - try to land (without gyro it means sending some constant pwm for some time then exit)
   "info" - get status informations (not yet implemented)
-  "ping<n>" - answer witn "pong<n>" to stdout (used to determine communication latency)
+  "ping<n>" - answer with "pong<n>" to stdout (used to determine communication latency)
 
 */
 
@@ -300,9 +303,10 @@ int readThrustFromInputPipe() {
 			if (t < -1 || t > 1) {
 			    parsedOkFlag = 0;
 			} else {
-			    // Expert says that the throttle shall be square root from thrust. Is it true?
-			    if (t <= 0) motorThrottle[i] = 0;
-			    else motorThrottle[i] = sqrt(t);
+			    if (t <= 0) t = 0;
+			    // Expert says that the throttle shall be square root from thrust.
+			    // My experiments do not confirm that
+			    motorThrottle[i] = t; // sqrt(t);
 			}
 		    }
 		}

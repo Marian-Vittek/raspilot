@@ -15,7 +15,7 @@ double throttles[MAXN];
 int main(int argc, char **argv) {
     int i, n;
 
-    if (argc < 2) {
+    if (argc < 2 || argc >= MAXN) {
 	printf("usage:   ./test <gpio_pin_1> ... <gpio_pin_n>\n");
 	printf("example: sudo ./test 16 19 20 21\n");
 	exit(1);

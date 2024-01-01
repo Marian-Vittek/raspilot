@@ -77,10 +77,10 @@
     drone_panic_inclination:	   PI/2,
 
     // minimal spin, i.e. the spin during "warning rotations" before launch
-    motor_thrust_min_spin:         0.01,
+    motor_thrust_min_spin:         0.05,
     
     // Maximal value sent to motor for holding altitude. With the right value the drone gently lands when the battery is empty.
-    motor_altitude_thrust_max:     0.16,
+    motor_altitude_thrust_max:     0.4,
     
     //////////////////////////////////////////////
     // PID controllers.
@@ -92,16 +92,16 @@
     // You configure the same values for both PidX and PidY controllers.
 
     // pidXY:        { p:1.00,  i:00,  d:0.000 },
-    pidXY:        { p:1.0,  i:0.1,  d:0.000 },
+    pidXY:        { p:1.0,  i:0.2,  d:0.000 },
 
     // The second sort of PID controllers translates the desired drone roll pitch yaw rotation to motor thrust
     // (i.e. to a value between 0 and 1). 
 
-#define RPB 0.2
+#define RPB 0.17
 
     pidRoll:     { p:RPB,  i:RPB/10,  d:0.00002},
     pidPitch:    { p:RPB,  i:RPB/10,  d:0.00002},
-    pidYaw:      { p:0.5,  i:0.3,  d:0.00001},
+    pidYaw:      { p:0.3,  i:0.2,  d:0.00001},
 
     // The last sort of PID controller is pidAltitude. It translates desired vertical speed (usually 0)
     // to motor thrust. It shall have P factor large enough to launch and stabilize the drone altitude.
@@ -111,8 +111,7 @@
     // raspilot to determine the status of the battery.
 
     //pidAltitude: { p:0.,  i:0.0,  d:0, ci:0 },
-    //pidAltitude: { p:0.1,  i:0.3,  d:0.00001, ci:0.20 },
-    pidAltitude: { p:0.05,  i:0.06,  d:0.000, ci:0.10 },
+    pidAltitude: { p:0.05,  i:0.06,  d:0.000, ci:0.30 },
 
 
 
@@ -153,7 +152,7 @@
 	    // positive roll in mount_rpy makes left side up
 	    // positive pitch in mount_rpy makes nose up
 	    //mount_rpy: [0.098, 0.05, 0],
-	    mount_rpy: [-0.13, -0.06, 0],
+	    mount_rpy: [-0.16, -0.04, 0],
             stream: [
 		{ type: "DT_ORIENTATION_RPY_SHM", tag: "rpy",  weight: [1.0, 1.0, 1.0], mandatory:1, drift_auto_fix_period:[0,0,0.5], history_size:16, latency: 0.001, debug_level: 88},
 		{ type: "DT_DEBUG",           tag: "debug", debug_level: 22},
@@ -179,7 +178,7 @@
 	},
 #endif
 
-#if 0
+#if 1
 	{
 	    name: "apriltag",
 	    connection : {
@@ -199,7 +198,7 @@
 	},
 #endif
 
-#if 1
+#if 0
 	{
 	    name: "joystick",
 	    connection : {
