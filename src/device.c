@@ -6,6 +6,7 @@ int deviceIsSharedMemoryDataStream(struct deviceStreamData *ddl) {
     switch (ddl->type) {
     case DT_POSITION_SHM:
     case DT_ORIENTATION_RPY_SHM:
+    case DT_EARTH_ACCELERATION_SHM:
 	shmFlag = 1;
 	break;
     default:
@@ -180,7 +181,112 @@ struct deviceStreamData *deviceFindStreamByName(struct deviceData *dd, char *nam
     return(NULL);
 }
 
-// Joystick lines look like: Event: type 2, time 8695440, number 0, value 6808
+struct deviceStreamData *deviceFindStreamByType(struct deviceData *dd, int type) {
+    int i;
+    for(i=0; i<dd->ddtMax; i++) {
+	if (dd->ddt[i]->type == type) return(dd->ddt[i]);
+    }
+    return(NULL);
+}
+
+void manualPilotSetControl(struct manualControlState *cc, double rc_value, struct manual_rc *ss, char *controlName, int loglevel) {
+    double newvalue, newbase;
+    
+    InternalCheck(rc_value >= 0 || rc_value <= 1);
+
+    cc->rc_value = rc_value;
+    newbase = cc->base;
+    if (rc_value < ss->scroll_zone) {
+	// scroll 'down'
+	newbase = cc->base - (currentTime.dtime - cc->lastUpdateDtime) * ss->scroll_speed;
+	if (newbase < ss->min + 0.5 * ss->sensitivity) newbase = ss->min + 0.5 * ss->sensitivity;
+    } else if (rc_value > 1.0 - ss->scroll_zone) {
+	// scroll 'up'
+	newbase = cc->base + (currentTime.dtime - cc->lastUpdateDtime) * ss->scroll_speed;
+	if (newbase > ss->max - 0.5 * ss->sensitivity) newbase = ss->max - 0.5 * ss->sensitivity;
+    }
+    
+    cc->base = newbase;
+    
+    //printf("%s: rcvalue: %g;   base: %g --> %g; min_zone: %g\n", controlName, rc_value, oldbase, cc->base, ss->min_zone);
+
+    if (rc_value > 0.5 - ss->min_zone/2 && rc_value < 0.5 + ss->min_zone/2) {
+	newvalue = cc->base;
+	//printf("%s: case 0: value: %g --> %g;\n", controlName, cc->value, newvalue);
+    } else if (rc_value < 0.5) {
+	newvalue = (rc_value - 0.5 + ss->min_zone/2) * ss->sensitivity + cc->base;
+	//printf("%s: case 1: value: %g --> %g;\n", controlName, cc->value, newvalue);
+    } else {
+	newvalue = (rc_value - 0.5 - ss->min_zone/2) * ss->sensitivity + cc->base;
+	//printf("%s: case 2: value: %g --> %g;\n", controlName, cc->value, newvalue);
+    }
+
+    // normally useless, but be sure anyway
+    if (newvalue < ss->min) newvalue = ss->min;
+    if (newvalue > ss->max) newvalue = ss->max;
+    
+    //printf("%s: value: %g --> %g;\n", controlName, cc->value, newvalue);
+
+    cc->value = newvalue;
+    cc->lastUpdateDtime = currentTime.dtime;
+
+    // Hmm. Make this step configurable
+    if (fabs(cc->lastReportedValue - cc->value) >= 0.01) {
+	lprintf(loglevel, "%s: manual control %s: raw %g --> %g\n", PPREFIX(), controlName, rc_value, cc->value);
+	// printf("%s: manual control %s: raw %g --> %g\n", PPREFIX(), controlName, rc_value, cc->value);
+	if (loglevel < 5) {
+	    mavlinkPrintfStatusTextToListeners("rc: %s set to %g\n", controlName, cc->value);
+	}
+	cc->lastReportedValue = cc->value;
+    }
+}
+
+void manualPilotSetRoll(double vv) {
+    manualPilotSetControl(&uu->manual.roll, vv, &uu->config.manual_rc_roll, "roll", 20);
+}
+void manualPilotSetPitch(double vv) {
+    manualPilotSetControl(&uu->manual.pitch, vv, &uu->config.manual_rc_pitch, "pitch", 20);
+}
+void manualPilotSetYaw(double vv) {
+    manualPilotSetControl(&uu->manual.yaw, vv, &uu->config.manual_rc_yaw, "yaw", 20);
+}
+void manualPilotSetAltitude(double vv) {
+    int loglevel;
+    
+    if (uu->flyStage <= FS_PRE_FLY) {
+	loglevel = 2;
+    } else {
+	loglevel = 20;
+    }
+    manualPilotSetControl(&uu->manual.altitude, vv, &uu->config.manual_rc_altitude, "altitude", loglevel);
+}
+
+void manualControlInit(struct manualControlState *ss, struct manual_rc *mm) {
+    ss->lastReportedValue = 0;
+    ss->rc_value = 0.5;
+    ss->lastUpdateDtime = currentTime.dtime;
+    manualPilotSetControl(ss, 0.5, mm, "Init", 99);
+}
+
+void manualControlRegularCheck(void *d) {
+    pilotScheduleNextTick(2, manualControlRegularCheck, NULL);
+
+    manualPilotSetControl(&uu->manual.roll, uu->manual.roll.rc_value, &uu->config.manual_rc_roll, "roll", 20);
+    manualPilotSetControl(&uu->manual.pitch, uu->manual.pitch.rc_value,  &uu->config.manual_rc_pitch, "pitch", 20);
+    manualPilotSetControl(&uu->manual.yaw, uu->manual.yaw.rc_value, &uu->config.manual_rc_yaw, "yaw", 20);
+    manualPilotSetControl(&uu->manual.altitude, uu->manual.altitude.rc_value, &uu->config.manual_rc_altitude, "altitude", 20);
+
+#if 0
+    uu->targetGimbalX += uu->manual.gimbalXIncrementPerSecond / uu->autopilot_loop_Hz;
+    uu->targetGimbalY += uu->manual.gimbalYIncrementPerSecond / uu->autopilot_loop_Hz;
+
+    uu->targetGimbalX = truncateToRange(uu->targetGimbalX, -M_PI/2, M_PI/2, NULL, INDEX_NAN);
+    uu->targetGimbalY = truncateToRange(uu->targetGimbalY, -M_PI/2, M_PI/2, NULL, INDEX_NAN);
+#endif    
+}
+
+// Jstest Joystick lines look like: Event: type 2, time 8695440, number 0, value 6808
+// TODO: Rewrite this to use functions above
 int parseJstestJoystickFlighControl(double *rr, char *tag, char *s, struct deviceData *dd, struct deviceStreamData *ddd) {
     char 			*stype;
     char 			*snumber;
@@ -198,36 +304,22 @@ int parseJstestJoystickFlighControl(double *rr, char *tag, char *s, struct devic
     if (snumber == NULL) return(-1);
     svalue = strstr(s, "value ");
     if (svalue == NULL) return(-1);
+
+    if (uu->pilotLaunchTime + dd->warming_time > currentTime.dtime) return(0);
+
     
     type = atoi(stype + strlen("type "));
     number = atoi(snumber + strlen("number "));
     ivalue = atoi(svalue + strlen("value "));
-    dvalue = ivalue / 32768.0;
-    
+    // normalize to range 0-1
+    dvalue = ivalue / 65536.0 + 0.5;
+
     if (type == 1) {
 	
 	// buttton
-	if (number == 6) {
-	    // turn yaw left
-	    if (ivalue) {
-		uu->manual.yawIncrementPerSecond = 1;
-	    } else {
-		uu->manual.yawIncrementPerSecond = 0;
-	    }
-	    lprintf(10, "%s: Joystick yaw increment: %g\n", PPREFIX(), uu->manual.yawIncrementPerSecond);
-	} else if (number == 7) {
-	    // turn yaw right
-	    if (ivalue) {
-		uu->manual.yawIncrementPerSecond = -1;
-	    } else {
-		uu->manual.yawIncrementPerSecond = 0;
-	    }	    
-	    lprintf(10, "%s: Joystick yaw increment: %g\n", PPREFIX(), uu->manual.yawIncrementPerSecond);
-	} else {
-	    if (uu->flyStage >= FS_PRE_FLY) {
-		lprintf(0, "%s: Unknown joystick button pressed. Going down\n", PPREFIX());
-		raspilotShutDownAndExit();
-	    }
+	if (1 || uu->flyStage >= FS_PRE_FLY) {
+	    lprintf(0, "%s: Unknown joystick button pressed. Emergency landing!\n", PPREFIX());
+	    uu->flyStage = FS_EMERGENCY_LANDING;
 	}
 	
     } else if (type == 2) {
@@ -236,46 +328,27 @@ int parseJstestJoystickFlighControl(double *rr, char *tag, char *s, struct devic
 	switch (number) {
 	case 0:
 	    // In my joystick, ax 0 is roll
-	    uu->manual.roll = dvalue / 4.0;
-	    lprintf(10, "%s: Joystick roll: %g\n", PPREFIX(), dvalue);
+	    manualPilotSetRoll(dvalue);
 	    break;
 	case 1:
 	    // In my joystick, ax 1 is pitch
-	    uu->manual.pitch = dvalue / 4.0;
-	    lprintf(10, "%s: Joystick pitch: %g\n", PPREFIX(), dvalue);
+	    manualPilotSetPitch(dvalue);
 	    break;
-#if 0
 	case 2:
-	    if (uu->flyStage <= FS_PRE_FLY) return(0);
-	    // In my joystick, ax 2 is inversed yaw
-	    uu->manual.yawIncrementPerSecond = - dvalue / 2.0;
-	    lprintf(10, "%s: Joystick yaw increment: %g\n", PPREFIX(), dvalue);
-	    break;
-#endif	    
+	    manualPilotSetYaw(dvalue);
 	case 3:
-	    // In my joystick, ax 3 is inversed altitude
-	    alt = 0.9 - dvalue; 	// this makes altitude range -0.10 .. 1.90 m.
-	    // during prefly time display selected altitude, to be able to set it up for launch
-	    if (uu->flyStage > FS_PRE_FLY) {
-		uu->manual.altitude = alt;
-		lprintf(10, "%s: Manual altitude: %g\n", PPREFIX(), alt);
-	    } else if (uu->flyStage >= FS_WAITING_FOR_SENSORS
-		       && uu->flyStage <= FS_PRE_FLY
-		       && alt >= 0.1
-		       && fabs(alt-uu->manual.altitude) >= 0.02
-		) {
-		uu->manual.altitude = alt;
-		lprintf(1, "%s: Launch altitude: %g\n", PPREFIX(), alt);
-	    }
+	    manualPilotSetAltitude(1.0-dvalue);
 	    break;
+#if 1
 	case 4:
 	    // gimbal X
-	    uu->manual.gimbalXIncrementPerSecond = signd(dvalue) * M_PI / 2;
+	    uu->manual.gimbalXIncrementPerSecond = 2 * signd(dvalue) * M_PI / 2;
 	    break;
 	case 5:
 	    // gimbal Y
-	    uu->manual.gimbalYIncrementPerSecond = - signd(dvalue) * M_PI / 2;
-	    break;	    
+	    uu->manual.gimbalYIncrementPerSecond = 2 * - signd(dvalue) * M_PI / 2;
+	    break;
+#endif	    
 	default:
 	    break;
 	}
@@ -283,6 +356,7 @@ int parseJstestJoystickFlighControl(double *rr, char *tag, char *s, struct devic
     }
     return(0);
 }
+
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////
 // translate vector read from device to position and/or orientation of drone
@@ -469,7 +543,7 @@ void deviceParseInputStreamLineToInputBuffer(struct deviceData *dd, char *s, int
 		inputVector = raspilotRingBufferGetFirstFreeVector(&ddd->input->buffer);
 		memset(inputVector, 0, deviceDataStreamVectorLength[ddd->type] * sizeof(double));
 	    }
-	    sampletime = currentTime.dtime - ddd->latency;
+	    sampletime = currentTime.dtime ;
 	    switch(ddd->type) {
 	    case DT_VOID:
 		assert(deviceDataStreamVectorLength[ddd->type] == 0);
@@ -484,6 +558,10 @@ void deviceParseInputStreamLineToInputBuffer(struct deviceData *dd, char *s, int
 		r = parsePong(tag, t, dd, ddd);
 		break;
 	    case DT_ORIENTATION_RPY:
+		assert(deviceDataStreamVectorLength[ddd->type] == 3);
+		r = parseVector(inputVector, deviceDataStreamVectorLength[ddd->type], tag, t, dd, ddd);
+		break;
+	    case DT_EARTH_ACCELERATION:
 		assert(deviceDataStreamVectorLength[ddd->type] == 3);
 		r = parseVector(inputVector, deviceDataStreamVectorLength[ddd->type], tag, t, dd, ddd);
 		break;
@@ -519,6 +597,14 @@ void deviceParseInputStreamLineToInputBuffer(struct deviceData *dd, char *s, int
 		assert(deviceDataStreamVectorLength[ddd->type] == 1);
 		r = parseVector(inputVector, deviceDataStreamVectorLength[ddd->type], tag, t, dd, ddd);
 		break;
+	    case DT_TEMPERATURE:
+		assert(deviceDataStreamVectorLength[ddd->type] == 1);
+		r = parseVector(inputVector, deviceDataStreamVectorLength[ddd->type], tag, t, dd, ddd);
+		break;
+	    case DT_MAGNETIC_HEADING:
+		assert(deviceDataStreamVectorLength[ddd->type] == 3);
+		r = parseVector(inputVector, deviceDataStreamVectorLength[ddd->type], tag, t, dd, ddd);
+		break;
 	    default:
 		if (! dd->data_ignore_unknown_tags) printf("%s: %s: Error: Tag %s not implemented!\n", PPREFIX(), dd->name, tag);
 		r = -1;
@@ -530,7 +616,7 @@ void deviceParseInputStreamLineToInputBuffer(struct deviceData *dd, char *s, int
 		    assert(ddd->input != NULL);
 		    raspilotRingBufferAddElem(&ddd->input->buffer, sampletime, inputVector);
 		    ddd->input->confidence = 1.0;
-		    lprintf(100 - ddd->debug_level, "%s: %s: %s: %g: Parsed %s\n", PPREFIX(), dd->name, tag, sampletime, arrayWithDimToStr_st(inputVector, ddd->input->buffer.vectorsize));
+		    lprintf(90 - ddd->debug_level, "%s: %s: %s: time: %lld: Parsed %s\n", PPREFIX(), dd->name, tag, (long long)sampletime, arrayWithDimToStr_st(inputVector, ddd->input->buffer.vectorsize));
 		}
 	    } else {
 		printf("%s:  %s: Error %d when parsing line: %*.*s\n", PPREFIX(), dd->name, r, n, n, s);
@@ -651,8 +737,7 @@ void deviceTranslateInputToOutput(struct deviceStreamData *ddd) {
     double				previousSampleTime, sampletime, td;
     double				*inputVector;
     double				outputVector[DEVICE_DATA_VECTOR_MAX];
-    double				drift[DEVICE_DATA_VECTOR_MAX];
-    int					i, imax, count, li, ii;
+    int					i, j, imax, count, li, ii;
     
     dd = ddd->dd;
 
@@ -684,7 +769,8 @@ void deviceTranslateInputToOutput(struct deviceStreamData *ddd) {
     // This loop usually goes 0 times for slow devices, sometime 1 time when there are new data
     for(; ii<imax; ii++) {
     	i = ii % ddd->input->buffer.size;
-	sampletime = ddd->input->buffer.a[i * (ddd->input->buffer.vectorsize+1)];
+	sampletime = ddd->input->buffer.a[i * (ddd->input->buffer.vectorsize+1)] - ddd->latency;
+
 	// Some basic chect to detect wrong time on sender side
 	// lprintf(1, "%s: %s.%s: checking time %g.\n", PPREFIX(), dd->name, ddd->name, sampletime);
 	if (sampletime < currentTime.dtime - 7*24*60*60 || sampletime > currentTime.dtime + 7*24*60*60) {
@@ -702,12 +788,21 @@ void deviceTranslateInputToOutput(struct deviceStreamData *ddd) {
 	    break;
 	case DT_ORIENTATION_RPY:
 	case DT_ORIENTATION_RPY_SHM:
-	    // apply mount correction
-	    vec3_sub(outputVector, inputVector, dd->mount_rpy);
-	    if (ddd->launchPoseSetFlag) {
-		// Yaw during launch shall be zero, so deduce launch yaw reported by the sensor
-		//& outputVector[2] -= ddd->launchData[2];
+	    // apply mount corrections
+	    for(j=0; j<deviceDataStreamVectorLength[ddd->type]; j++) {
+		outputVector[j] = inputVector[dd->mount_rpy_order[j]] * dd->mount_rpy_scale[j] - dd->mount_rpy[j];
 	    }
+	    // vec3_mul_elem(outputVector, outputVector, dd->mount_rpy_scale);
+	    // vec3_sub(outputVector, outputVector, dd->mount_rpy);
+	    if (ddd->launchPoseSetFlag) {
+		// Originally I though that Yaw during launch shall be zero, so deduce launch yaw reported by the sensor
+		// but maybe we will have yaw directly the one reported by some sensors (Magnetometer for example).
+		outputVector[2] -= ddd->launchData[2];
+	    }
+	    break;
+	case DT_EARTH_ACCELERATION:
+	case DT_EARTH_ACCELERATION_SHM:
+	    vec3_assign(outputVector, inputVector);
 	    break;
 	    /*
 	case DT_ORIENTATION_QUATERNION:
@@ -757,6 +852,14 @@ void deviceTranslateInputToOutput(struct deviceStreamData *ddd) {
 		outputVector[0] = inputVector[0];
 	    }
 	    break;
+	case DT_TEMPERATURE:
+	    assert(deviceDataStreamVectorLength[ddd->type] == 1);
+	    outputVector[0] = inputVector[0];
+	    break;
+	case DT_MAGNETIC_HEADING:
+	    assert(deviceDataStreamVectorLength[ddd->type] == 3);
+	    lprintf(0, "%s: Magnetic heading: not yet implemented\n", PPREFIX());
+	    break;
 	default:
 	    break;
 	}
@@ -780,59 +883,10 @@ void deviceTranslateInputToOutput(struct deviceStreamData *ddd) {
 //////////////////////////////////////////////////////////////////////////////////////////////////
 // devices communication
 
-static int baioLineInputDevCallBackOnDelete(struct baio *b) {
-    int			i;
-    struct deviceData 	*dd;
-
-    if (shutDownInProgress) return(0);
-	
-    if (b->baioType == BAIO_TYPE_FD) baioCloseFd(b);
-    i = b->userParam[0].i;
-    assert(i>=0 && i<uu->deviceMax);
-    dd = uu->device[i];
-    assert(dd != NULL);
-    // print both to stdout and log. We do not know which of them is currently usable
-    printf("%s: Error: connection to %s lost\n", PPREFIX(), dd->name);
-    lprintf(0, "%s: Error: connection to %s lost\n", PPREFIX(), dd->name);
-
-    // if (i != 0) {assert(0); exit(-1);}
-    /*
-    if (dd->autoReconnectFlag) {
-	timeLineInsertUniqEventIfNotYetInserted(UTIME_AFTER_MSEC(100), (timelineEventFunType*)baioLineIOConnectInternal, (void*)dd);
-    }
-    */
-    return(0);
-}
-
-static int baioLineInputDevCallBackOnError(struct baio *b) {
-    int			i;
-    struct deviceData 	*dd;
-	
-    i = b->userParam[0].i;
-    assert(i>=0 && i<uu->deviceMax);
-    dd = uu->device[i];
-    assert(dd != NULL);
-    // print both to stdout and log. We do not know which of them is currently usable
-    printf("%s: Error: problem in connection to %s, closing it.\n", PPREFIX(), dd->name);
-    lprintf(0, "%s: Error: problem in connection to %s, closing it.\n", PPREFIX(), dd->name);
-    baioClose(b);
-    return(0);
-}
-
-static int baioLineInputDevCallBackOnRead(struct baio *bb, int fromj, int num) {
-    int				i, ii;
-    struct deviceData 		*dd;
+static int baioLineInputDevCallBackOnRead(struct deviceData *dd, struct baio *bb, int fromj, int num) {
+    int				i;
     struct baioBuffer		*b;
 
-    lprintf( 99, "%s: READ %d bytes (fromj==%d): %.*s", PPREFIX(), num, fromj, num, bb->readBuffer.b+bb->readBuffer.j-num);
-    lprintf( 35, "%s: READ %d bytes\n", PPREFIX(), num);
-	
-    ii = bb->userParam[0].i;
-    assert(ii >= 0 && ii < uu->deviceMax);
-    dd = uu->device[ii];
-    assert(dd != NULL);
-
-    dd->lastActivityTime = currentTime.dtime;
     b = &bb->readBuffer;
 	
     // we have n available chars starting at s[i]
@@ -881,6 +935,85 @@ static int baioLineInputDevCallBackOnRead(struct baio *bb, int fromj, int num) {
     return(0);
 }
 
+static int baioMavlinkInputDevCallBackOnRead(struct deviceData *dd, struct baio *bb, int fromj, int num) {
+    int				i, ii;
+    struct baioBuffer		*b;
+
+    b = &bb->readBuffer;
+	
+    lprintf(50, "%s: READ %d bytes (fromj==%d): %.*s", PPREFIX(), num, fromj, num, bb->readBuffer.b+bb->readBuffer.j-num);
+    lprintf(50, "%s: READ %d bytes\n", PPREFIX(), num);
+
+    mavlinkParseInput(dd, bb, fromj, num);
+    return(0);
+}
+
+static int baioDeviceCallBackOnDelete(struct baio *b) {
+    int			i;
+    struct deviceData 	*dd;
+
+    if (shutDownInProgress) return(0);
+	
+    if (b->baioType == BAIO_TYPE_FD) baioCloseFd(b);
+    i = b->userParam[0].i;
+    assert(i>=0 && i<uu->deviceMax);
+    dd = uu->device[i];
+    assert(dd != NULL);
+    // print both to stdout and log. We do not know which of them is currently usable
+    printf("%s: Error: connection to %s lost\n", PPREFIX(), dd->name);
+    lprintf(0, "%s: Error: connection to %s lost\n", PPREFIX(), dd->name);
+
+    // if (i != 0) {assert(0); exit(-1);}
+    /*
+    if (dd->autoReconnectFlag) {
+	timeLineInsertUniqEventIfNotYetInserted(UTIME_AFTER_MSEC(100), (timelineEventFunType*)baioLineIOConnectInternal, (void*)dd);
+    }
+    */
+    return(0);
+}
+
+static int baioDeviceCallBackOnError(struct baio *b) {
+    int			i;
+    struct deviceData 	*dd;
+	
+    i = b->userParam[0].i;
+    assert(i>=0 && i<uu->deviceMax);
+    dd = uu->device[i];
+    assert(dd != NULL);
+
+    // print both to stdout and log. We do not know which of them is currently usable
+    printf("%s: Error: problem in connection to %s, closing it.\n", PPREFIX(), dd->name);
+    lprintf(0, "%s: Error: problem in connection to %s, closing it.\n", PPREFIX(), dd->name);
+    baioClose(b);
+    return(0);
+}
+
+static int baioDeviceCallBackOnRead(struct baio *bb, int fromj, int num) {
+    int				ii, res;
+    struct deviceData 		*dd;
+
+    lprintf( 99, "%s: READ %d bytes (fromj==%d): %.*s", PPREFIX(), num, fromj, num, bb->readBuffer.b+bb->readBuffer.j-num);
+    lprintf( 35, "%s: READ %d bytes\n", PPREFIX(), num);
+	
+    ii = bb->userParam[0].i;
+    assert(ii >= 0 && ii < uu->deviceMax);
+    dd = uu->device[ii];
+    assert(dd != NULL);
+
+    dd->lastActivityTime = currentTime.dtime;
+
+    switch (dd->connection.type) {
+    case DCT_MAVLINK_PTTY:
+	res = baioMavlinkInputDevCallBackOnRead(dd, bb, fromj, num);
+	break;
+    default:
+	res = baioLineInputDevCallBackOnRead(dd, bb, fromj, num);
+	break;
+    }
+
+    return(res);
+}
+
 void deviceInitiate(int i) {
     struct deviceData 	*dd;
     struct baio 	*bb;
@@ -902,7 +1035,11 @@ void deviceInitiate(int i) {
 	bb = baioNewPipedCommand(dd->connection.u.command, BAIO_IO_DIRECTION_RW, 1, 0);
 	break;
     case DCT_NAMED_PIPES:
-	bb = baioNewNamedPipes(dd->connection.u.pp.read_pipe, dd->connection.u.pp.write_pipe, 0);
+	bb = baioNewNamedPipes(dd->connection.u.namedPipes.read_pipe, dd->connection.u.namedPipes.write_pipe, 0);
+	break;
+    case DCT_MAVLINK_PTTY:
+	bb = baioNewPseudoTerminal(dd->connection.u.mavlink.link, 1152000, 0);
+	mavlinkInitiate(dd, bb);
 	break;
     default:
 	printf("%s: Internal error: wrong connection type %d for device %s.\n", PPREFIX(), dd->connection.type, dd->name);
@@ -922,9 +1059,9 @@ void deviceInitiate(int i) {
     // this overwrites defaulf buffer sizes of baio
     bb->initialReadBufferSize = (1<<16);
     bb->initialWriteBufferSize = (1<<10);
-    callBackAddToHook(&bb->callBackOnRead, (callBackHookFunArgType) baioLineInputDevCallBackOnRead);
-    callBackAddToHook(&bb->callBackOnError, (callBackHookFunArgType) baioLineInputDevCallBackOnError);
-    callBackAddToHook(&bb->callBackOnDelete, (callBackHookFunArgType) baioLineInputDevCallBackOnDelete);
+    callBackAddToHook(&bb->callBackOnRead, (callBackHookFunArgType) baioDeviceCallBackOnRead);
+    callBackAddToHook(&bb->callBackOnError, (callBackHookFunArgType) baioDeviceCallBackOnError);
+    callBackAddToHook(&bb->callBackOnDelete, (callBackHookFunArgType) baioDeviceCallBackOnDelete);
     bb->userParam[0].i = i;
 
     deviceInitiateRegularAutoAdjustementOfDrifts(dd);
@@ -950,6 +1087,7 @@ void deviceFinalize(int i) {
     baioCloseMagic(dd->baioMagic);
 }
 
+// Be carefull with this. Some devices are text some are mavlink, ...
 void deviceSendToAllDevices(char *fmt, ...) {
     int		i;
     va_list     arg_ptr, ap;

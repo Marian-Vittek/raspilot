@@ -12,11 +12,12 @@ under 250g running Raspilot.
 
 ### Why to do it?
 
-This project began as a professional assignment. The aim was to
+This project began as a professional assignment.  The aim was to
 develop a flight controller and autopilot where it is easy to connect
-various hardware components such as experimental gyroscopes, distance
-sensors, positioning modules etc. and perform series of tests. Another
-goal was potentially unlimited precision (sub centimeter) of flight.
+various hardware components such as experimental gyroscopes,
+barometers, distance sensors, positioning modules etc. and perform
+series of tests. Another goal was potentially unlimited precision (sub
+centimeter) of flight.
 
 Unfortunately, the company that commissioned the software cancelled
 the project before it had reached its first milestone. By that time
@@ -67,7 +68,7 @@ asynchronously and the input is read as it comes.  The autopilot
 itself runs an infinite loop at an adjustable frequency. Frequency is
 configurable and ranges between 50Hz and 5kHz. Less stable designs
 with the centre of gravity above propellers require higher frequency.
-Most of our drones (small and large) were operated at around 200 Hz.
+Most of our drones (small and large) were operated at 200 Hz.
 
 
 From the user point of view, the whole autopilot behaves like a

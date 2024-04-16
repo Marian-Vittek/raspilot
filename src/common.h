@@ -1,6 +1,11 @@
 #ifndef _COMMON__H_
 #define _COMMON__H_ 1
 
+#define _XOPEN_SOURCE 600
+#define _BSD_SOURCE 1
+#define _DEFAULT_SOURCE 1
+
+#include <termios.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -16,6 +21,7 @@
 #include <termios.h>
 #include <signal.h>
 #include <ctype.h>
+#include <stddef.h>
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -29,6 +35,11 @@
 #include "expmem.h"
 #include "sglib.h"
 #include "pi2c.h"
+
+// In out coordinates:
+// pitch - negative == nose down;      positive == nose up
+// roll  - negative == left wing down; positive == left wing up
+// yaw   - positive == rotated counterclockwise (view from up)
 
 // we are using linmath library for quaternions.
 // where q[0] == x; q[1] == y; q[2] == z; q[3] == w;
@@ -53,14 +64,18 @@
 #define PILOT_LAUNCH_SPEED			1.0
 #define PILOT_LAUNCH_GOAL_ORIENTATION_TIME	0.2
 #define PILOT_LAUNCH_GOAL_POSITION_TIME		0.6
-#define PILOT_LAUNCH_MAX_TIME			30.0
+#define PILOT_LAUNCH_MAX_TIME			300.0
 #define PILOT_LAND_SPEED			0.2
 
 #define PILOT_PRELAUNCH_FREQUENCY_HZ		50
 
+// TODO: put those in config file
 #define PILOT_WARMING_WARNING_ROTATION_TIME		0.5
 #define PILOT_WARMING_WARNING_ROTATIONS_DELAY		3.0
-#define PILOT_WARMING_WARNING_ROTATIONS_TO_LAUNCH	5.0
+#define PILOT_WARMING_WARNING_ROTATIONS_TO_LAUNCH	2.0
+
+// Whether to smooth linear regression results by interpolating value inside of the buffer
+#define SMOOTH_REGRESSION			1
 
 // Whether D action in PID is based on error or PV
 #define PID_USES_ERROR_BASED_DERIVATIVE 	0
@@ -85,7 +100,7 @@
 #define MOTOR_MAX			16
 #define DEVICE_MAX			64
 #define DEVICE_DATA_MAX			32
-#define DEVICE_DATA_VECTOR_MAX 		8
+#define DEVICE_DATA_VECTOR_MAX 		64
 // In order to speed up parsing of thrust sent to motorsd, we are sending integers instead of double.
 // The actual thrust <0..1> will be multiplied by this factor before being sent to motors.
 #define MOTOR_STREAM_THRUST_FACTOR			10000
@@ -96,7 +111,9 @@
 #define STATIC_STRINGS_RING_SIZE        64
 #define ZERO_SIZED_ARRAY_SIZE           0
 #define MAGIC_NUMBER			0xcafe
+// Hold ANGLE_NAN close to zero for case it actually happens
 #define ANGLE_NAN			0.12345e-67
+#define INDEX_NAN			-987656789L
 // do not send thrust changes less than that because PWM has smal resolution anyway
 #define MOTOR_THRUST_EPSILON		0.001
 
@@ -104,7 +121,7 @@
 
 /////////////////////////////////////////////////////////////
 
-// special value for motor setting/testing function
+// special value for motor setting/testing functions
 #define MOTORS_ALL			-1
 
 #define REGRESSION_BUFFER_LAST(hh) (&(hh)->a[(hh)->ailast * (hh)->vectorsize])
@@ -231,69 +248,44 @@
 struct universe;
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// basic mode in which the raspilot instance operates (specified in config file).
+enum pilotMainModeEnum {
+    MODE_NONE,
+    MODE_MOTOR_PWM_CALIBRATION,
+    MODE_MOTOR_TEST,
+    MODE_MANUAL_RC,
+    MODE_SINGLE_MISSION,
+    MODE_MAX,
+};
 
+// Modes for remote controls controlling roll/pitch/yaw
+enum remoteControlModes {
+    RCM_NONE,
+    RCM_PASSTHROUGH,	// rc is directly interpreted as thrust 
+    RCM_ASSISTED,	// rc is interpreted as (rotation) speed (assisted by PID controller) (requires gyro)
+    RCM_TARGET,		// rc is interpreted as target roll/pitch/yaw value (requires gyro)
+    RCM_AUTO,		// rc is interpreted as drone speed, actual roll/pitch is controlled by autopilot (requires gyro+position(GPS))
+    RCM_MAX,
+};
+
+// Possible main states in which autopilot can be
 enum flyStageEnum {
     FS_NONE,
+    // Init
     FS_START,
+    // Usual states are looping between FS_STANDBY until FS_FLY
+    FS_STANDBY,
+    FS_COUNTDOWN,
     FS_WAITING_FOR_SENSORS,
     FS_PRE_FLY,
     FS_FLY,
-    // Following stages are not yet implemented, TODO: instead shutdown in progress test uu->stageFly >= FS_SHUTDOWN
-    FS_LAND,
+    // Exceptional states
+    FS_EMERGENCY_LANDING,
     FS_SHUTDOWN,
+    
     FS_MAX,
 };
 
-
-// TODO: Remove  all this coordinate system stuff. It is overcomplicated. Instead implement
-// gotoWaypointToGps(), gotoWaypointRelative(), etc. ...
-enum coordinateSystemEnum {
-    
-    // CS stands for Coordinate System
-    CS_NONE,
-    
-    // GBASE stands for "Gravity Base", it is a static CS in meters. Point [0,0,0] is at the point where the drone starts and its
-    // Z-axis points up from earth center (that's why CS_GBASE and not CS_BASE),
-    // X-axis points forward from the drone perspective at the moment of start,
-    // Y-axis points left from the drone perspective at the moment of start,
-    // GBASE is 'created' at the moment of the start, and stay unchanged no matter how drone moves.
-    // Coordinates of anything in the worlds do not change in GBASE since the drone initalization.
-    CS_GBASE,
-    
-    // Drone is a CS relative to the drone center. Point [0,0,0] refers to the center of gravity of the drone.
-    // Coordinate system moves with drone movement so that
-    // Z-axis points up from the drone perspective
-    // X-axis points forward from the drone perspective
-    // Y-axix points left from the drone perspective
-    // CS_DRONE is not the same as CS_GBASE even at the moment of the start, because its Z-axis does not point
-    // from the earth center, but is relative to the drone orientation. X,Y axis of CS_DRONE are the same as CS_GBASE
-    // at the moment of start. Then CS_DRONE moves as the drone moves while CS_GBASE remains stable.
-    CS_DRONE,
-
-    // GPS (not yet implemented) is a static earth fixed CS:
-    // Z-axis corresponds to the altitude in meters from sea level?
-    // X-axis corresponds to the longitude (East positive, West negative) in degrees from Greenwich 
-    // Y-axis corresponds to the latitude (North positive, South negative) in degrees from Equator
-    CS_GPS,
-
-    // Earth (not yet implemented) is an earth fixed CS expressed in meters (not degrees) starting from an absolute "Zero Point" where
-    // Z-axis corresponds to the altitude in meters from the level of "Zero Point" 
-    // X-axis corresponds to the longitude (East positive, West negative) in meters from "Zero Point"
-    // Y-axis corresponds to the latitude (North positive, South negative) in meters from "Zero Point"
-    // It is a short range "local version" of GPS. GPS is to be transformed to CS_EARTH before beeing used.
-    CS_EARTH,
-
-    // Global is a deep space fixed CS (envisaged for our Mars mission :))
-    CS_GLOBAL,
-
-
-
-    ///////////////////////////////////
-    
-    CS_APRIL,	// temporary for milestone 1
-    
-    CS_MAX,
-};
 
 enum deviceDataTypes {
     DT_NONE,
@@ -316,6 +308,9 @@ enum deviceDataTypes {
     DT_BOTTOM_RANGE,
     DT_FLOW_XY,
     DT_ALTITUDE,
+    DT_TEMPERATURE,
+    DT_MAGNETIC_HEADING,
+    DT_EARTH_ACCELERATION,
     DT_ORIENTATION_RPY,
     // DT_ORIENTATION_QUATERNION,    
     DT_POSITION_NMEA,
@@ -326,7 +321,17 @@ enum deviceDataTypes {
 
     // Shared memory streams
     DT_POSITION_SHM,
+    DT_EARTH_ACCELERATION_SHM,
     DT_ORIENTATION_RPY_SHM,
+
+    // Input from Mavlink
+    DT_MAVLINK_RC_CHANNELS_OVERRIDE, 
+    // Output to Mavlink
+    DT_MAVLINK_ATTITUDE,
+    DT_MAVLINK_BATTERY_STATUS,
+    DT_MAVLINK_GLOBAL_POSITION,
+    DT_MAVLINK_HOME_POSITION,
+    DT_MAVLINK_STATUSTEXT,
     
     DT_MAX,
 };
@@ -334,16 +339,36 @@ enum deviceDataTypes {
 // Maybe this is useless, you can implement all of them as DCT_COMMAND_BASH
 enum deviceConnectionTypeEnum {
     DCT_NONE,
+    // A dummy device providing pose which is always zero
     DCT_INTERNAL_ZEROPOSE,
+    // A subprocess forked and executed and connected by a pair of linux pipes
+    // command itself can write/read to/form pipes or shared memory.
     DCT_COMMAND_BASH,
     DCT_COMMAND_EXEC,
-    // Named pipes looked nice. Unfortunately, on raspberry pi they are unstable. They have jitters making them unusable for low latency devices.
-    DCT_NAMED_PIPES,     
+    // Named pipes looked nice. Unfortunately, on raspberry pi they are unstable. They have jitters
+    //  making them unusable for low latency devices.
+    DCT_NAMED_PIPES,
+    // A pseudo terminal sending/receiving mavlink
+    // This is for softwares like Open Hd or Ruby FPV
+    DCT_MAVLINK_PTTY,
     /* in the future we can do something like:
     DCT_TCPIP_CLIENT_SOCKET,
     DCT_TCPIP_SERVER_SOCKET,
     */
     DCT_MAX,
+};
+
+enum radioControlEnum {
+    RC_NONE,
+    RC_ROLL,
+    RC_PITCH,
+    RC_YAW,
+    RC_ALTITUDE,
+
+    RC_BUTTON_STANDBY,
+    RC_BUTTON_LAUNCH_COUNTDOWN,
+    RC_BUTTON_PANIC_SHUTDOWN,
+    RC_MAX,
 };
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -478,6 +503,7 @@ enum baioTypes {
     BAIO_TYPE_SERIAL,               // file representing serial port (needs init at open)
     BAIO_TYPE_PIPED_COMMAND,        // bash command connected via a single pipe
     BAIO_TYPE_NAMED_PIPES,          // a pair of named Unix pipes
+    BAIO_TYPE_PTTY,                 // pseudo terminal
     BAIO_TYPE_UDP,
     BAIO_TYPE_MAX,
 };
@@ -498,7 +524,7 @@ enum baioTypes {
 #define BAIO_BLOCKED_FOR_WRITE_IN_WRITE             0x002000
 #define BAIO_READ_BUFFER_HAS_SPACE_FOR_READ(bb)     (bb->initialReadBufferSize - (bb->readBuffer.j - bb->readBuffer.i) > bb->minFreeSizeBeforeRead)
 
-// user's can have values stored in structure baio. Those params are stored in an array
+// users can have values stored in structure baio. Those params are stored in an array
 // of the following UNION type
 union baioUserParam {
     void                *p;         // a pointer parameter
@@ -509,8 +535,7 @@ union baioUserParam {
 struct baioBuffer {
     // buffered characters
     char    *b;
-    // buffer is simply a linear array. Values between b[i] and b[j]
-    // contains valid chars
+    // buffer is simply a linear array. Values between b[i] and b[j] contains valid chars
     // Baio can move whole buffer (i.e. move b[i .. j] -> b[0 .. j-i) and consequently i,j -> 0,j-i; at any time.
     int     i,j;
     // allocated size
@@ -530,6 +555,7 @@ struct baio {
     int                     ioDirections;
     int                     rfd;		// reading fd
     int                     wfd;		// writting fd
+    int			    sfd;		// slave fd (for pseudo terminal)
     unsigned                status;
     int                     index;
     int                     baioMagic;
@@ -624,9 +650,13 @@ struct pidController {
 };
 
 
-// Regression buffer is a ring buffer storing vectors of size vectorsize in each cell.
-// Usualy, it also maintains sums and sums of squares of stored elements. Those sums are used
-// for fast extrapolation (for given time) of values by linear regression.
+// Regression buffer is a data structure used to compute "moving
+// linear regression". It is used to filter inputs from sensors. It is
+// a ring buffer storing vectors of size vectorsize in each cell.
+// Each such vector represents one input from sensore, like [roll,
+// pitch, yaw].  Usualy, regression buffer maintains sums and sums of
+// squares of stored elements. Those sums are used for fast
+// extrapolation (for given time) of values by linear regression.
 struct regressionBuffer {
     char		name[256];	// for debug output only, to be removed or replaced by char *name;
     int			size;
@@ -639,9 +669,13 @@ struct regressionBuffer {
     // the actual data stored in the buffer
     double		*time;		// time[size]          // time when the vector was added
     double		*a;		// a[size][vectorsize] // the actual numbers stored in the buffer
-
+#if SMOOTH_REGRESSION
+    double		*tmp;		// tmp[vectorsize]	// place for temporary storing a vector
+#endif
+    
     int			keepSumsFlag;	// if zero, sums are not maintained (used for buffers not using regression too much)
-    double		timeOffsetForSums; // time is decresed by this offset in sum and sumSquare to avoid overflow
+    double		timeOffsetForSums; // time is decresed by this offset in sum and sumSquare to minimize overflows and rounding errors
+
     // sums used for least square method (from times and elements currently hold in the 'a' array)
     double		sumTime;
     double		sumTimeSquare;
@@ -669,34 +703,33 @@ struct deviceStreamData {
     double			min_altitude;		// min valid altitude (for flow detectors)
     double			max_altitude;		// max valid altitude (for flow detectors)
     uint8_t			mandatory;		// whether device has to be active before launch
-    int				history_size;   	// the size of the history saved for linear interpolation, rename to regression_points or similar
     int				debug_level;
-    double			weight[DEVICE_DATA_VECTOR_MAX];			// weight is per axis in GBASE, or rpy or whatever
+    double			*weight;		// array[deviceDataStreamVectorLength[type]], weight is per vector element
+    int				regression_size;   	// the size of the history saved for linear interpolation
+    // int				use_mean;   		// This is probably useless, you can use negative latency for that
 
     struct deviceData		*dd;			// "back" pointer to device data where I belong
     // devicedata are linked also by the type of data for faster fusion of sensors
     struct deviceStreamData 	*nextWithSameType;
 
+    int			 	*channel_map;			// array[deviceDataStreamVectorLength[type]], for RC remote control
+    int			 	inverse_channel_map[RC_MAX];	// map from RC_XXX to the channel having it
 
     // Run time data
     
     // For devices having regular drift value (like yaw in accelerometer) we increase
     // the output by a driftOffset. driftOffset is increased at each tick by 'drift_offset_per_second' * timeDelta.
     // 'drift_offset_per_second' is the main value to set up when defining a drifting device manually.
-    // Otherwise soecify drift_auto_fix_period as time to auto recompute 'drift_offset_per_second'.
-    double			drift_auto_fix_period[DEVICE_DATA_VECTOR_MAX];
-    double   			drift_offset_per_second[DEVICE_DATA_VECTOR_MAX];
-    double			driftOffset[DEVICE_DATA_VECTOR_MAX];
+    // Alternatively, you can specify drift_auto_fix_period as time to auto recompute 'drift_offset_per_second'.
+    double			*drift_auto_fix_period; 	// array[deviceDataStreamVectorLength[type]]
+    double   			*drift_offset_per_second; 	// array[deviceDataStreamVectorLength[type]]
+    double			*driftOffset; 			// array[deviceDataStreamVectorLength[type]]
     double			driftOffsetLastIncrementTime;
 
 
-    // This is the place where the 'raw' values read from the device are stored.
-    // Old way.
-    // raw data coming from the sensor are parsed, "timestamped" and put into this buffer
-    //struct raspilotRingBuffer		inputBuffer;
-    //  New way allowing shared memory access.    
+    // This is the place where the 'raw' values from the device are stored.
     // Data coming from the sensor through a text pipe are parsed, "timestamped" and put into this buffer.
-    // Shared memory devices send us a pointer to this structure on init and write directly into this shared.
+    // Shared memory devices share this buffer memory and write directly into it.
     struct raspilotInputBuffer	*input;
     
     // data from inputBuffer are transformed to what pilot needs (usualy orientation/position)
@@ -705,16 +738,16 @@ struct deviceStreamData {
     int				inputToOutputN;	// the indice of the first item in inputBuffer not moved to outputBuffer yet
 
     
-    // TODO move from scalar confidence to vector, even better per record!
+    // TODO move from scalar confidence to vector confidence (maybe even better, store confidence for each single stored record)!
     double			confidence;	
 
     // something for final statistics
     double			pongTotalTimeForStatistics;
     int				totalNumberOfRecordsReceivedForStatistics;
     
-    // This is the value the device reported before drone launch
+    // This is the value the device reported at the moment when the drone launch
     // It may or may not (depending on device type) be used to correct device data
-    double   			launchData[DEVICE_DATA_VECTOR_MAX];
+    double   			*launchData; 		// array[deviceDataStreamVectorLength[type]]
     uint8_t			launchPoseSetFlag;	// whether we have yet stored the launch pose
 
 };
@@ -728,11 +761,22 @@ struct deviceStreamDataDriftUpdateStr {
 struct connection {
     int type; // enum deviceConnectionTypeEnum
     union {
+	// command
 	char		*command;
+	// named pipes
 	struct {
 	    char	*read_pipe;
 	    char	*write_pipe;
-	} pp;
+	} namedPipes;
+	// mavlink pseudo terminal
+	struct {
+	    int			system_id;
+	    int			component_id;
+	    int			gs_system_id;
+	    int			gs_component_id;
+	    int			debug_level;
+	    char		*link;
+	} mavlink;
     } u;
 };
 
@@ -745,7 +789,9 @@ struct deviceData {
     struct deviceStreamData	*ddt[DEVICE_DATA_MAX];
     int				ddtMax;
     vec3			mount_position;		// w.r.t. the center of gravity
-    vec3			mount_rpy;		// roll pitch yaw
+    int				mount_rpy_order[3];	// permutation to reorder output to roll,pitch,yaw order
+    vec3			mount_rpy_scale;	// sign -1 or +1 to fit raspilot coordinate system orientation
+    vec3			mount_rpy;		// roll pitch yaw offset to be substracted from reported values
     double			warming_time;
     
     // Flag whether to send 'exit' command to motors at raspilot shutdown.
@@ -774,9 +820,22 @@ struct waypoint {
     double			yaw;
 };
 
+struct manual_rc {
+    int				mode;
+    double			min_zone;	// to be renamed to joystick_neutral_zone
+    double			scroll_zone;
+    double			min;
+    double			max;
+    double			sensitivity;
+    double			scroll_speed;
+};
+
 struct config {
+    int				pilot_main_mode;
+    
     double			motor_thrust_min_spin;
     double			motor_altitude_thrust_max;
+    double			motor_altitude_thrust_hold;
     double			pilot_reach_goal_orientation_time;
     double			pilot_reach_goal_position_time;
     double			drone_max_inclination;
@@ -789,13 +848,31 @@ struct config {
     double			drone_waypoint_reached_angle;
     double			short_buffer_seconds;
     double			long_buffer_seconds;
+
+    // manual rc control
+    struct manual_rc		manual_rc_roll;
+    struct manual_rc		manual_rc_pitch;
+    struct manual_rc		manual_rc_yaw;
+    struct manual_rc		manual_rc_altitude;
+};
+
+struct manualControlState {
+    // This is the value which autopilot or fc is using
+    // TODO: Rename this to something meaningful
+    double value;
+
+    // auxiliary values. 
+    double rc_value;		// last used rc value
+    double lastReportedValue;	// last value printed to GUI
+    double base;		// central point
+    double lastUpdateDtime;	// time of the last update
 };
 
 struct manualControl {
-    double roll;
-    double pitch;
-    double yawIncrementPerSecond;
-    double altitude;
+    struct manualControlState roll;
+    struct manualControlState pitch;
+    struct manualControlState yaw;
+    struct manualControlState altitude;
 
     double gimbalXIncrementPerSecond;
     double gimbalYIncrementPerSecond;
@@ -826,6 +903,7 @@ struct universe {
     struct pidController	pidX;
     struct pidController	pidY;
     struct pidController	pidAltitude;
+    struct pidController	pidAccAltitude;
 
     struct waypoint 		currentWaypoint;
     
@@ -860,16 +938,20 @@ struct universe {
     // Short buffer is used to smooth roll and pitch
     struct regressionBuffer	shortBufferPosition;
     struct regressionBuffer	shortBufferRpy;
+    struct regressionBuffer	shortBufferAcceleration;
 
     double			averageAltitudeThrust;		// moving average altitude thrust 
     double			batteryStatusRpyFactor;		// this should accumulate charging status of the battery
+    double			batteryStatusPerc;		// this should point to battery charge status percentage
     
     // Those values may be used as the current position, orientation and velocity of the drone
-    vec3			droneLastPosition;
-    vec3			droneLastRpy;
-    vec3			droneLastVelocity;
     vec3			droneLastRpyRotationSpeed;
+    vec3			droneLastRpy;
+    vec3			droneLastAcceleration;
+    vec3			droneLastVelocity;
+    vec3			droneLastPosition;
     // The time when previous values were updated
+    double			droneLastStabilizationTickLength;
     double			droneLastTickTime;
 
     // Target roll, pitch yaw [speed] for PID controller
@@ -900,11 +982,9 @@ typedef int deviceDataParseFunction(char *tag, char *p, struct deviceData *dd, s
 extern int 			debugLevel;
 extern int 			logLevel;
 extern int 			baseLogLevel;
-extern int			log10TicksPerSecond;
 extern struct universe		*uu;
 extern struct globalTimeInfo	currentTime;
 extern struct timeLineEvent     *timeLine;
-extern uint64_t			tickCounter;
 extern uint64_t			currentTimeLineTimeUsec;
 extern int64_t 			nextStabilizationTickUsec;
 extern int64_t 			nextPidTickUsec;
@@ -913,8 +993,10 @@ extern struct jsonnode 		dummyJsonNode;
 extern char 			*signalInterruptNames[258];
 extern int 			deviceDataStreamVectorLength[DT_MAX];
 extern char 			*deviceDataTypeNames[DT_MAX+2];
-extern char 			*coordinateSystemNames[CS_MAX+2];
 extern char			*deviceConnectionTypeNames[DCT_MAX+2];
+extern char			*radioControlNames[RC_MAX+2];
+extern char			*pilotMainModeNames[MODE_MAX+2];
+extern char			*remoteControlModeNames[RCM_MAX+2];
 
 char *getTemporaryStringPtrFromStaticStringRing();
 int strtoint(char *s, char **ee) ;
@@ -938,7 +1020,8 @@ double angleSubstract(double a1, double a2) ;
 char *fileLoadToNewlyAllocatedString(char *path, int useCppFlag) ;
 double normalizeAngle(double omega, double min, double max) ;
 double normalizeToRange(double value, double min, double max) ;
-double truncateToRange(double x, double min, double max, char *warningTag) ;
+double truncateToRange(double x, double min, double max, char *warningTag, int warningIndex) ;
+void vecTruncateInnerToRange(vec3 r, int dim, double min, double max, char *warningId);
 void vec2Rotate(double *res, double *v, double theta) ;
 
 char *currentLocalTime_st() ;
@@ -964,6 +1047,7 @@ char *arrayWithDimToStr_st(double *a, int dim) ;
 void enumNamesInit() ;
 void enumNamesPrint(FILE *ff, char **names) ;
 int enumNamesStringToInt(char *s, char **names) ;
+void initSerialPort(int fd, int baudrate) ;
 void terminalResume() ;
 int stdbaioStdinMaybeGetPendingChar() ;
 void stdbaioStdinClearBuffer();
@@ -976,6 +1060,7 @@ void regressionBufferAddToSums(struct regressionBuffer *hh, double time, double 
 void regressionBufferSubstractFromSums(struct regressionBuffer *hh, double time, double *vec) ;
 void regressionBufferRecalculateSums(struct regressionBuffer *hh) ;
 void regressionBufferAddElem(struct regressionBuffer *hh, double time, double *vec) ;
+void regressionBufferReset(struct regressionBuffer *hh) ;
 void regressionBufferInit(struct regressionBuffer *hh, int vectorSize, int bufferSize, char *namefmt, ...) ;
 void regressionBufferFindRecordForTime(struct regressionBuffer *hh, double time, double *restime, double *res) ;
 int regressionBufferGetRegressionCoefficients(struct regressionBuffer *hh, int i, double *k0, double *k1) ;
@@ -1029,16 +1114,25 @@ void mainLoadMissionFile() ;
 int deviceIsSharedMemoryDataStream(struct deviceStreamData *ddl) ;
 struct deviceData *deviceFindByName(char *name) ;
 struct deviceStreamData *deviceFindStreamByName(struct deviceData *dd, char *name) ;
+struct deviceStreamData *deviceFindStreamByType(struct deviceData *dd, int type) ;
+void manualPilotSetControl(struct manualControlState *control, double rc_value, struct manual_rc *ss, char *controlName, int loglevel) ;
+void manualControlInit(struct manualControlState *ss, struct manual_rc *mm) ;
 void deviceParseInputStreamLineToInputBuffer(struct deviceData *dd, char *s, int n) ;
 void deviceTranslateInputToOutput(struct deviceStreamData *ddd) ;
 void deviceInitiate(int i) ;
 void deviceFinalize(int i) ;
 void deviceSendToAllDevices(char *fmt, ...) ;
 
+void manualPilotSetRoll(double vv) ;
+void manualPilotSetPitch(double vv) ;
+void manualPilotSetYaw(double vv) ;
+void manualPilotSetAltitude(double alt) ;
+
 // pilot.c
 int raspilotPoll() ;
-void raspilotBusyWait(double sleeptime) ;
+void raspilotBusyWaitUntilTimeoutOrStandby(double sleeptime) ;
 int raspilotInit(int argc, char **argv) ;
+void raspilotGotoStandby() ;
 int raspilotShutDownAndExit() ;
 void raspilotLand(double x, double y) ;
 void raspilotPreLaunchSequence(int flightControllerOnlyMode) ;
@@ -1060,17 +1154,19 @@ void motorsEmmergencyShutdown() ;
 void pilotImmediateLanding() ;
 void pilotInteractiveInputRegularCheck(void *d) ;
 void pilotRegularSendGimbalPwm(void *d) ;
-void pilotRegularManualControl(void *d) ;
-void pilotRegularSpecialModeTick(void *d) ;
-void pilotRegularStabilizationTick(void *d) ;
-void pilotAutopilotLoopTick(void *d) ;
+void manualControlRegularCheck(void *d) ;
+void pilotRegularMotorTestModeTick(void *d) ;
+void pilotRegularStabilisationTick(void *d) ;
+void pilotRegularMissionModeLoopTick(void *d) ;
 int pilotAreAllDevicesReady() ;
-void pilotStoreLaunchPose(void *d) ;
+void pilotLaunchPoseSet(void *d) ;
+void pilotLaunchPoseClear(void *d) ;
 void pilotRegularStabilizationLoopRescheduleToSoon() ;
 void pilotRegularSendPings(void *d) ;
 void pilotRegularSaveTrajectory(void *d) ;
 void pilotRegularWaitForDevicesAndStartPilot(void *d) ;
 void pilotInitiatePids() ;
+int64_t pilotScheduleNextTick(double frequency, void (*tickfunction)(void *arg), void *arg) ;
 
 // baio.c
 extern int baioDebugLevel;
@@ -1094,7 +1190,14 @@ struct baio *baioNewFile(char *path, int ioDirection, int additionalSpaceToAlloc
 struct baio *baioNewSerial(char *path, int baudrate, int ioDirection, int additionalSpaceToAllocate) ;
 struct baio *baioNewPipedCommand(char *command, int ioDirection, int useBashFlag, int additionalSpaceToAllocate) ;
 struct baio *baioNewNamedPipes(char *readPipePath, char *writePipePath, int additionalSpaceToAllocate) ;
+struct baio *baioNewPseudoTerminal(char *link, int baudrate, int additionalSpaceToAllocate) ;
 struct baio *baioNewUDP(char *ip, int port, int ioDirection, int additionalSpaceToAllocate);
+
+// mavlink.c
+int mavlinkParseInput(struct deviceData *dd, struct baio *bb, int fromj, int num) ;
+void mavlinkInitiate(struct deviceData *dd, struct baio *bb) ;
+void mavlinkSendStatusTextToListeners(char *text) ;
+void mavlinkPrintfStatusTextToListeners(char *fmt, ...) ;
 
 // mission.c
 void missionProcessInteractiveInput(int c) ;
@@ -1105,6 +1208,7 @@ void mission();
 void mainInitDeviceDataStreamVectorLengths(int motor_number) ;
 void mainStatistics(int action) ;
 void shutdown();
+void mainEmergencyLanding() ;
 void mainStandardShutdown(void *d);
 
 

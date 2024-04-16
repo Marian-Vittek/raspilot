@@ -26,7 +26,8 @@
 
 {
     // piw is my hexsoon drone
-    
+
+    pilot_main_mode: "MODE_SINGLE_MISSION",    
 
     motor_number:          4,
 
@@ -52,6 +53,7 @@
     drone_max_inclination:	   PI/4,
 
     motor_thrust_min_spin:         0.005,
+    motor_altitude_thrust_hold:	   0.28,
     
     //////////////////////////////////////////////
     // PID controllers.
@@ -60,7 +62,7 @@
     pidRoll:     { p:0.10,  i:0.00,  d:0.0010, ci: 0.0060 },
     pidPitch:    { p:0.10,  i:0.00,  d:0.0010, ci: 0.0033 },
     pidYaw:      { p:0.20,  i:0.00,  d:0.0015, ci:-0.0314 },
-    pidAltitude: { p:0.40,  i:0.10,  d:0.0100, ci:0.28 },
+    pidAltitude: { p:0.40,  i:0.10,  d:0.0100, /* ci:0.28 */ },
 
     //////////////////////////////////////////////
     // sensors and other devices installed on the drone and connected through pipes

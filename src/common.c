@@ -3,11 +3,9 @@
 int 			debugLevel;
 int 			logLevel;
 int 			baseLogLevel;
-int			log10TicksPerSecond;
 struct universe		uuu;
 struct universe		*uu = &uuu;
 struct timeLineEvent    *timeLine = NULL;
-uint64_t		tickCounter;
 uint64_t		currentTimeLineTimeUsec;
 struct globalTimeInfo   currentTime;
 int			shutDownInProgress = 0;
@@ -24,8 +22,10 @@ double			pingToHostLastAnswerTime = 0;
 char 			*signalInterruptNames[258];
 int 			deviceDataStreamVectorLength[DT_MAX];
 char 			*deviceDataTypeNames[DT_MAX+2];
-char 			*coordinateSystemNames[CS_MAX+2];
 char			*deviceConnectionTypeNames[DCT_MAX+2];
+char			*radioControlNames[RC_MAX+2];
+char			*pilotMainModeNames[MODE_MAX+2];
+char			*remoteControlModeNames[RCM_MAX+2];
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////
@@ -321,23 +321,35 @@ double normalizeAngle(double omega, double min, double max) {
     double res;
     if (omega == ANGLE_NAN) {
 	lprintf(0, "%s: Internal error: Something is wrong, trying to normalize ANGLE_NAN. \n", PPREFIX());
-	res = 0;
-    } else {
-	res = normalizeToRange(omega, min, max);
     }
+    res = normalizeToRange(omega, min, max);
     return(res);
 }
 
-double truncateToRange(double x, double min, double max, char *warningTag) {
+double truncateToRange(double x, double min, double max, char *warningTag, int warningIndex) {
     if (x < min) {
-	if (warningTag != NULL) lprintf(10, "%s: Warning: %s has been truncated from %f to %f.\n", PPREFIX(), warningTag, x, min);
+	if (warningTag != NULL) {
+	    lprintf(10, "%s: Warning: %s has been truncated from %f to %f.", PPREFIX(), warningTag, x, min);
+	    if (warningIndex != INDEX_NAN) lprintf(10, " Index: %d", warningIndex);
+	    lprintf(10, "\n");
+	}
 	return(min);
     }
     if (x > max) {
-	if (warningTag != NULL) lprintf(10, "%s: Warning: %s has been truncated from %f to %f.\n", PPREFIX(), warningTag, x, max);
+	if (warningTag != NULL) {
+	    lprintf(10, "%s: Warning: %s has been truncated from %f to %f.", PPREFIX(), warningTag, x, max);
+	    if (warningIndex != INDEX_NAN) lprintf(10, "Index: %d", warningIndex);
+	    lprintf(10, "\n");
+	}
 	return(max);
     }
     return(x);
+}
+
+void vecTruncateInnerToRange(vec3 r, int dim, double min, double max, char *warningId) {
+    int 	i;
+
+    for(i=0; i<dim; i++) r[i] = truncateToRange(r[i], min, max, warningId, i);
 }
 
 double angleSubstract(double a1, double a2) {
@@ -754,6 +766,9 @@ void enumNamesInit() {
     ENUM_NAME_SET(deviceDataTypeNames, DT_BOTTOM_RANGE);
     ENUM_NAME_SET(deviceDataTypeNames, DT_FLOW_XY);
     ENUM_NAME_SET(deviceDataTypeNames, DT_ALTITUDE);
+    ENUM_NAME_SET(deviceDataTypeNames, DT_TEMPERATURE);
+    ENUM_NAME_SET(deviceDataTypeNames, DT_MAGNETIC_HEADING);
+    ENUM_NAME_SET(deviceDataTypeNames, DT_EARTH_ACCELERATION);
     ENUM_NAME_SET(deviceDataTypeNames, DT_ORIENTATION_RPY);
     // ENUM_NAME_SET(deviceDataTypeNames, DT_ORIENTATION_QUATERNION);
     ENUM_NAME_SET(deviceDataTypeNames, DT_POSITION_NMEA);
@@ -761,26 +776,51 @@ void enumNamesInit() {
     ENUM_NAME_SET(deviceDataTypeNames, DT_JSTEST);
     ENUM_NAME_SET(deviceDataTypeNames, DT_POSITION_SHM);
     ENUM_NAME_SET(deviceDataTypeNames, DT_ORIENTATION_RPY_SHM);
+    ENUM_NAME_SET(deviceDataTypeNames, DT_EARTH_ACCELERATION_SHM);
+    ENUM_NAME_SET(deviceDataTypeNames, DT_MAVLINK_RC_CHANNELS_OVERRIDE);
+    ENUM_NAME_SET(deviceDataTypeNames, DT_MAVLINK_ATTITUDE);
+    ENUM_NAME_SET(deviceDataTypeNames, DT_MAVLINK_BATTERY_STATUS);
+    ENUM_NAME_SET(deviceDataTypeNames, DT_MAVLINK_GLOBAL_POSITION);
+    ENUM_NAME_SET(deviceDataTypeNames, DT_MAVLINK_HOME_POSITION);
+    ENUM_NAME_SET(deviceDataTypeNames, DT_MAVLINK_STATUSTEXT);
     ENUM_NAME_SET(deviceDataTypeNames, DT_MAX);
     ENUM_NAME_CHECK(deviceDataTypeNames, DT_);
     
-    ENUM_NAME_SET(coordinateSystemNames, CS_NONE);
-    ENUM_NAME_SET(coordinateSystemNames, CS_GBASE);
-    ENUM_NAME_SET(coordinateSystemNames, CS_DRONE);
-    ENUM_NAME_SET(coordinateSystemNames, CS_GPS);
-    ENUM_NAME_SET(coordinateSystemNames, CS_EARTH);
-    ENUM_NAME_SET(coordinateSystemNames, CS_GLOBAL);
-    ENUM_NAME_SET(coordinateSystemNames, CS_APRIL);
-    ENUM_NAME_SET(coordinateSystemNames, CS_MAX);
-    ENUM_NAME_CHECK(coordinateSystemNames, CS_);
-
     ENUM_NAME_SET(deviceConnectionTypeNames, DCT_NONE);
     ENUM_NAME_SET(deviceConnectionTypeNames, DCT_INTERNAL_ZEROPOSE);
     ENUM_NAME_SET(deviceConnectionTypeNames, DCT_COMMAND_BASH);
     ENUM_NAME_SET(deviceConnectionTypeNames, DCT_COMMAND_EXEC);
     ENUM_NAME_SET(deviceConnectionTypeNames, DCT_NAMED_PIPES);
+    ENUM_NAME_SET(deviceConnectionTypeNames, DCT_MAVLINK_PTTY);
     ENUM_NAME_SET(deviceConnectionTypeNames, DCT_MAX);
     ENUM_NAME_CHECK(deviceConnectionTypeNames, DCT_);
+
+    ENUM_NAME_SET(radioControlNames, RC_NONE);
+    ENUM_NAME_SET(radioControlNames, RC_ROLL);
+    ENUM_NAME_SET(radioControlNames, RC_PITCH);
+    ENUM_NAME_SET(radioControlNames, RC_YAW);
+    ENUM_NAME_SET(radioControlNames, RC_ALTITUDE);
+    ENUM_NAME_SET(radioControlNames, RC_BUTTON_LAUNCH_COUNTDOWN);
+    ENUM_NAME_SET(radioControlNames, RC_BUTTON_STANDBY);
+    ENUM_NAME_SET(radioControlNames, RC_BUTTON_PANIC_SHUTDOWN);
+    ENUM_NAME_SET(radioControlNames, RC_MAX);
+    ENUM_NAME_CHECK(radioControlNames, RC_);
+    
+    ENUM_NAME_SET(pilotMainModeNames, MODE_NONE);
+    ENUM_NAME_SET(pilotMainModeNames, MODE_MOTOR_PWM_CALIBRATION);
+    ENUM_NAME_SET(pilotMainModeNames, MODE_MOTOR_TEST);
+    ENUM_NAME_SET(pilotMainModeNames, MODE_SINGLE_MISSION);
+    ENUM_NAME_SET(pilotMainModeNames, MODE_MANUAL_RC);
+    ENUM_NAME_SET(pilotMainModeNames, MODE_MAX);
+    ENUM_NAME_CHECK(pilotMainModeNames, MODE_);
+    
+    ENUM_NAME_SET(remoteControlModeNames, RCM_NONE);
+    ENUM_NAME_SET(remoteControlModeNames, RCM_PASSTHROUGH);
+    ENUM_NAME_SET(remoteControlModeNames, RCM_ASSISTED);
+    ENUM_NAME_SET(remoteControlModeNames, RCM_TARGET);
+    ENUM_NAME_SET(remoteControlModeNames, RCM_AUTO);
+    ENUM_NAME_SET(remoteControlModeNames, RCM_MAX);
+    ENUM_NAME_CHECK(remoteControlModeNames, RCM_);
 
 }
 
@@ -856,7 +896,9 @@ void regressionBufferRecalculateSums(struct regressionBuffer *hh) {
 }
 
 void regressionBufferAddElem(struct regressionBuffer *hh, double time, double *vec) {
-    int i;
+    int 	i;
+    double	t;
+    
     lprintf(40, "%s: regressionBufferAddElem: %s: %f:  %s\n", PPREFIX(), hh->name, time, arrayWithDimToStr_st(vec, hh->vectorsize));
 
     if (hh->size == 0 || hh->vectorsize == 0) return;
@@ -868,6 +910,22 @@ void regressionBufferAddElem(struct regressionBuffer *hh, double time, double *v
     hh->aiprev = hh->ailast;
     hh->ailast = hh->ai;
     hh->ai = (hh->ai + 1) % hh->size;
+#if SMOOTH_REGRESSION
+    if (hh->keepSumsFlag && hh->n >= hh->size) {
+	// The idea of smoothing is that a wrong value is deviating regression line
+	// not only at the beginning of buffer but also later when that value is 
+	// shifted at the end of the buffer. We can fix that by removing dirty values
+	// somewhere inside the buffer. (2/3 or maybe even 3/4 of buffer).
+	i = (hh->ailast + hh->size*3/4) % hh->size;
+	if (i != hh->ailast) {
+	    t = hh->time[i];
+	    regressionBufferEstimateForTime(hh, t, hh->tmp);
+	    regressionBufferSubstractFromSums(hh, t, &hh->a[i*hh->vectorsize]);
+	    memmove(&hh->a[i*hh->vectorsize],  hh->tmp, hh->vectorsize * sizeof(double));
+	    regressionBufferAddToSums(hh, t, &hh->a[i*hh->vectorsize]);
+	}
+    }
+#endif    
     // from time to time, recalculate sums to avoid cumulative errors due to floating point arithmetics
     if (hh->keepSumsFlag && hh->n % 10000 == 0) regressionBufferRecalculateSums(hh);
 
@@ -876,6 +934,21 @@ void regressionBufferAddElem(struct regressionBuffer *hh, double time, double *v
     	hh->totalSumForStatistics[i] += vec[i];
 	hh->totalElemsForStatistics ++;
     }
+}
+
+void regressionBufferReset(struct regressionBuffer *hh) {
+    int i;
+    
+    hh->ai = hh->ailast = hh->aiprev = 0;
+    hh->n = 0;
+    hh->sumTime = hh->sumTimeSquare = 0;
+    
+    if (hh->vectorsize > 0) {
+	for(i=0; i<hh->vectorsize; i++) {
+	    hh->suma[i] = hh->sumaMulTime[i] = 0;
+	}
+    }
+
 }
 
 void regressionBufferInit(struct regressionBuffer *hh, int vectorSize, int bufferSize, char *namefmt, ...) {
@@ -900,6 +973,9 @@ void regressionBufferInit(struct regressionBuffer *hh, int vectorSize, int buffe
     CALLOCC(hh->time,  bufferSize, double);
     if (vectorSize > 0) {
 	CALLOCC(hh->a, bufferSize*vectorSize, double);
+#if SMOOTH_REGRESSION
+	CALLOCC(hh->tmp, vectorSize, double);
+#endif	
 	CALLOCC(hh->suma, vectorSize, double);
 	CALLOCC(hh->sumaMulTime, vectorSize, double);
 	CALLOCC(hh->totalSumForStatistics, vectorSize, double);
@@ -1397,6 +1473,98 @@ void rpyToQuat(double roll, double pitch, double yaw, quat q) {
 }
 
 //////////////////////////////////////////////////////////////////////////////////
+int baudrateToSpeed_t(int baudrate) {
+    switch (baudrate) {
+    case 9600:
+        return B9600;
+    case 19200:
+        return B19200;
+    case 38400:
+        return B38400;
+    case 57600:
+        return B57600;
+    case 115200:
+        return B115200;
+    case 230400:
+        return B230400;
+    case 460800:
+        return B460800;
+    case 500000:
+        return B500000;
+    case 576000:
+        return B576000;
+    case 921600:
+        return B921600;
+    case 1000000:
+        return B1000000;
+    case 1152000:
+        return B1152000;
+    case 1500000:
+        return B1500000;
+    case 2000000:
+        return B2000000;
+    case 2500000:
+        return B2500000;
+    case 3000000:
+        return B3000000;
+    case 3500000:
+        return B3500000;
+    case 4000000:
+        return B4000000;
+    default: 
+        return 0;
+    }
+}
+
+void initSerialPort(int fd, int baudrate) {
+    struct termios 	tty;
+    speed_t			speed;
+	
+    memset (&tty, 0, sizeof tty);
+
+    if ( tcgetattr ( fd, &tty ) != 0 ) {
+	lprintf(0, "%s: Error: tcgetattr: %s\n", PPREFIX(), STR_ERRNO());
+    }
+
+    speed = baudrateToSpeed_t(baudrate);
+    if (speed <= 0) {
+	lprintf(0, "%s: Error: Invalid serial port baud rate %d. Using 9600 instead!\n", PPREFIX(), baudrate);
+	speed = B9600;
+    }
+
+#if 0
+    tty.c_cflag     &=  ~PARENB;            // Make 8n1
+    tty.c_cflag     &=  ~CSTOPB;
+    tty.c_cflag     &=  ~CSIZE;
+    tty.c_cflag     |=  CS8;
+
+    tty.c_cflag     &=  ~CRTSCTS;           // no flow control
+    tty.c_cflag     &=  ~ECHO;           	// no echo
+    tty.c_cflag     &=  ~ICRNL;
+    tty.c_cflag     &=  ~IXON;
+    tty.c_cflag     &=  ~IXOFF;
+    tty.c_cflag     &=  ~OPOST;
+    tty.c_cflag     &=  ~ISIG;
+    tty.c_cflag     &=  ~ICANON;
+
+    tty.c_cc[VMIN]   =  1;
+    tty.c_cc[VTIME]  =  5;
+    tty.c_cflag     |=  CREAD | CLOCAL;     // turn on READ & ignore ctrl lines
+#endif
+	
+    cfmakeraw(&tty);
+
+    cfsetospeed (&tty, speed);
+    cfsetispeed (&tty, speed);
+
+    // tcflush( fd, TCIFLUSH );
+
+    if ( tcsetattr ( fd, TCSANOW, &tty ) != 0) {
+	lprintf(0, "%s: Error: tcsetattr: %s\n", PPREFIX(), STR_ERRNO());
+    }
+}
+
+//////////////////////////////////////////////////////////////////////////////////
 // interactive terminal
 
 struct terminalSettingStr stdinTerminal = {STDIN_FILENO, 0, };
@@ -1504,6 +1672,13 @@ void logbaioInit() {
     }
 
     if (logbaioBaioMagic == 0) {
+	// create directory of does not exists
+	snprintf(cmd, TMP_STRING_SIZE, "mkdir -p `dirname %s`\n", uu->logFileName);
+	cmd[TMP_STRING_SIZE-1] = 0;
+	r = system(cmd);
+	
+	// start writing to log file. Buffer it through cat,
+	// otherwise it might block raspilot (select on file write signals non-block always)
 	snprintf(cmd, TMP_STRING_SIZE, "cat > %s\n", uu->logFileName);
 	cmd[TMP_STRING_SIZE-1] = 0;
 	bb = baioNewPipedCommand(cmd, BAIO_IO_DIRECTION_WRITE, 1, 0);
@@ -1513,6 +1688,7 @@ void logbaioInit() {
 	}
 	bb->initialWriteBufferSize = (1<<20);
 	logbaioBaioMagic = bb->baioMagic;
+	
 	// Create symbolic link
 	usleep(100000);
 	snprintf(cmd, TMP_STRING_SIZE, "ln -f -s %s currentlog.txt\n", uu->logFileName);
@@ -1657,7 +1833,7 @@ void pingToHostRegularCheck(void *d) {
     if (pingToHostLastAnswerTime < currentTime.dtime - 3.0) {
 	// problem. We have lost the connection.
 	lprintf(0, "%s: Error: connection to host %s lost. Immediate landing !!!\n", PPREFIX(), uu->pingToHost);
-	raspilotShutDownAndExit();
+	if (uu->flyStage >= FS_FLY && uu->flyStage < FS_EMERGENCY_LANDING) uu->flyStage = FS_EMERGENCY_LANDING;
     }
     timeLineInsertEvent(UTIME_AFTER_MSEC(500), pingToHostRegularCheck, d);
 }
@@ -1710,11 +1886,11 @@ struct raspilotInputBuffer *raspilotCreateSharedMemory(struct deviceStreamData *
     struct raspilotInputBuffer 	*res;
     int				len;
 
-    len = RASPILOT_INPUT_BUFFER_SIZE(ddd->history_size, deviceDataStreamVectorLength[ddd->type]);
+    len = RASPILOT_INPUT_BUFFER_SIZE(ddd->regression_size, deviceDataStreamVectorLength[ddd->type]);
     res = createSharedMemory(len, "raspilot.%s.%s", ddd->dd->name, ddd->name);
     if (res == NULL) return(NULL);
     res->buffer.vectorsize = deviceDataStreamVectorLength[ddd->type];
-    res->buffer.size = ddd->history_size;
+    res->buffer.size = ddd->regression_size;
     res->status = RIBS_SHARED_INITIALIZE;
     res->magicVersion = RASPILOT_SHM_MAGIC_VERSION;
     res->confidence = 0;

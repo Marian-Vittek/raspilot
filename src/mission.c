@@ -13,7 +13,7 @@ void missionLoiter(double loiterTime, double altitude) {
     
     // loiter 10 seconds
     raspilotWaypointSet(0, 0, altitude, 0);
-    raspilotBusyWait(loiterTime);
+    raspilotBusyWaitUntilTimeoutOrStandby(loiterTime);
 
     lprintf(1, "%s: mission: End   loiter(%g, %g)!\n", PPREFIX(), loiterTime, altitude);
 
@@ -29,19 +29,19 @@ void missionTestYawLoiter(double altitude) {
     lprintf(1, "%s: mission: Begin testYawLoiter(%g)!\n", PPREFIX(), altitude);
     
     raspilotWaypointSet(0, 0, altitude, 0);
-    raspilotBusyWait(3.0);
+    raspilotBusyWaitUntilTimeoutOrStandby(3.0);
 
     lprintf(1, "%s: mission: Turn left!\n", PPREFIX(), altitude);
     raspilotWaypointSet(0, 0, altitude, 0.4);
-    raspilotBusyWait(3.0);
+    raspilotBusyWaitUntilTimeoutOrStandby(3.0);
 
     lprintf(1, "%s: mission: Turn right!\n", PPREFIX(), altitude);
     raspilotWaypointSet(0, 0, altitude, -0.4);
-    raspilotBusyWait(3.0);
+    raspilotBusyWaitUntilTimeoutOrStandby(3.0);
 
     lprintf(1, "%s: mission: Turn back!\n", PPREFIX(), altitude);
     raspilotWaypointSet(0, 0, altitude, 0);
-    raspilotBusyWait(3.0);
+    raspilotBusyWaitUntilTimeoutOrStandby(3.0);
 
     lprintf(1, "%s: mission: End   testYawLoiter(%g)!\n", PPREFIX(), altitude);
     raspilotLand(0, 0);    
@@ -62,17 +62,17 @@ void missionSquare(double squareSize, double altitude, double waitOnWaypoint, in
 
     for(i=0; i<repeat; i++) {
 	raspilotGotoWaypoint(x, y, altitude, 0);
-	raspilotBusyWait(waitOnWaypoint);
+	raspilotBusyWaitUntilTimeoutOrStandby(waitOnWaypoint);
 	raspilotGotoWaypoint(x, -y, altitude, 0);
-	raspilotBusyWait(waitOnWaypoint);
+	raspilotBusyWaitUntilTimeoutOrStandby(waitOnWaypoint);
 	raspilotGotoWaypoint(-x, -y, altitude, 0);
-	raspilotBusyWait(waitOnWaypoint);
+	raspilotBusyWaitUntilTimeoutOrStandby(waitOnWaypoint);
 	raspilotGotoWaypoint(-x, y, altitude, 0);
-	raspilotBusyWait(waitOnWaypoint);
+	raspilotBusyWaitUntilTimeoutOrStandby(waitOnWaypoint);
     }
     
     raspilotGotoWaypoint(x, y, altitude, 0);
-    raspilotBusyWait(waitOnWaypoint);
+    raspilotBusyWaitUntilTimeoutOrStandby(waitOnWaypoint);
 
     // goto landing point
     raspilotGotoWaypoint(0, 0, altitude, 0);
@@ -98,28 +98,7 @@ void missionLandImmediately() {
 }
 
 void missionProcessInteractiveInput(int c) {
-    static double 	tinc = 0;
-    int			r;
-
-    // initialize increment to 10% if ci
-    if (tinc == 0) tinc = uu->pidAltitude.constant.ci / 10;
     switch(c) {
-    case '+':
-	tinc *= 2;
-	break;
-    case '-':
-	tinc /= 2;
-	break;
-    case 'w':
-	uu->pidAltitude.constant.ci += tinc;
-	uu->pidAltitude.constant.ci = truncateToRange(uu->pidAltitude.constant.ci, 0, 1, NULL);
-	printf("%s: Interactive: thrust == %f\n", PPREFIX(), uu->pidAltitude.constant.ci);
-	break;
-    case 's':
-	uu->pidAltitude.constant.ci -= tinc;
-	uu->pidAltitude.constant.ci = truncateToRange(uu->pidAltitude.constant.ci, 0, 1, NULL);
-	printf("%s: Interactive: thrust == %f\n", PPREFIX(), uu->pidAltitude.constant.ci);
-	break;
     case 'l':
     case 'L':
 	// normal interactive landing
@@ -137,123 +116,35 @@ void missionInteractive(double missionTime) {
     raspilotLaunch(0);
     raspilotWaypointSet(0, 0, 0, 0);
     lprintf(1, "%s: Starting Interactive\n", PPREFIX());
-    raspilotBusyWait(9999);
+    raspilotBusyWaitUntilTimeoutOrStandby(9999);
 }
 
 void missionJoystick(double loiterTime) {
     // We suppose that the waypoint has been set by joystick yet
     raspilotLaunch(uu->currentWaypoint.position[2]);
     lprintf(1, "%s: mission: Begin following the joystick!\n", PPREFIX());
-    raspilotBusyWait(loiterTime);
+    raspilotBusyWaitUntilTimeoutOrStandby(loiterTime);
     lprintf(1, "%s: mission: End   following the joystick!\n", PPREFIX());
     raspilotLand(uu->currentWaypoint.position[0], uu->currentWaypoint.position[1]);    
 }
 
-// if motorIndex < 0 then all motors are set together
-void missionMotorPwmCalibrationAndExit(int motorIndex) {
-    int i, c;
-
-    printf("\n\n\n");
-    printf("%s: Make sure that the power for ESCs is turned off !!!\n", PPREFIX());
-    printf("%s: If not, motors will launch on max speed  !!!\n", PPREFIX());
-    printf("%s: Type 'c' if ESCs are off and we can continue.\n", PPREFIX());
-    stdbaioStdinClearBuffer();
-    timeLineInsertEvent(UTIME_AFTER_MSEC(1), pilotRegularSpecialModeTick, NULL);
-    
-    while ((c=stdbaioStdinMaybeGetPendingChar()) == -1) raspilotPoll();
-    if (c != 'c') {
-	printf("%s: 'c' not pressed. Exiting calibration.\n", PPREFIX());
-	raspilotShutDownAndExit();
-    }
-    
-    printf("%s: OK. Sending max pulses to GPIO.\n", PPREFIX());
-    fflush(stdout);
-    motorThrustSetAndSend(motorIndex, 1.0);
-
-    printf("%s: Turn ESCs on and press 'c' one more time!\n", PPREFIX());
-    stdbaioStdinClearBuffer();
-    while ((c=stdbaioStdinMaybeGetPendingChar()) == -1) raspilotPoll();
-    if (c != 'c') {
-	motorThrustSetAndSend(motorIndex, 0.0);
-	printf("%s: 'c' not pressed. Exiting calibration.\n", PPREFIX());
-	raspilotShutDownAndExit();
-    }
-
-    printf("%s: OK. Sending min pulses for 5 seconds.\n", PPREFIX());
-    fflush(stdout);
-    motorThrustSetAndSend(motorIndex, 0.0);
-    raspilotBusyWait(5.0);
-
-    printf("%s: Calibration done. Spinning slowly for 5 seconds\n", PPREFIX());
-    fflush(stdout);
-    motorThrustSetAndSend(motorIndex, uu->config.motor_thrust_min_spin);
-    raspilotBusyWait(5.0);
-
-    printf("%s: All done.\n", PPREFIX());
-    fflush(stdout);
-    raspilotShutDownAndExit();
-}
-
-void missionSingleMotorTest(int motorIndex) {
-    motorsThrustSetAndSend(0);
-    lprintf(0, "%s: Warning: testing motor %d\n", PPREFIX(), motorIndex);
-    motorThrustSetAndSend(motorIndex, uu->config.motor_thrust_min_spin);
-    raspilotBusyWait(1.0);
-    motorThrustSetAndSend(motorIndex, 0);
-    raspilotBusyWait(1.0);
-}
-
-void missionMotorTest(int i) {
-    timeLineInsertEvent(UTIME_AFTER_MSEC(1), pilotRegularSpecialModeTick, NULL);
-    // Do a longer wait for case if someting is not initialized immediately.
-    raspilotBusyWait(10.0);
-    if (i < 0) {
-	missionSingleMotorTest(0) ;
-	missionSingleMotorTest(1) ;
-	missionSingleMotorTest(2) ;
-	missionSingleMotorTest(3) ;
-    } else {
-	missionSingleMotorTest(i) ;
-    }
-    raspilotShutDownAndExit();
-}
-
 ///////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////
 
-// The mission to be executed by the drone
 void mission() {
+    // autopilot mission mode
+    // timeLineInsertEvent(UTIME_AFTER_SECONDS(1), pilotRegularManualControl, NULL); // because of joystick test with openHd
+    raspilotPreLaunchSequence(0);
 
-    if (0) {
-	// calibrate one or all motor ESC (depending on argument)
-	missionMotorPwmCalibrationAndExit(1);
-    } else if (0) {
-	// rotate motors one after another
-	missionMotorTest(-1);
-    } else if (0) {
-	// Joystick conrolled.
-	// Flight controller only. (TODO: To be finished).
-	uu->manual.altitude = -0.1;
-	timeLineInsertEvent(UTIME_AFTER_MSEC(10), pilotRegularManualControl, NULL);
-	raspilotPreLaunchSequence(1);
-	if (uu->manual.altitude <= 0) {
-	    lprintf(0, "%s: Error: Launch altitude not set during prefly. Exiting!\n", PPREFIX());
-	    raspilotShutDownAndExit();
-	}
-	uu->flyStage = FS_FLY;
-	// raspilotBusyWait(15);
-	lprintf(0, "%s: Info: launched.\n", PPREFIX());
-	for(;;) raspilotPoll();
-    } else {
-	// autopilot mission mode
-	raspilotPreLaunchSequence(0);
-	missionLoiter(20.0, 0.30);
-	// missionJoystick(10.0);
-	// missionTestYawLoiter(0.10);
-	// missionSquare(0.10, 0.10, 1.0, 1);
-	// missionSquare(0.30, 0.15, 1.0, 1);
-	// missionInteractive(0.1);
-    }
+    // raspilotBusyWait(9999999);
+    missionLoiter(200.0, 0.20);
+	
+    // missionTestYawLoiter(0.20);
+    
+    // missionSquare(0.30, 0.20, 1.0, 1);
+    
+    // missionSquare(0.30, 0.15, 1.0, 1);
+    // missionInteractive(0.1);
 }
 

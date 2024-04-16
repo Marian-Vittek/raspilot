@@ -136,6 +136,7 @@ void mainStatisticsPids(int action) {
 	pidControllerReset(&uu->pidX, 1/uu->autopilot_loop_Hz);
 	pidControllerReset(&uu->pidY, 1/uu->autopilot_loop_Hz);
 	pidControllerReset(&uu->pidAltitude, 1.0/uu->stabilization_loop_Hz);
+	pidControllerReset(&uu->pidAccAltitude, 1.0/uu->stabilization_loop_Hz);
 	pidControllerReset(&uu->pidRoll, 1.0/uu->stabilization_loop_Hz);
 	pidControllerReset(&uu->pidPitch, 1.0/uu->stabilization_loop_Hz);
 	pidControllerReset(&uu->pidYaw, 1.0/uu->stabilization_loop_Hz);
@@ -270,6 +271,9 @@ static void sigPipeHandler(int s) {
     // TODO: Do some more informal message. Implement something to detect closed pipe
     // and printing some informative message which device crashed.
     lprintf(0, "%s: Warning: SIGPIPE received!\n", PPREFIX());
+#if 1    
+    lprintf(0, "%s: Core dumped for later debug.\n", PPREFIX()); CORE_DUMP();
+#endif    
 }
 
 ////////////////////////////////////////////////////////////
@@ -331,9 +335,6 @@ int mainProcessCommandLineArgs(int argc, char **argv) {
 		logLevel = baseLogLevel = atoi(argv[i]);
 		if (logLevel > 0) lprintf(0, "%s: Info: log level: %d\n", PPREFIX(), logLevel);
 	    }
-	} else if (strcmp(argv[i], "-l10") == 0) {
-	    // log level
-	    log10TicksPerSecond = 1;
 	} else if (strcmp(argv[i], "-l") == 0) {
 	    // log file
 	    if (i+1 >= argc) {
@@ -346,6 +347,8 @@ int mainProcessCommandLineArgs(int argc, char **argv) {
 	} else if (strcmp(argv[i], "-p") == 0) {
 	    // ping to host
 	    // if the connection to this host is broken, return to home or land!
+	    // TODO: This -p option and ping config shall be moved to the config file!!
+	    // for example openhd & mavlink is not dependent on ssh ping connection.
 	    if (i+1 >= argc) {
 		lprintf(0, "%s: Error: Command line: -p shall be followed by IP address of host to ping\n", PPREFIX());
 	    } else {
@@ -385,12 +388,16 @@ void mainInitDeviceDataStreamVectorLengths(int motor_number) {
     deviceDataStreamVectorLength[DT_BOTTOM_RANGE] = 1;
     deviceDataStreamVectorLength[DT_FLOW_XY] = 2;
     deviceDataStreamVectorLength[DT_ALTITUDE] = 1;
+    deviceDataStreamVectorLength[DT_TEMPERATURE] = 1;
+    deviceDataStreamVectorLength[DT_MAGNETIC_HEADING] = 3;
     deviceDataStreamVectorLength[DT_ORIENTATION_RPY] = 3;
+    deviceDataStreamVectorLength[DT_EARTH_ACCELERATION] = 3;
     // deviceDataStreamVectorLength[DT_ORIENTATION_QUATERNION] = 4;
     deviceDataStreamVectorLength[DT_POSITION_NMEA] = 3;
     deviceDataStreamVectorLength[DT_MAGNETIC_HEADING_NMEA] = 1;
     deviceDataStreamVectorLength[DT_JSTEST] = 0;
     deviceDataStreamVectorLength[DT_POSITION_SHM] = 3;
+    deviceDataStreamVectorLength[DT_EARTH_ACCELERATION_SHM] = 3;
     deviceDataStreamVectorLength[DT_ORIENTATION_RPY_SHM] = 3;
 
     deviceDataStreamVectorLength[DT_PING] = 1;
@@ -399,6 +406,13 @@ void mainInitDeviceDataStreamVectorLengths(int motor_number) {
     deviceDataStreamVectorLength[DT_GIMBAL_X] = 1;
     deviceDataStreamVectorLength[DT_GIMBAL_Y] = 1;
 
+    deviceDataStreamVectorLength[DT_MAVLINK_RC_CHANNELS_OVERRIDE] = 18;
+    deviceDataStreamVectorLength[DT_MAVLINK_ATTITUDE] = 6;
+    deviceDataStreamVectorLength[DT_MAVLINK_BATTERY_STATUS] = 6;
+    deviceDataStreamVectorLength[DT_MAVLINK_GLOBAL_POSITION] = 7;
+    deviceDataStreamVectorLength[DT_MAVLINK_HOME_POSITION] = 7;
+    deviceDataStreamVectorLength[DT_MAVLINK_STATUSTEXT] = 0;
+	
     // check that we did not forget anything.
     for(i=0; i<DT_MAX; i++) {
 	if (deviceDataStreamVectorLength[i] == -1) {
@@ -451,6 +465,7 @@ static void initConfiguredPilot() {
     regressionBufferInit(&uu->longBufferRpy, 3, uu->config.long_buffer_seconds * uu->autopilot_loop_Hz + 0.5, "long buffer orientation");
     regressionBufferInit(&uu->shortBufferPosition, 3, uu->config.short_buffer_seconds * uu->autopilot_loop_Hz + 0.5, "short buffer pose");
     regressionBufferInit(&uu->shortBufferRpy, 3, uu->config.short_buffer_seconds * uu->autopilot_loop_Hz + 0.5, "short buffer orientation");
+    regressionBufferInit(&uu->shortBufferAcceleration, 3, uu->config.short_buffer_seconds * uu->autopilot_loop_Hz + 0.5, "short buffer acceleration");
     // hold non regression history of [x,y,z,r,p,y] for 5 seconds. At hight rate it is too big. Store 1 second.
     ALLOCC(mem, RASPILOT_RING_BUFFER_SIZE(1 * uu->autopilot_loop_Hz + 0.5, 6), char);
     uu->historyPose = (struct raspilotRingBuffer *) mem;
@@ -467,9 +482,6 @@ static void initConfiguredPilot() {
 
     motorsSendStreamThrustFactor(NULL);
 
-    // initial value for batteryStatusRpFactor
-    uu->averageAltitudeThrust = uu->pidAltitude.constant.ci;
-    uu->batteryStatusRpyFactor = uu->averageAltitudeThrust;
 }
     
 //////////////////////////////////////////////////////////////////////////////////////////
@@ -488,12 +500,12 @@ int raspilotPoll() {
     return(r);
 }
 
-void raspilotBusyWait(double sleeptime) {
+void raspilotBusyWaitUntilTimeoutOrStandby(double sleeptime) {
     double tt;
     
     setCurrentTime();
     tt = currentTime.dtime;
-    while (currentTime.dtime < tt + sleeptime) raspilotPoll();
+    while (currentTime.dtime < tt + sleeptime && uu->flyStage != FS_STANDBY) raspilotPoll();
 }
 
 int raspilotInit(int argc, char **argv) {
@@ -534,54 +546,80 @@ void raspilotPreLaunchSequence(int flightControllerOnlyMode) {
     double 	tt, td;
     double 	thrust_warning_spin;
     
-    deviceSendToAllDevices("info: init\n");
+    // deviceSendToAllDevices("info: init\n");
     setCurrentTime();
+
+    // initial value for batteryStatusRpFactor
+    uu->averageAltitudeThrust = uu->config.motor_altitude_thrust_hold;
+    uu->batteryStatusRpyFactor = uu->averageAltitudeThrust;
     
     uu->flyStage = FS_WAITING_FOR_SENSORS;
-
-    if (flightControllerOnlyMode == 0) {
-	timeLineInsertEvent(UTIME_AFTER_MSEC(1), pilotAutopilotLoopTick, NULL);
-    }
-    timeLineInsertEvent(UTIME_AFTER_MSEC(2), pilotRegularStabilizationTick, NULL);
+    thrust_warning_spin = uu->config.motor_thrust_min_spin;
 
     lprintf(1, "%s: Info: Starting prefly sequence.\n", PPREFIX());
-    while (! pilotAreAllDevicesReady()) raspilotPoll();
+    mavlinkPrintfStatusTextToListeners("Starting prefly sequence");
+    while (! pilotAreAllDevicesReady()) {
+	raspilotPoll();
+	if (uu->flyStage == FS_STANDBY) goto launchCanceled;
+    }
     
     lprintf(1, "%s: Info: All sensors/devices ready.\n", PPREFIX());
 
+    // This will arm motors
     uu->flyStage = FS_PRE_FLY;
+    // wait until motor beeps (ARM)
+    motorsThrustSet(0);
+    raspilotBusyWaitUntilTimeoutOrStandby(PILOT_WARMING_WARNING_ROTATIONS_TO_LAUNCH);
+    if (uu->flyStage == FS_STANDBY) goto launchCanceled;
     
-    motorsThrustSet(0);
-    raspilotBusyWait(PILOT_WARMING_WARNING_ROTATIONS_TO_LAUNCH);
-    lprintf(1, "%s: Warning: First warning motor rotation!\n", PPREFIX());
-    thrust_warning_spin = uu->config.motor_thrust_min_spin;
-    motorsThrustSet(thrust_warning_spin);
-    raspilotBusyWait(PILOT_WARMING_WARNING_ROTATION_TIME);
-    motorsThrustSet(0);
-    raspilotBusyWait(PILOT_WARMING_WARNING_ROTATIONS_DELAY);
-
+    if (! flightControllerOnlyMode) {
+	lprintf(1, "%s: Warning: First warning motor rotation!\n", PPREFIX());
+	mavlinkPrintfStatusTextToListeners("Warning rotation");
+	motorsThrustSet(thrust_warning_spin);
+	raspilotBusyWaitUntilTimeoutOrStandby(PILOT_WARMING_WARNING_ROTATION_TIME);
+	if (uu->flyStage == FS_STANDBY) goto launchCanceled;
+	motorsThrustSet(0);
+	raspilotBusyWaitUntilTimeoutOrStandby(PILOT_WARMING_WARNING_ROTATIONS_DELAY);
+	if (uu->flyStage == FS_STANDBY) goto launchCanceled;
+    }
+    
     // launch pose has to be stored between rotations. To have enough of time to accumulate reasonable values
     // for lauch pose and also to get enough of time to accumulate real values  (with substracted launchpose)
-    // before the real launch.
-    pilotStoreLaunchPose(NULL);
+    // before the real launch. 
+    pilotLaunchPoseSet(NULL);
+
+    // One more time wait until all regression buffers are full with launch pose corrected values
+    while (! pilotAreAllDevicesReady()) {
+	raspilotPoll();
+	if (uu->flyStage == FS_STANDBY) goto launchCanceled;
+    }
 
     lprintf(1, "%s: Warning: Second warning rotation!\n", PPREFIX());
+    mavlinkPrintfStatusTextToListeners("Warning rotation");
     motorsThrustSet(thrust_warning_spin);
-    raspilotBusyWait(PILOT_WARMING_WARNING_ROTATION_TIME);
+    raspilotBusyWaitUntilTimeoutOrStandby(PILOT_WARMING_WARNING_ROTATION_TIME);
+    if (uu->flyStage == FS_STANDBY) goto launchCanceled;
     motorsThrustSet(0);
-    raspilotBusyWait(PILOT_WARMING_WARNING_ROTATIONS_TO_LAUNCH);
+    raspilotBusyWaitUntilTimeoutOrStandby(PILOT_WARMING_WARNING_ROTATIONS_TO_LAUNCH);
+    if (uu->flyStage == FS_STANDBY) goto launchCanceled;
     
     lprintf(1, "%s: Info: Prefly rotation!\n", PPREFIX());
     // start flying motor rotation
     // Maybe a bit more than min rotation would be ok
     motorsThrustSet(uu->config.motor_thrust_min_spin);
-    raspilotBusyWait(PILOT_WARMING_WARNING_ROTATION_TIME);
+    raspilotBusyWaitUntilTimeoutOrStandby(PILOT_WARMING_WARNING_ROTATION_TIME);
+    if (uu->flyStage == FS_STANDBY) goto launchCanceled;
 
     lprintf(5, "%s: Info: Prefly sequence done.\n", PPREFIX());
 
     mainLoadPreviousFlyTime();
     mainStatistics(STATISTIC_INIT);
     pilotInitiatePids();
+    return;
+
+launchCanceled:
+    motorsThrustSet(0);
+    return;
 }
 
 void raspilotLaunch(double altitude) {
@@ -598,7 +636,7 @@ void raspilotLaunch(double altitude) {
     
     uu->flyStage = FS_FLY;
     lprintf(0, "%s: Warning: launch: Going to fly!\n", PPREFIX());
-    deviceSendToAllDevices("info: takeoff\n");
+    // deviceSendToAllDevices("info: takeoff\n");
 
     savedConfig = uu->config;
     savedWaypoint = uu->currentWaypoint;
@@ -660,14 +698,10 @@ void raspilotLand(double x, double y) {
 
     // then go down on landing speed
     uu->config.drone_max_speed = PILOT_LAND_SPEED;
-    if (1) {
-	// landing with working sensors
-	while(raspilotCurrentAltitude() > 0.01) raspilotPoll();
-	raspilotBusyWait(1.0);
-    } else {
-	// a very safe (blind) land
-	raspilotBusyWait(PILOT_LAND_ALTITUDE/PILOT_LAND_SPEED*1.5);
-    }
+    // landing with working sensors
+    while(raspilotCurrentAltitude() > 0.01) raspilotPoll();
+    // sometimes altimeter gives wrong value, so go down for a few more soconds blindly
+    raspilotBusyWaitUntilTimeoutOrStandby(3.0);
 
     motorsStop(NULL);
     motorsStandby(NULL) ;
@@ -742,6 +776,12 @@ int raspilotShutDownAndExit() {
     assert(0);
 }
 
+void raspilotGotoStandby() {
+    motorsStop(0);
+    motorsStandby(NULL);
+    uu->flyStage = FS_STANDBY;
+}
+
 #if 0
 void test() {
     int 		i;
@@ -774,12 +814,167 @@ void test() {
 #endif
 
 ///////////////////////////////////////////////////////////////////////////////////////////
+// pilot modes
+
+// if motorIndex < 0 then all motors are set together
+static void pilotModeMotorPwmCalibrationAndExit(int motorIndex) {
+    int i, c;
+
+    printf("\n\n\n");
+    printf("%s: Make sure that the power for ESCs is turned off !!!\n", PPREFIX());
+    printf("%s: If not, motors will launch on max speed  !!!\n", PPREFIX());
+    printf("%s: Type 'c' if ESCs are off and we can continue.\n", PPREFIX());
+    stdbaioStdinClearBuffer();
+    timeLineInsertEvent(UTIME_AFTER_MSEC(1), pilotRegularMotorTestModeTick, NULL);
+    
+    while ((c=stdbaioStdinMaybeGetPendingChar()) == -1) raspilotPoll();
+    if (c != 'c') {
+	printf("%s: 'c' not pressed. Exiting calibration.\n", PPREFIX());
+	raspilotShutDownAndExit();
+    }
+    
+    printf("%s: OK. Sending max pulses to GPIO.\n", PPREFIX());
+    fflush(stdout);
+    motorThrustSetAndSend(motorIndex, 1.0);
+
+    printf("%s: Turn ESCs on and press 'c' one more time!\n", PPREFIX());
+    stdbaioStdinClearBuffer();
+    while ((c=stdbaioStdinMaybeGetPendingChar()) == -1) raspilotPoll();
+    if (c != 'c') {
+	motorThrustSetAndSend(motorIndex, 0.0);
+	printf("%s: 'c' not pressed. Exiting calibration.\n", PPREFIX());
+	raspilotShutDownAndExit();
+    }
+
+    printf("%s: OK. Sending min pulses for 5 seconds.\n", PPREFIX());
+    fflush(stdout);
+    motorThrustSetAndSend(motorIndex, 0.0);
+    raspilotBusyWaitUntilTimeoutOrStandby(5.0);
+
+    printf("%s: Calibration done. Spinning slowly for 5 seconds\n", PPREFIX());
+    fflush(stdout);
+    motorThrustSetAndSend(motorIndex, uu->config.motor_thrust_min_spin);
+    raspilotBusyWaitUntilTimeoutOrStandby(5.0);
+
+    printf("%s: All done.\n", PPREFIX());
+    fflush(stdout);
+    raspilotShutDownAndExit();
+}
+
+static void pilotSingleMotorTest(int motorIndex) {
+    motorsThrustSetAndSend(0);
+    lprintf(0, "%s: Warning: testing motor %d\n", PPREFIX(), motorIndex);
+    motorThrustSetAndSend(motorIndex, uu->config.motor_thrust_min_spin);
+    raspilotBusyWaitUntilTimeoutOrStandby(1.0);
+    motorThrustSetAndSend(motorIndex, 0);
+    raspilotBusyWaitUntilTimeoutOrStandby(1.0);
+}
+
+static void pilotModeMotorTest(int i) {
+    timeLineInsertEvent(UTIME_AFTER_MSEC(1), pilotRegularMotorTestModeTick, NULL);
+    // Do a longer wait for case if someting is not initialized immediately.
+    raspilotBusyWaitUntilTimeoutOrStandby(10.0);
+    if (i < 0) {
+	pilotSingleMotorTest(0) ;
+	pilotSingleMotorTest(1) ;
+	pilotSingleMotorTest(2) ;
+	pilotSingleMotorTest(3) ;
+    } else {
+	pilotSingleMotorTest(i) ;
+    }
+    raspilotShutDownAndExit();
+}
+
+static int droneHasEmergencyLanded() {
+    if (uu->flyStage != FS_EMERGENCY_LANDING) return(0);
+    // If we are on low altitude, confitm land
+    if (uu->droneLastPosition[2] < 0.005) return(1);
+    // if thrust is very low, we are probably landed even if altimeters do not say so
+    if (uu->averageAltitudeThrust <= uu->config.motor_thrust_min_spin) return(1);
+    return(0);
+}
+
+void mainEmergencyLanding() {
+    lprintf(0, "%s: Info: Emergency landing. Waiting for land.\n", PPREFIX());
+    mavlinkPrintfStatusTextToListeners("Emergency Landing!");
+    while (uu->flyStage == FS_EMERGENCY_LANDING && ! droneHasEmergencyLanded()) {
+	raspilotPoll();
+    }
+    // If we are landed
+    lprintf(0, "%s: Info: Emergency landed.\n", PPREFIX());
+}
+
+static void pilotModeManualRc() {
+    // In this mode the drone is controller by the joystick or similar
+    manualControlInit(&uu->manual.roll, &uu->config.manual_rc_roll);
+    manualControlInit(&uu->manual.pitch, &uu->config.manual_rc_pitch);
+    manualControlInit(&uu->manual.yaw, &uu->config.manual_rc_yaw);
+    manualControlInit(&uu->manual.altitude, &uu->config.manual_rc_altitude);
+    timeLineInsertEvent(UTIME_AFTER_MSEC(10), manualControlRegularCheck, NULL);
+    uu->flyStage = FS_STANDBY;
+    timeLineInsertEvent(UTIME_AFTER_MSEC(2), pilotRegularStabilisationTick, NULL);
+    // This is the main loop when raspilot is in manual rc mode
+    while (uu->flyStage == FS_STANDBY) {
+	uu->manual.altitude.value = -9999;
+	lprintf(0, "%s: Standby\n", PPREFIX());
+	mavlinkPrintfStatusTextToListeners("Standby mode");
+	usleep(10000);
+	pilotLaunchPoseClear(NULL);
+	while (uu->flyStage == FS_STANDBY) {
+	    raspilotPoll() ;
+	}
+	if (uu->flyStage == FS_COUNTDOWN) {
+	    lprintf(0, "%s: Countdown!\n", PPREFIX());
+	    // mavlinkPrintfStatusTextToListeners("Countdown");
+	    raspilotPreLaunchSequence(1);
+	    if (uu->flyStage == FS_STANDBY) {
+		lprintf(0, "%s: Info: Launch sequence interrupted.\n", PPREFIX());		
+	    } else if (uu->manual.altitude.value <= -9999) {
+		lprintf(0, "%s: Error: Launch altitude not set during prefly. Interrupting!\n", PPREFIX());
+		mavlinkPrintfStatusTextToListeners("Launch altitude not set during prefly. Interrupting!\n");
+		uu->flyStage = FS_STANDBY;
+	    } else {
+		lprintf(0, "%s: Info: launched.\n", PPREFIX());
+		mavlinkPrintfStatusTextToListeners("Launch");
+		uu->flyStage = FS_FLY;
+		while (uu->flyStage == FS_FLY) {
+		    raspilotPoll();
+		}
+		if (uu->flyStage == FS_EMERGENCY_LANDING) {
+		    mainEmergencyLanding();
+		    if (uu->flyStage == FS_EMERGENCY_LANDING) raspilotGotoStandby();
+		}
+	    }
+	}
+    }
+}
+
+
+///////////////////////////////////////////////////////////////////////////////////////////
 // This is the main raspilot entry function
 // Do not modify this function for your mission. Instead edit the function
 // 'mission' in the file 'mission.c' and setup your mission there
 
 int main(int argc, char **argv) {
     raspilotInit(argc, argv);
-    mission();
+    switch (uu->config.pilot_main_mode) {
+    case MODE_MOTOR_PWM_CALIBRATION:
+	pilotModeMotorPwmCalibrationAndExit(1);
+	break;
+    case MODE_MOTOR_TEST:
+	pilotModeMotorTest(-1);
+	break;
+    case MODE_MANUAL_RC:
+	pilotModeManualRc();
+	break;
+    case MODE_SINGLE_MISSION:
+	timeLineInsertEvent(UTIME_AFTER_MSEC(1), pilotRegularMissionModeLoopTick, NULL);
+	timeLineInsertEvent(UTIME_AFTER_MSEC(2), pilotRegularStabilisationTick, NULL);
+	mission();
+	break;
+    default:
+	lprintf(0, "%s: Error: unexpected main pilot mode %d\n", PPREFIX(), uu->config.pilot_main_mode);
+	break;
+    }
     raspilotShutDownAndExit();
 }

@@ -3,6 +3,13 @@
 
 #include <math.h>
 
+// TODO: Do in some way that all those loops are unrolled by the compiler -O3 -Otime or #pragma GCC unroll n
+
+//#pragma GCC push_options
+//#pragma GCC optimize ("unroll-loops")
+// ...
+//#pragma GCC pop_options
+
 #ifdef LINMATH_NO_INLINE
 #define LINMATH_H_FUNC static
 #else

@@ -42,7 +42,7 @@ https://stackoverflow.com/questions/69425540/execute-mmap-on-linux-kernel
 // Theoretical value from protocol definition
 //#define DSHOT_BIT_ns 6670
 // Value for my cheap ESC
-#define DSHOT_BIT_ns 5300
+#define DSHOT_BIT_ns 6000
 
 #elif DSHOT_VERSION == 300
 

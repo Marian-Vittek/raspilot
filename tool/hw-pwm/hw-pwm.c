@@ -31,7 +31,7 @@ static int hwPwmFrequency=20;
 static int hwPwmMinPulseUs=600;
 // The maximal pulse length (moving servo to max position)
 static int hwPwmMaxPulseUs=2000;
-// The input coming from stdin is between 0 - hwPwmInputFactor, generating respectivaly pulse of the length hwPwmMinPulseUs - hwPwmMaxPulseUs.
+// The input coming from stdin is between 0 - hwPwmInputFactor, generating pulses of lengths between hwPwmMinPulseUs - hwPwmMaxPulseUs.
 static int hwPwmInputFactor=10000;
 
 
@@ -50,7 +50,7 @@ static int hwPwmInputFactor=10000;
 static int hwPwmRange=24000;
 
 void printUsageAndExit() {
-    printf("usage: hw-pwm <min_pulse_length_us> <max_pulse_length_us> <c0_initial_value> <c1_initial_value>\n");
+    printf("usage: hw-pwm <min_pulse_length_us> <max_pulse_length_us> <pwm_frequency> <c0_VVVV_initial_value> <c1_VVVV_initial_value>\n");
     exit(0);
 }
 
@@ -124,8 +124,8 @@ int main(int argc, char **argv) {
 	    printf("debug: %s: Exiting\n", __FILE__);
 	    break;
 	} else if (line[0] == 'c') {
-	    // line starting with 'c' sets channel and value in the format "cC VVV".
-	    // The value is in the range 0 - 1000.
+	    // line starting with 'c' sets channel and value in the format "c0 VVVV" or "c1 VVVV".
+	    // VVVV is in the range 0 - hwPwmInputFactor.
 	    p = line+1;
 	    channel = strtol(p, &q, 10);
 	    if (p == q) {
@@ -143,13 +143,11 @@ int main(int argc, char **argv) {
 		continue;
 	    }
 	    if (PWM_INPUT_OUT_OF_RANGE(value)) {
-		printf("debug: %s: wrong value, expected range 0-1000 in: %s\n", __FILE__, line); fflush(stdout);
+		printf("debug: %s: wrong value, expected range 0-%d in: %s\n", __FILE__, hwPwmInputFactor, line); fflush(stdout);
 		continue;
 	    }
 	    p = q;
-	    // translate value ranging between 0 - 10000 to PWM .
-	    // My servo pulses ranges between 600 and 2000us.
-	    // Factor 1.2 translates us to ticks.
+	    // translate value ranging between 0 - hwPwmInputFactor to PWM .
 	    data =  hwPwmInputToData(value);
 	    // printf("debug: %s: setting channel %d to pulse %d us, data %d\n", __FILE__, channel, data*10/12, data); fflush(stdout);
 	    bcm2835_pwm_set_data(channel, data);

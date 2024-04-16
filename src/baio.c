@@ -178,6 +178,7 @@ static void baioFreeZombie(struct baio *bb) {
 }
 
 void baioCloseFd(struct baio *bb) {
+    // if (bb->baioType == BAIO_TYPE_PTTY) close(bb->sfd);
     if (bb->rfd >= 0) close(bb->rfd);
     if (bb->wfd >= 0 && bb->wfd != bb->rfd) close(bb->wfd);
 }
@@ -390,7 +391,7 @@ int baioWriteToBuffer(struct baio *bb, char *s, int len) {
 
 int baioVprintfToBuffer(struct baio *bb, char *fmt, va_list arg_ptr) {
     int                     n, r, dsize;
-    struct baioBuffer  *b;
+    struct baioBuffer  	    *b;
     va_list                 arg_ptr_copy;
 
     if ((bb->status & BAIO_STATUS_ACTIVE) == 0) return(-1);
@@ -1019,5 +1020,52 @@ struct baio *baioNewNamedPipes(char *readPipePath, char *writePipePath, int addi
     bb = baioNewBasic(BAIO_TYPE_NAMED_PIPES, BAIO_IO_DIRECTION_RW, additionalSpaceToAllocate);
     bb->rfd = rfd;
     bb->wfd = wfd;
+    return(bb);
+}
+
+struct baio *baioNewPseudoTerminal(char *link, int baudrate, int additionalSpaceToAllocate) {
+    struct baio     *bb;
+    int             r, fd, sfd;
+    char            *iod;
+
+    fd = posix_openpt(O_RDWR | O_NOCTTY);
+    if (fd < 0) {
+	printf("%s: Error: Can't open new pseudoterminal: %s.\n", PPREFIX(), STR_ERRNO());
+	return(NULL);
+    }
+    
+    r = grantpt(fd);
+    if (r != 0) {
+	printf("%s: Error: Can't grantpt() new pseudoterminal: %s.\n", PPREFIX(), STR_ERRNO());
+	close(fd);
+	return(NULL);
+    }
+    
+    r = unlockpt(fd);
+    if (r != 0) {
+	printf("%s: Error: Can't unlockpt() new pseudoterminal: %s.\n", PPREFIX(), STR_ERRNO());
+	close(fd);
+	return(NULL);
+    }
+
+    // This is a strange hack. If I do not open the slave terminal then it is removed after any program closes it.
+    sfd = open(ptsname(fd), O_NOCTTY);
+    
+    initSerialPort(fd, baudrate);
+    setFileNonBlocking(fd);
+    
+    if (link != NULL) {
+	unlink(link);
+	r = symlink(ptsname(fd), link);
+	if (r != 0) {
+	    printf("%s: Error: Can't create symlink %s to new pseudoterminal: %s.\n", PPREFIX(), link, STR_ERRNO());
+	    close(fd);
+	    return(NULL);
+	}
+    }
+    
+    bb = baioNewBasic(BAIO_TYPE_PTTY, BAIO_IO_DIRECTION_RW, additionalSpaceToAllocate);
+    bb->rfd = fd;
+    bb->wfd = fd;
     return(bb);
 }

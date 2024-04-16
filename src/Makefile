@@ -1,20 +1,21 @@
 #######################################################
 # raspilot makefile
 
-CFLAGS= -g -DEDEBUG -Wall -Wno-format-truncation -Wno-unused-variable -Wno-pointer-sign -Wno-unused-but-set-variable -I../lib/pi2c -L/usr/local/lib
+CFLAGS= -g -DEDEBUG -Wall -Wno-format-truncation -Wno-unused-variable -Wno-pointer-sign -Wno-unused-but-set-variable -I../lib/pi2c -I../lib -L/usr/local/lib
 LINKFLAGS= -pthread -lm -lrt 
 
 INCLUDES=common.h raspilotshm.h expmem.h sglib.h linmath.h linmath2.h ../lib/pi2c/pi2c.h
-OBJS=main.o common.o expmem.o json.o baio.o config.o device.o pilot.o mission.o ../lib/pi2c/pi2c.c
+OBJS=main.o common.o expmem.o json.o baio.o config.o device.o pilot.o mission.o mavlink.o ../lib/pi2c/pi2c.c
 
 ########################################################
 
-#dev
 #DRONE=d250
-DRONE=pifly
-#DRONE=pc
 #DRONE=p2
-###
+#DRONE=192.168.0.178
+#DRONE=pifly
+DRONE=pc
+#DRONE=openhd@pc:2233
+
 
 #set IGNORE_BUILD_ERROR to true if you want to ignore build errors
 ifeq ($(DRONE),pc)
@@ -66,29 +67,29 @@ prestart: prestartchecks stop
 	sudo bash -c "sync; echo 3 > /proc/sys/vm/drop_caches"
 
 start: prestart
-	sudo bash -c "ulimit -c unlimited ; chrt -r 20 taskset -c 0 ./raspilot  -d 1 -ll 6 -p `echo $$SSH_CLIENT | awk '{ print $$1}'`"
+	sudo bash -c "ulimit -c unlimited ; chrt -r 20 taskset -c 0 ./raspilot  -d 1 -ll 6 "
 
 starttolog: prestart
-	sudo bash -c "ulimit -c unlimited ; chrt -r 20 taskset -c 0 ./raspilot -d 6 -ll 33 -p `echo $$SSH_CLIENT | awk '{ print $$1}'`"
+	sudo bash -c "ulimit -c unlimited ; chrt -r 20 taskset -c 0 ./raspilot -d 6 -ll 33 "
 	# Copy the log on the ssh server
-	cat currentlog.txt | gzip | ssh `echo $$SSH_CLIENT | awk '{ print $$1}'` "cat > dev/raspilot/log/`readlink currentlog.txt`.gz"
-	#scp `readlink currentlog.txt` `echo $$SSH_CLIENT | awk '{ print $$1}'`:dev/raspilot/log/
+	# cat currentlog.txt | gzip | ssh `echo $$SSH_CLIENT | awk '{ print $$1}'` "cat > dev/raspilot/log/`readlink currentlog.txt`.gz"
+	# scp `readlink currentlog.txt` `echo vittek@$$SSH_CLIENT | awk '{ print $$1}'`:dev/raspilot/log/
 
 startdebug: prestart
-	sudo bash -c "ulimit -c unlimited ; chrt -r 20 taskset -c 0 ./raspilot -d 66 -ll 66 -p `echo $$SSH_CLIENT | awk '{ print $$1}'`"
+	sudo bash -c "ulimit -c unlimited ; chrt -r 20 taskset -c 0 ./raspilot -d 66 -ll 66"
 
 replay: always
-	scp $(DRONE):dev/raspilot/src/trajectory.dat .
+	scp scp://$(DRONE)/~/dev/raspilot/src/trajectory.dat .
 	gnuplot ../misc/replay-trajectory/replay-trajectory.gnuplot
 
 #######################################################
 
 picopy: dist
-	scp ../../raspilot.tgz $(DRONE):dev/
-	ssh $(DRONE) "cd dev && tar xfz raspilot.tgz"
+	scp ../../raspilot.tgz scp://$(DRONE)/~/dev/
+	ssh ssh://$(DRONE) "cd dev && tar xfz raspilot.tgz"
 
 piall: picopy
-	ssh $(DRONE) "make -C dev/raspilot/src all"
+	ssh ssh://$(DRONE) "make -C dev/raspilot/src all"
 
 #######################################################
 
@@ -107,13 +108,13 @@ dist:   distclean
 #######################################################
 
 test:always
-	# ssh $(DRONE) "cd dev/raspilot/tool/raspicam-april && killall -9 raspicam-april ; ./raspicam-april -x 1 -t 1 -m 480 -n 360" | ../misc/pose-vizualization/viz
-	# ssh $(DRONE) "cd dev/raspilot/tool/imu/mpu6050/rowberg && sudo killall -9 demo_dmp ; sudo ./demo_dmp" | ../misc/pose-vizualization/viz 
-	# ssh $(DRONE) "cd dev/raspilot/tool/imu/mpu6050/magwick-fusion && sudo killall -9 fusion ; sudo ./fusion" | ../misc/pose-vizualization/viz 
-	# ssh $(DRONE) "cd dev/raspilot/tool/librealsense/build/examples/pose && sudo killall -9 rs-pose ; sudo ./rs-pose" | ../misc/pose-vizualization/viz 
-	# ssh $(DRONE) "cd dev/raspilot/tool/april-mipi/src && sudo killall -9 raspiapril ; ./raspiapril -r 10" | ../misc/pose-vizualization/viz 
-	# ssh $(DRONE) "cd dev/raspilot/src ; make start" | ../misc/pose-vizualization/viz 
-	# ssh $(DRONE) "cd dev/raspilot/src ; make start"
+	# ssh ssh://$(DRONE) "cd dev/raspilot/tool/raspicam-april && killall -9 raspicam-april ; ./raspicam-april -x 1 -t 1 -m 480 -n 360" | ../misc/pose-vizualization/viz
+	# ssh ssh://$(DRONE) "cd dev/raspilot/tool/imu/mpu6050/rowberg && sudo killall -9 demo_dmp ; sudo ./demo_dmp" | ../misc/pose-vizualization/viz 
+	# ssh ssh://$(DRONE) "cd dev/raspilot/tool/imu/mpu6050/magwick-fusion && sudo killall -9 fusion ; sudo ./fusion" | ../misc/pose-vizualization/viz 
+	# ssh ssh://$(DRONE) "cd dev/raspilot/tool/librealsense/build/examples/pose && sudo killall -9 rs-pose ; sudo ./rs-pose" | ../misc/pose-vizualization/viz 
+	# ssh ssh://$(DRONE) "cd dev/raspilot/tool/april-mipi/src && sudo killall -9 raspiapril ; ./raspiapril -r 10" | ../misc/pose-vizualization/viz 
+	# ssh ssh://$(DRONE) "cd dev/raspilot/src ; make start" | ../misc/pose-vizualization/viz 
+	# ssh ssh://$(DRONE) "cd dev/raspilot/src ; make start"
 	# ssh piz2 "dev/raspilot/tool/april-mipi/src/raspiapril -m 3 -s 0.027 -l 3.45 -u 3.896 -v 2.453 -r 8 -x 2" | ../misc/pose-vizualization/viz 
 	# ssh piz2 "dev/raspilot/tool/imu/mpu6050/fusion/fusion /dev/i2c-1"
 

@@ -1,0 +1,322 @@
+// Configuration with Openhd and 3S battery pack.
+/*
+	All values here are in SI units, i.e. meters, seconds, meter/second, etc.
+	All angles are in radians, i.e. radians, radians/second, etc.
+
+        ordering of motors shall be:
+       
+        front side of the drone
+       
+          3       0
+           \     /
+            --^--
+            |   |
+            -----
+           /     \
+          2       1
+       
+
+*/
+
+// This file is preprocessed by C preprocessor before being read by raspilot, you
+// can use preprocessor directives like #define and #if.
+// File format is an "extended" JSON which is JSON where field names can be used without quotes,
+// comma can occur after the last field and constant expressions can be used instead of constants.
+
+#define PI 3.1415926
+#define RATE 200
+{
+#define FPV_TEST 0
+#if FPV_TEST
+    pilot_main_mode: "MODE_MANUAL_RC",
+#elif 1
+    pilot_main_mode: "MODE_MOTOR_TEST",
+#else    
+    pilot_main_mode: "MODE_SINGLE_MISSION",
+#endif
+
+    autopilot_loop_Hz: RATE,
+    stabilization_loop_Hz: RATE,
+    
+    motor_number:          4,
+    motor_yaw_forces:	   [-1,  1, -1,  1],
+    motor_pitch_forces:	   [ 1, -1, -1,  1],
+    motor_roll_forces:	   [-1, -1,  1,  1],
+    
+    // What we call "long buffer" is the buffer of poses used to "smooth" or "average"
+    // noise. We use linear regression of buffered values to get current pose.
+    // The size of long buffer is in seconds. If you have good sensors you can put smaller numbers.
+    // If all your sensors are noisy you have to put larger value.
+    // Similarly, there is a "short buffer" storing roll and pitch used to stabilize drone. This is usualy shorter then "large buffer"
+    // because stabilization requires less latency.
+    // Buffer_seconds must be larger than 1 tick which is 1/stabilization_loop_Hz.
+    long_buffer_seconds:	   0.01,
+    short_buffer_seconds:	   4/RATE,
+
+    // waypoint shall not be lower than this altitude
+    drone_min_altitude:            0.01,
+    
+    // waypoint shall not be higher than this altitude.
+    drone_max_altitude:            1.00, 
+    
+    // waypoint is considered as reached when the drone happens to be within that distance and orientation range
+    drone_waypoint_reached_range:    0.05,
+    drone_waypoint_reached_angle:    0.20,
+
+    // This is the time in which autopilots wants to reach target roll and pitch orientation. 
+    pilot_reach_goal_orientation_time:	0.1,
+    
+    // This is the time in which autopilots wants to reach target position.
+    // It shall be be at least the double of "pilot_reach_goal_orientation_time".
+    pilot_reach_goal_position_time:	1.0,
+
+    // While moving between waypoints the autopilot is constrained by the following values.
+    // max speed contains also vertical speed, that's why there is higher number
+    drone_max_speed: 		   10.0,
+    drone_max_rotation_speed:	   PI/2,
+    drone_max_inclination:	   PI/4,
+
+    // drone_panic_inclination is a security value. It is the inclination at which drone turns off to avoid damages.
+    drone_panic_inclination:	   PI/2,
+
+    // minimal spin, i.e. the spin during "warning rotations" before launch
+    motor_thrust_min_spin:         0.05,
+    
+    // Maximal value sent to motor for holding altitude. With the right value the drone gently lands when the battery is empty.
+    motor_altitude_thrust_max:     0.6,
+    motor_altitude_thrust_hold:    0.3,
+    
+    
+    //////////////////////////////////////////////
+    // PID controllers.
+    
+    // There are three sorts of PID controllers in raspilot. The first sort are PidX and PidY controllers
+    // managing how much the autopilot is pushing on the movement in X,Y coordinates. Values [1,0,0] means that the autopilot
+    // does not push at all. It is perfectly OK to use those values ([1,0,0]) for non-windy weather, perfectly
+    // equilibrated drone and flying in the interior or during the calibration of the drone.
+    // You configure the same values for both PidX and PidY controllers.
+
+    // pidXY:        { p:1.00,  i:00,  d:0.000 },
+    pidXY:        { p:0.5,  i:0.2,  d:0.000 },
+
+    // The second sort of PID controllers translates the desired drone roll pitch yaw rotation to motor thrust
+    // (i.e. to a value between 0 and 1). 
+
+#define RPB 0.05
+
+    pidRoll:     { p:RPB,  i:RPB/5,  d:0.00002},
+    pidPitch:    { p:RPB,  i:RPB/5,  d:0.00002},
+    pidYaw:      { p:0.1,  i:0.03,  d:0.00001},
+
+    // The last sort of PID controller is pidAltitude. It translates desired vertical speed (usually 0)
+    // to motor thrust. It shall have P factor large enough to launch and stabilize the drone altitude.
+    // In order not to start I part from zero we have added a CI constant to start I value at some previously
+    // determined constant value. Check your value with different levels of battery. The I factor in this
+    // case accumulates the difference between fully charged and "nearly empty" batteries. BTW it is used by
+    // raspilot to determine the status of the battery.
+
+    // pidAltitude: { p:0.,  i:0.0,  d:0},
+    pidAltitude: { p:0.03,  i:0.06,  d:0.000},
+
+    manual_rc_roll:     {mode:"RCM_TARGET", min_zone: 0.1, min:-0.2, max: 0.2},
+    manual_rc_pitch:    {mode:"RCM_TARGET", min_zone: 0.1, min:-0.2, max: 0.2},
+    manual_rc_yaw:      {mode:"RCM_ASSISTED", min_zone: 0.8, min:-1.0, max: 1.0},
+
+    manual_rc_altitude: {mode:"RCM_PASSTHROUGH", min_zone: 0.0, min:-0.6, max: 0.8, scroll_zone: 0.05, sensitivity:0.1},
+    // manual_rc_altitude: {mode:"RCM_ASSISTED", min_zone: 0.0, min:-0.6, max: 0.8, scroll_zone: 0.05, sensitivity:0.1},
+    // manual_rc_altitude: {mode:"RCM_TARGET", min_zone: 0.0, min:-1.0, max: 2.0},
+
+    // to be removed?
+    pidAccAltitude: { p:0.1,  i:0.1,  d:0},
+    
+    /////////////////////////////////////////////////////////////////////////////////////////////////////
+    /////////////////////////////////////////////////////////////////////////////////////////////////////
+    // Following part of the configuration defines sensors and other devices installed on the drone and
+    // connected either by a shared memory or Linux pipes.
+
+    device: [
+
+	{
+	    name: "motors",
+	    connection : {
+	    	// direct dshot connection of ESC to raspberry pi pinouts. Numeric arguments of motor-dshot are gpio pins where ESC is connected.
+		type: "DCT_COMMAND_BASH",
+		// command: "killall motor-dshot; sleep 0.5; killall -q -9 motor-dshot; sleep 0.5; ulimit -c unlimited; exec chrt -f 99 taskset -c 1 ../tool/motor/motor-dshot/motor-dshot - - 16 21 20 19 "
+		// to work with openhd you have to use vc4-kms-v3d instead of vc4-fkms-v3d
+		command: "killall motor-dshot-smi; sleep 0.5; killall -q -9 motor-dshot-smi; sleep 0.5; ulimit -c unlimited; exec chrt -f 99 taskset -c 1 ../tool/motor/motor-dshot-smi/motor-dshot-smi - - 16 21 20 19 "
+		// command: "killall motor-null; sleep 0.5; killall -q -9 motor-null; sleep 0.5; ulimit -c unlimited; exec chrt -f 99 taskset -c 1 ../tool/motor/motor-null/motor-null - - 16 21 20 19 "
+	    },
+	    shutdownExit: true,
+	    stream: [
+	    	// sending
+		{ type:"DT_PING",       tag: "ping",  debug_level: 10},
+		{ type:"DT_THRUST",     tag: "mt4",   debug_level: 10},
+		// reading
+		{ type:"DT_PONG",	tag: "pong",  debug_level: 10},
+		{ type:"DT_DEBUG", 	tag: "debug", debug_level: 110},
+	    ],
+	},
+
+#if 1
+	{
+	    name: "gyro-mpu6050-magwick-shm",
+	    connection : {
+		type: "DCT_COMMAND_BASH",
+		// I am using refresh 1kz, DPL filter mode 4, so latency at least 8ms
+		command: "killall -q -9 mpu6050-shm; sleep 0.5; exec chrt -r 10 taskset -c 3 ../tool/imu/gy-87/mpu6050-shm -s -f 4 -r 1000 /dev/i2c-1",
+	    },
+	    warming_time: 15.0,
+	    // positive roll in mount_rpy makes left side up
+	    // positive pitch in mount_rpy makes nose up
+	    // TODO: Maybe all those value shall be specified inside the DT_ORIENTATION_RPY stream instead of here.
+	    mount_rpy_order: [1, 0, 2],		// permutation how to reorder sensor's rpy to drone's rpy
+	    mount_rpy_scale: [1, 1, 1],		// possible sign inversion [up/down,up/down,clockwise/counterclockwise]
+	    mount_rpy: [-0.02, -0.14, 0],	// offset to be substracted from reported rpy
+            stream: [
+		{ type: "DT_ORIENTATION_RPY_SHM", tag: "rpy",  weight: [1.0, 1.0, 1.0], mandatory:1, drift_auto_fix_period:[0,0,0.5], regression_size:4, latency: 0.009, debug_level: 77},
+		{ type: "DT_EARTH_ACCELERATION_SHM", tag: "eacc",  weight: [1.0, 1.0, 1.0], mandatory:0, regression_size:32, latency: -0.010, debug_level: 77},
+		{ type: "DT_DEBUG",           tag: "debug", debug_level: 22},
+            ],
+	},
+#endif
+
+#if 0
+	{
+	    name: "apriltag",
+	    connection : {
+		type: "DCT_COMMAND_BASH",
+		command: "taskset -c 3 ssh vittek@192.168.0.124 /home/vittek/dev/raspiapril/src/raspiapril -s 0.053",
+	    },
+	    // supposing apriltag reports the position to the middle of the tag
+	    mount_position: [0, 0, 0.02],
+	    warming_time: 1.0,
+            stream: [
+#if FPV_TEST	    
+		//{ type: "DT_POSITION_VECTOR",      tag: "pose:",  mandatory:1, weight: [0, 0, 1.0], regression_size:6, latency: 0.3, debug_level: 77},
+		//{ type: "DT_ORIENTATION_RPY", 	   tag: "rpy:", weight: [1e-20, 1e-20, 1], mandatory:1, regression_size:10, latency: 0, debug_level: 77},
+#else
+		{ type: "DT_POSITION_VECTOR",      tag: "pose:",  mandatory:1, weight: [1.0, 1.0, 1.0], regression_size:6, latency: 0.2, debug_level: 77},
+		{ type: "DT_ORIENTATION_RPY", 	   tag: "rpy:", weight: [1e-20, 1e-20, 1], mandatory:1, regression_size:10, latency: 0.3, debug_level: 77},
+#endif		
+		{ type: "DT_VOID",                 tag: "lat:", debug_level: 1},
+		{ type: "DT_DEBUG",                tag: "debug", debug_level: 22},
+            ],
+	},
+#endif
+
+#if 1
+	{
+	    name: "altimeter",
+	    connection : {
+		type: "DCT_COMMAND_BASH",
+		command: "killall -q -9 bmp180; sleep 0.5; exec chrt -r 10 taskset -c 3 ../tool/imu/gy-87/bmp180 -r 20 -s /dev/i2c-1",
+	    },
+	    warming_time: 1.0,
+            stream: [
+	    	// barometer is very noisy, use negative latency to get something closer to the mean than extrapolation
+#if FPV_TEST
+		{ type: "DT_ALTITUDE",    tag: "alt",   weight: 1.0, mandatory:1, regression_size: 45, latency: -0.2, debug_level: 77},
+#else		
+		{ type: "DT_ALTITUDE",    tag: "alt",   weight: 0.1, mandatory:1, regression_size: 160, latency: -4.0, debug_level: 77},
+#endif		
+		{ type: "DT_TEMPERATURE", tag: "temp",  weight: 1.0, regression_size:2, latency: 0.2, debug_level: 77},
+		{ type: "DT_DEBUG",       tag: "debug", debug_level: 22},
+            ],
+	},
+#endif
+
+#if 0
+	{
+	    name: "magnetometer",
+	    connection : {
+		type: "DCT_COMMAND_BASH",
+		command: "killall -q -9 qmc5883l; sleep 0.5; exec chrt -r 10 taskset -c 3 ../tool/imu/gy-87/qmc5883l -s /dev/i2c-1",
+	    },
+	    warming_time: 2.0,
+            stream: [
+		{ type: "DT_MAGNETIC_HEADING",    tag: "mag",   weight: 0.0, regression_size:10, latency: 0.2, debug_level: 77},
+		{ type: "DT_DEBUG",       	  tag: "debug", debug_level: 22},
+            ],
+	},
+#endif
+
+	{
+	    name: "openhd",
+	    connection : {
+		type: "DCT_MAVLINK_PTTY",
+		link: "/dev/ttyS7",
+		system_id: 1,
+		component_id: 1,
+		gs_system_id: 255,
+		gs_component_id: 1,
+	    },
+	    stream: [
+		// received messages
+		{ type:"DT_MAVLINK_RC_CHANNELS_OVERRIDE", tag: "rc", channel_map: [
+		    /* channel 1 */ "RC_ROLL", 
+		    /* channel 2 */ "RC_PITCH", 
+		    /* channel 3 */ "RC_YAW", 
+		    /* channel 4 */ "RC_ALTITUDE", 
+		    /* channel 5 */ "RC_NONE", 
+		    /* channel 6 */ "RC_NONE", 
+		    /* channel 7 */ "RC_NONE", 
+		    /* channel 8 */ "RC_NONE", 
+		    /* channel 9 */ "RC_BUTTON_STANDBY", 
+		    /* channel 10 */ "RC_BUTTON_PANIC_SHUTDOWN", 
+		    /* channel 11 */ "RC_NONE", 
+		    /* channel 12 */ "RC_NONE", 
+		    /* channel 13 */ "RC_NONE", 
+		    /* channel 14 */ "RC_NONE", 
+		    /* channel 15 */ "RC_NONE", 
+		    /* channel 16 */ "RC_BUTTON_LAUNCH_COUNTDOWN", 
+		    /* channel 17 */ "RC_NONE", 
+		    /* channel 18 */ "RC_NONE", 
+		], debug_level: 110
+		},
+		{ type:"DT_DEBUG", tag: "debug", debug_level: 77},
+
+		// sending out messages
+		{ type:"DT_MAVLINK_ATTITUDE",        tag: "attitude"},
+		{ type:"DT_MAVLINK_BATTERY_STATUS",  tag: "battery-status"},
+		{ type:"DT_MAVLINK_GLOBAL_POSITION", tag: "position"},
+		{ type:"DT_MAVLINK_HOME_POSITION",   tag: "home"},
+		{ type:"DT_MAVLINK_STATUSTEXT",      tag: "statustext"},
+		
+	    ],
+	},
+
+
+	{
+	    // This is a dummy internal device returning zero position with low confidence and weight.
+	    // It is there to keep autopilot requirements about having a device providing position
+	    name: "zeropose",
+	    connection : {
+		type: "DCT_INTERNAL_ZEROPOSE",
+	    },
+            stream: [
+		{ type: "DT_POSITION_VECTOR",        tag: "position", weight: 1e-100, debug_level: 1},
+            ],
+	},
+
+#if 0
+    // Joystick at some wifi connected pc.
+    // TODO: Just test it after reimplementation to standard functions and then remove from here.
+	{
+	    name: "joystick",
+	    connection : {
+		type: "DCT_COMMAND_BASH",
+		command: "jstest --event /dev/input/js0"
+	    },
+	    warming_time: 1.0,
+            stream: [
+		// TODO: Implement something so that I can set "mandatory:1" for joystick
+		{ type: "DT_JSTEST", tag: "Event:", weight: 1.0, regression_size:3, debug_level: 1},
+            ],
+	},
+#endif
+
+
+
+],
+}
+

@@ -68,7 +68,6 @@ void motorsThrustSetAndSend(double thrust) {
 }
 
 void motorsStop(void *d) {
-    int i;
     motorsThrustSetAndSend(0);
 }
 
@@ -154,7 +153,7 @@ void pilotSendThrusts(void *d) {
 void pilotImmediateLanding() {
     vec3	cpose;
     
-    deviceSendToAllDevices("info: landing\n");
+    // deviceSendToAllDevices("info: landing\n");
     // go strait down on interactive down 
     regressionBufferEstimateForTime(&uu->longBufferPosition, currentTime.dtime, cpose);
     raspilotLand(cpose[0], cpose[1]);
@@ -182,18 +181,17 @@ static int pilotCheckDeviceForTimeout(struct deviceStreamData *gg) {
     
     if (gg == NULL) return(-1);
     if (gg->input == NULL) {
-	lprintf(50, "%s: %s.%s: no input buffer\n", PPREFIX(), gg->dd->name, gg->name);
+	lprintf(10, "%s: %s.%s: no input buffer buffer\n", PPREFIX(), gg->dd->name, gg->name);
 	return(-1);
     }
-    if (gg->input->buffer.n == 0) {
-	lprintf(50, "%s: %s.%s: no history\n", PPREFIX(), gg->dd->name, gg->name);
+    if (gg->outputBuffer.n == 0) {
+	lprintf(10, "%s: %s.%s: no history\n", PPREFIX(), gg->dd->name, gg->name);
 	return(-1);
     }
-    //raspilotRingBufferDump(&gg->input->buffer);
-    lastdatatime = gg->input->buffer.a[gg->input->buffer.ailast * (gg->input->buffer.vectorsize+1)];
+    lastdatatime = gg->outputBuffer.time[gg->outputBuffer.ailast];
     // lprintf(0, "timeout check %f < %f %f %f == %f\n", lastdatatime, currentTime.dtime, gg->timeout, gg->latency, currentTime.dtime - (gg->timeout + gg->latency));
-    if (lastdatatime < currentTime.dtime - (gg->timeout + gg->latency)) {
-	lprintf(50, "%s: %s.%s: timeouted\n", PPREFIX(), gg->dd->name, gg->name);
+    if (lastdatatime < currentTime.dtime - gg->timeout - gg->latency) {
+	lprintf(20, "%s: %s.%s: timeouted. Last data from %s\n", PPREFIX(), gg->dd->name, gg->name, sprintSecTime_st(lastdatatime*1000000.0));
 	return(-1);
     }
     return(0);
@@ -381,12 +379,11 @@ static void pilotAddPosition(vec3 ppsum, vec3 weightsum, int datatype, void mapf
     }
 }
 
-
 static int pilotCombineCurrentOrientationFromSensors(vec3 rpy) {
     vec3			rpyweight;
     vec3			rpysinsum, rpycossum;
     int				i;
-    int				rpywHasZero;
+    int				vecHasZero;
     
     memset(rpyweight, 0, sizeof(rpyweight));
     memset(rpysinsum, 0, sizeof(rpysinsum));
@@ -399,7 +396,7 @@ static int pilotCombineCurrentOrientationFromSensors(vec3 rpy) {
     pilotAddRpyOrientation(rpysinsum, rpycossum, rpyweight, DT_ORIENTATION_RPY_SHM, pilotAddCurrentRpyOrientationFromSensorToSum);
     pilotAddRpyOrientation(rpysinsum, rpycossum, rpyweight, DT_ORIENTATION_RPY, pilotAddCurrentRpyOrientationFromSensorToSum);
 
-    rpywHasZero = vec3_has_zero(rpyweight);
+    vecHasZero = vec3_has_zero(rpyweight);
 
     // get average roll, pitch, yaw
     for(i=0; i<3; i++) {
@@ -411,12 +408,13 @@ static int pilotCombineCurrentOrientationFromSensors(vec3 rpy) {
 	}
     }
 
-    return(0);
+    return(vecHasZero);
 }
 
 static int pilotCombineCurrentPositionFromSensors(vec3 position) {
     int				i;
     vec3			ppsum, weightsum;
+    int				vecHasZero;
 
     // pilotComputeCurrentGyropose("gyropose", DT_POSITION_VECTOR, orientation);
 
@@ -434,12 +432,81 @@ static int pilotCombineCurrentPositionFromSensors(vec3 position) {
     pilotAddPosition(ppsum, weightsum, DT_BOTTOM_RANGE, pilotAddAltitudeFromSensorToSum);
     pilotAddPosition(ppsum, weightsum, DT_ALTITUDE, pilotAddAltitudeFromSensorToSum);
 
-    if (vec3_has_zero(weightsum)) return(-1);
+    vecHasZero = vec3_has_zero(weightsum);
+
     for(i=0; i<3; i++) {
-	position[i] = ppsum[i]/weightsum[i];
+	if (vecHasZero) {
+	    position[i] = 0;
+	} else {
+	    position[i] = ppsum[i]/weightsum[i];
+	}
     }
 
-    return(0);
+    return(vecHasZero);
+}
+
+static void pilotAddAccelerationFromSensorToSum(vec3 ppsum, vec3 weightsum, struct deviceStreamData *gg) {
+    vec3		ww, droneacc;
+    double		meantime;
+    int			r;
+
+    deviceTranslateInputToOutput(gg);
+    if (pilotCheckDeviceForTimeout(gg)) return;
+
+    // We take mean for acceleration. I do not know why but I feel it better
+    // r = regressionBufferEstimateForTime(&gg->outputBuffer, currentTime.dtime, droneacc);
+    regressionBufferGetMean(&gg->outputBuffer, &meantime, droneacc);
+
+    if (! gg->launchPoseSetFlag) {
+	memset(droneacc, 0, sizeof(droneacc));
+    }
+    
+    lprintf(PILOT_SENSOR_MERGE_DEBUG_LEVEL,"%s: add %s from %-20s %-20s \tweights: %s, confidence %f\n", PPREFIX(), vecToString_st(droneacc), gg->dd->name, gg->name, vec3ToString_st(gg->weight), gg->confidence);
+
+    vec3_scale(ww, gg->weight, gg->confidence);
+    vec3_mul_elem(droneacc, droneacc, ww);
+    vec3_add(ppsum, ppsum, droneacc);
+    vec3_add(weightsum, weightsum, ww);
+    return;
+}
+
+static void pilotAddAcceleration(vec3 ppsum, vec3 weightsum, int datatype, void mapfun(vec3, vec3, struct deviceStreamData *)) {
+    struct deviceStreamData *ddl;
+    
+    assert(datatype > DT_NONE && datatype < DT_MAX);
+    for(ddl=uu->deviceStreamDataByType[datatype]; ddl!=NULL; ddl=ddl->nextWithSameType) {
+	mapfun(ppsum, weightsum, ddl);
+    }
+}
+
+
+static int pilotCombineCurrentAccelerationFromSensors(vec3 acceleration) {
+    int				i;
+    vec3			ppsum, weightsum;
+    int				vecHasZero;
+
+    // pilotComputeCurrentGyropose("gyropose", DT_POSITION_VECTOR, orientation);
+
+    lprintf(PILOT_SENSOR_MERGE_DEBUG_LEVEL, "%s: Going to merge acceleration from sensors\n", PPREFIX());
+
+    memset(acceleration, 0, sizeof(vec3));
+    memset(ppsum, 0, sizeof(vec3));
+    memset(weightsum, 0, sizeof(vec3));
+    
+    // Go through all sensors contributing to the position
+    pilotAddAcceleration(ppsum, weightsum, DT_EARTH_ACCELERATION, pilotAddAccelerationFromSensorToSum);
+    pilotAddAcceleration(ppsum, weightsum, DT_EARTH_ACCELERATION_SHM, pilotAddAccelerationFromSensorToSum);
+
+    vecHasZero = vec3_has_zero(weightsum);
+    for(i=0; i<3; i++) {
+	if (vecHasZero) {
+	    acceleration[i] = 0;
+	} else {
+	    acceleration[i] = ppsum[i]/weightsum[i];
+	}
+    }
+
+    return(vecHasZero);
 }
 
 static int pilotInternalDummyDevicesTick(int dataType) {
@@ -465,7 +532,7 @@ static int pilotInternalDummyDevicesTick(int dataType) {
 
 ////////////
 
-static void pilotGetCurrentPositionAndOrientationFromSensors(vec3 position, vec3 rpy) {
+static void pilotGetCurrentAccelerationPositionAndOrientationFromSensors(vec3 acceleration, vec3 position, vec3 rpy) {
     int				r;
 
     memset(rpy, 0, sizeof(vec3));
@@ -473,9 +540,11 @@ static void pilotGetCurrentPositionAndOrientationFromSensors(vec3 position, vec3
     // In the following call rpy is for nothing, not used nor set.
     pilotInternalDummyDevicesTick(DT_ORIENTATION_RPY);
 
+    pilotCombineCurrentAccelerationFromSensors(acceleration);
+    
     // first get and combine the orientation of the drone and use it to compute position
     r = pilotCombineCurrentOrientationFromSensors(rpy);
-    if (r) {
+    if (r && uu->flyStage > FS_PRE_FLY) {
 	printf("%s: Error: No sensor providing orientation. Emergency landing!\n", PPREFIX());
 	raspilotShutDownAndExit();
     }
@@ -483,7 +552,7 @@ static void pilotGetCurrentPositionAndOrientationFromSensors(vec3 position, vec3
     pilotInternalDummyDevicesTick(DT_POSITION_VECTOR);
     
     r = pilotCombineCurrentPositionFromSensors(position);
-    if (r) {
+    if (r && uu->flyStage > FS_PRE_FLY) {
 	printf("%s: Error: No sensor providing position. Emergency landing!\n", PPREFIX());
 	raspilotShutDownAndExit();
     }
@@ -494,7 +563,7 @@ static void pilotGetCurrentPositionAndOrientationFromSensors(vec3 position, vec3
 
 ////////////
 
-void pilotStoreLaunchPose(void *d) {
+void pilotLaunchPoseSet(void *d) {
     int				i, j;
     double			meanTime;
     struct deviceData 		*dd;
@@ -510,10 +579,138 @@ void pilotStoreLaunchPose(void *d) {
 	    ddd->launchPoseSetFlag = 1;
 	    // lprintf(23, "%s: %s.%s launch pose %s.\n", PPREFIX(), dd->name, ddd->name, vecToString_st(ddd->launchPose.pr));
 	    lprintf(6, "%s: %s.%s stored data %s from %d values\n", PPREFIX(), dd->name, ddd->name, arrayWithDimToStr_st(ddd->launchData, ddd->outputBuffer.vectorsize), MIN(ddd->outputBuffer.size, ddd->outputBuffer.n));
+	    regressionBufferReset(&ddd->outputBuffer);
+	    memset(ddd->drift_offset_per_second, 0, deviceDataStreamVectorLength[ddd->type]*sizeof(double));
 	}
     }
 }
 
+void pilotLaunchPoseClear(void *d) {
+    int				i,j;
+    struct deviceData 		*dd;
+    struct deviceStreamData 	*ddd;
+    
+    lprintf(20, "\n\n");
+    lprintf(6, "%s: Clearing launch poses.\n", PPREFIX());
+    for(i=0; i<uu->deviceMax; i++) {
+	dd = uu->device[i];
+	for(j=0; j<dd->ddtMax; j++) {
+	    ddd = dd->ddt[j];
+	    ddd->launchPoseSetFlag = 0;
+	    assert(deviceDataStreamVectorLength[ddd->type] == ddd->outputBuffer.vectorsize);
+	    memset(ddd->launchData, 0, ddd->outputBuffer.vectorsize*sizeof(double));
+	    regressionBufferReset(&ddd->outputBuffer);
+	    memset(ddd->drift_offset_per_second, 0, deviceDataStreamVectorLength[ddd->type]*sizeof(double));
+	}
+    }
+}
+
+// TODO, compute this once per tick and store into struct universe
+double pilotGetNormalizedLastStabilizationTickLength() {
+    double		ddt, mddt, tdTick;
+
+    // compute velocity from previous regressed pose and the current regressed pose
+    tdTick = 1.0/uu->stabilization_loop_Hz;
+    ddt = currentTime.dtime - uu->droneLastTickTime;
+    // if time tick is abnormal, try to put it around tdTick
+    mddt = tdTick / 2;
+    if (ddt < mddt) {
+	if (uu->flyStage == FS_FLY) lprintf(0, "%s: Warning: update time normalized from %g to %g for filtering.\n", PPREFIX(), ddt, mddt);
+	ddt = mddt;
+    }
+    mddt = 10.0 * tdTick;
+    if (ddt > mddt) {
+	if (uu->flyStage == FS_FLY) lprintf(0, "%s: Warning: update time normalized from %g to %g for filtering.\n", PPREFIX(), ddt, mddt);
+	ddt = mddt;
+    }
+    return(ddt);
+}
+
+#if 0
+// This applies some common sense constraint on position and orientation vales.
+// But it seems that it works better without it.
+static void pilotFilterCurrentAccelerationPositionAndOrientationValues(vec3 acceleration, vec3 position, vec3 rpy) {
+    vec3		velocity;
+    vec3		rpyRotationSpeed;
+    double		ddt;
+    int			i;
+    vec3		rpyAcceleration;
+    vec3		accAsVelocityDifference;
+    double 		maxRotationAcceleration, maxAcceleration;
+    double		rpyMaxSpeed;
+    double		accSensorWeight, accVelocityWeight;
+    vec3 		fusedacceleration;
+    double		xx;
+    
+    ddt = uu->droneLastStabilizationTickLength;
+
+    ///////////
+    // filter speeds of rotation to reasonable values when some sensor becomes buggy
+
+    // get rpy rotation speeds
+    vec3_sub(rpyRotationSpeed, rpy, uu->droneLastRpy);
+    vec3_scale(rpyRotationSpeed, rpyRotationSpeed, 1.0/ddt);
+
+    // acceleration / deceleration of rotation
+    // large values may still be reasonable, It seem the drone can start rotate very quickly
+    // Maybe I shall remove this filter completely
+    maxRotationAcceleration = M_PI * 2000;
+    vec3_sub(rpyAcceleration, rpyRotationSpeed, uu->droneLastRpyRotationSpeed);
+    vec3_scale(rpyAcceleration, rpyAcceleration, 1/ddt);
+    // lprintf(22, "rpyRotationSpeed %s; uu->droneLastRpyRotationSpeed %s; rpyAcceleration %s\n", vec3ToString_st(rpyRotationSpeed), vec3ToString_st(uu->droneLastRpyRotationSpeed), vec3ToString_st(rpyAcceleration));
+    for(i=0; i<3; i++) rpyAcceleration[i] = truncateToRange(rpyAcceleration[i], -maxRotationAcceleration, maxRotationAcceleration, "rpyAcceleration", i);
+    vec3_scale(rpyAcceleration, rpyAcceleration, ddt);
+    vec3_add(rpyRotationSpeed, uu->droneLastRpyRotationSpeed, rpyAcceleration);
+
+    // If still unreasonably high, filter rotation speed directly
+    rpyMaxSpeed = 4.0 * uu->config.drone_max_rotation_speed;
+    for(i=0; i<3; i++) rpyRotationSpeed[i] = truncateToRange(rpyRotationSpeed[i], - rpyMaxSpeed, rpyMaxSpeed, "rpySpeed", i);
+
+    // rpy is last rpy + rpyRotationSpeed * time
+    vec3_scale(rpy, rpyRotationSpeed, ddt);
+    vec3_add(rpy, rpy, uu->droneLastRpy);
+
+    
+    ///////
+    // the same for drone movement: acceleration, velocity, position
+    
+    // Limit acceleration to a reasonable values
+    maxAcceleration = uu->config.drone_max_speed * 5;
+    // Also consider the maxacceleration can not be higher than physical capabilities
+    // I suppose motors do not give more acceleration than 3G.
+    if (maxAcceleration >= 1 * GRAVITY_ACCELERATION) maxAcceleration = 1 * GRAVITY_ACCELERATION;
+
+    // It's probably better to restrict each part of vector separately than the whole vector,
+    // so that for example, if only altimeter is buggy we do not restrict xy acceleration.
+    // vec3TruncateToSize(acceleration, maxAcceleration, 1, "acceleration");
+    vecTruncateInnerToRange(acceleration, 3, -maxAcceleration, maxAcceleration, "acceleration");
+
+    vec3_sub(velocity, position, uu->droneLastPosition);
+    vec3_scale(velocity, velocity, 1.0/ddt);
+    
+    vec3_sub(accAsVelocityDifference, velocity, uu->droneLastVelocity);
+    vec3_scale(accAsVelocityDifference, accAsVelocityDifference, 1.0/ddt);
+    // vec3TruncateToSize(accAsVelocityDifference, maxAcceleration, 1, "accAsVelocityDifference");
+    vecTruncateInnerToRange(accAsVelocityDifference, 3, -maxAcceleration, maxAcceleration, "accAsVelocityDifference");
+
+    // make acceleration as weighted average of direct meassured acceleration and velocity difference
+    // Hmm. does this actually help?
+    accSensorWeight = 0.0;
+    accVelocityWeight = 1.0 - accSensorWeight;
+    vec3_scale(fusedacceleration, acceleration, accSensorWeight);
+    vec3_scale(accAsVelocityDifference, accAsVelocityDifference, accVelocityWeight);
+    vec3_add(fusedacceleration, fusedacceleration, accAsVelocityDifference);
+    
+    // velocity is previous velocity plus acceleration * time
+    vec3_scale(velocity, fusedacceleration, ddt);
+    vec3_add(velocity, velocity, uu->droneLastVelocity);
+    // maybe reset to reasonble values if not good yet
+    maybeNormalizeMovingVelocity(velocity);
+
+    // position is last position + velocity * time
+    vec3_scale(position, velocity, ddt);
+    vec3_add(position, position, uu->droneLastPosition);
+}
 static void maybeNormalizeMovingVelocity(vec3 movingVelocity) {
     static int 		r = 0;
     static time_t 	lrt = 0;
@@ -528,95 +725,80 @@ static void maybeNormalizeMovingVelocity(vec3 movingVelocity) {
     }
 }
 
+#endif
+
+
+// TODO. SPlit this into two functions, one for getting oriantation RPY and another for position
+// Orientation will be called in stabilization loop, position in mission autopilot.
 static void pilotGetDronePositionAndVelocityAndStoreInBuffers() {
     vec3		smoothPosition;
-    vec3		smoothRpy, smoothRpyLong;
+    vec3		smoothAcceleration, smoothRpy, smoothRpyLong;
+    vec3		sensorFusionAcceleration;
     vec3		sensorFusionPosition;
     vec3		sensorFusionRpy;
-    vec3		velocity;
+    vec3		acceleration, velocity;
     vec3		rpyRotationSpeed;
     double		historyPose[6];
-    double		ddt, mddt, tdTick;
-    int			i;
-    vec3		rpyAcceleration;
-    vec3		acceleration;
-    double 		maxRotationAcceleration, maxAcceleration;
-    
-    // move average from sensors to get the current pose their report
-    pilotGetCurrentPositionAndOrientationFromSensors(sensorFusionPosition, sensorFusionRpy);
+    double		ddt;
+    vec3 		ba, bp, br;
 
+    ddt = uu->droneLastStabilizationTickLength;
+    
+    // get the pose reported by sensor buffers
+    pilotGetCurrentAccelerationPositionAndOrientationFromSensors(sensorFusionAcceleration, sensorFusionPosition, sensorFusionRpy);
+
+#if 0    
+    // We can not filter here. It'd make strange effect in combination with regression buffers making
+    // that position is continuously wrong due to acceleration constraints
+    // pilotFilterCurrentAccelerationPositionAndOrientationValues(sensorFusionAcceleration, sensorFusionPosition, sensorFusionRpy);
+#endif
+    
     // add the pose from sensor to regression buffer and use regression to estimate smooth current position
     regressionBufferAddElem(&uu->longBufferPosition, currentTime.dtime, sensorFusionPosition);    
     regressionBufferAddElem(&uu->longBufferRpy, currentTime.dtime, sensorFusionRpy);
+    regressionBufferAddElem(&uu->shortBufferAcceleration, currentTime.dtime, sensorFusionAcceleration);    
     regressionBufferAddElem(&uu->shortBufferPosition, currentTime.dtime, sensorFusionPosition);    
     regressionBufferAddElem(&uu->shortBufferRpy, currentTime.dtime, sensorFusionRpy);
 
+#if 1
+    // Hmm. is this "double regression" useful? I keep it as it may be useful in the future.
+    // I can always configure the size of the bufer to 1 or 2 if I don't want it.
     // position and yaw is taken from long buffer, roll and pitch from short
     regressionBufferEstimateForTime(&uu->longBufferPosition, currentTime.dtime, smoothPosition);
     regressionBufferEstimateForTime(&uu->longBufferRpy, currentTime.dtime, smoothRpyLong);    
     regressionBufferEstimateForTime(&uu->shortBufferRpy, currentTime.dtime, smoothRpy);
+    regressionBufferEstimateForTime(&uu->shortBufferAcceleration, currentTime.dtime, smoothAcceleration);
     smoothRpy[2] = smoothRpyLong[2];
+#else
+    vec3_assign(smoothPosition, sensorFusionPosition);
+    vec3_assign(smoothAcceleration, sensorFusionAcceleration);
+    vec3_assign(smoothRpy, sensorFusionRpy);
+#endif    
+
+    // The filter may be useless here, it is a kind of security guard only.
+    // I put it out, it flies better without it. Instead try to add accelerometer data to velocity -> position
+    // pilotFilterCurrentAccelerationPositionAndOrientationValues(smoothAcceleration, smoothPosition, smoothRpy);
     
-    
-    // compute velocity from previous regressed pose and the current regressed pose
-    tdTick = 1.0/uu->stabilization_loop_Hz;
-    ddt = currentTime.dtime - uu->droneLastTickTime;
-    // if time tick is abnormal, try to put it around tdTick
-    mddt = tdTick / 2;
-    if (ddt < mddt) {
-	if (uu->flyStage == FS_FLY) lprintf(0, "%s: Warning: update time normalized from %g to %g for buffering.\n", PPREFIX(), ddt, mddt);
-	ddt = mddt;
-    }
-    mddt = 10.0 * tdTick;
-    if (ddt > mddt) {
-	if (uu->flyStage == FS_FLY) lprintf(0, "%s: Warning: update time normalized from %g to %g for buffering.\n", PPREFIX(), ddt, mddt);
-	ddt = mddt;
-    }
-    
-    vec3_sub(velocity, smoothPosition, uu->droneLastPosition);
-    vec3_scale(velocity, velocity, 1.0/ddt);
     vec3_sub(rpyRotationSpeed, smoothRpy, uu->droneLastRpy);
     vec3_scale(rpyRotationSpeed, rpyRotationSpeed, 1.0/ddt);
-
-
-#if 1
-//#define RPY_MAX_SPEED (M_PI)
-#define RPY_MAX_SPEED (4.0 * uu->config.drone_max_rotation_speed)
-    // Filter rotation speed to reasonable values
-    for(i=0; i<3; i++) rpyRotationSpeed[i] = truncateToRange(rpyRotationSpeed[i], - RPY_MAX_SPEED, RPY_MAX_SPEED, "rpySpeed");
-    // The same for velocity
-    maybeNormalizeMovingVelocity(velocity);
-
-#endif
-
-#if 1
-    // Filter rotation acceleration / deceleration to reasonable values
-    maxRotationAcceleration = uu->config.drone_max_rotation_speed * 5;
-    vec3_sub(rpyAcceleration, rpyRotationSpeed, uu->droneLastRpyRotationSpeed);
-    for(i=0; i<3; i++) rpyAcceleration[i] = truncateToRange(rpyAcceleration[i], -maxRotationAcceleration, maxRotationAcceleration, "rpyAcceleration");
-    vec3_add(rpyRotationSpeed, uu->droneLastRpyRotationSpeed, rpyAcceleration);
-
-    // The same for movement acceleration / deceleration
-    maxAcceleration = uu->config.drone_max_speed * 5;
-    vec3_sub(acceleration, velocity, uu->droneLastVelocity);
-    for(i=0; i<3; i++) acceleration[i] = truncateToRange(acceleration[i], -maxAcceleration, maxAcceleration, "acceleration");
-    vec3_add(velocity, uu->droneLastVelocity, acceleration);
-#endif
+    vec3_sub(velocity, smoothPosition, uu->droneLastPosition);
+    vec3_scale(velocity, velocity, 1.0/ddt);
+    
+    // vec3_sub(acceleration, velocity, uu->droneLastVelocity);
+    // vec3_scale(acceleration, acceleration, 1.0/ddt);    
     
     vec3_assign(uu->droneLastPosition, smoothPosition);
     vec3_assign(uu->droneLastRpy, smoothRpy);
     vec3_assign(uu->droneLastVelocity, velocity);
     vec3_assign(uu->droneLastRpyRotationSpeed, rpyRotationSpeed);
+    vec3_assign(uu->droneLastAcceleration, smoothAcceleration);
 
     // add current position and orientation to long time history buffer
     vec3_assign(historyPose, smoothPosition);
     vec3_assign(historyPose+3, smoothRpy);
     raspilotRingBufferAddElem(uu->historyPose, currentTime.dtime, historyPose);
 
-    // we are done. Values updated for currenbt tick.
-    uu->droneLastTickTime = currentTime.dtime;
 }
-
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // What we call "normalization" is the the way how motor thrust is adjusted into the range 0..1. It may happen
@@ -730,7 +912,7 @@ static int pilotNormalizeMotorThrustByRelaxingAltitude() {
 	t = uu->motor[i].thrust;
 	nt = t + shift;
 	lprintf(PILOT_THRUST_NORMALIZATION_DEBUG_LEVEL, "%d: %g->%g;  ", i, t, nt);
-	uu->motor[i].thrust = truncateToRange(nt, 0, 1, NULL);
+	uu->motor[i].thrust = truncateToRange(nt, 0, 1, NULL, INDEX_NAN);
     }
  
     lprintf(PILOT_THRUST_NORMALIZATION_DEBUG_LEVEL, "\n");
@@ -739,7 +921,7 @@ static int pilotNormalizeMotorThrustByRelaxingAltitude() {
 
 static int pilotNormalizeMotorThrust() {
     int 	i, r;
-    double 	f, t, nt, tmin, tmax, tsum;
+    double 	t, nt;
 
     lprintf(PILOT_THRUST_NORMALIZATION_DEBUG_LEVEL, "%s: Normalizing motor thrusts\n", PPREFIX());
     
@@ -755,7 +937,7 @@ static int pilotNormalizeMotorThrust() {
     lprintf(PILOT_THRUST_NORMALIZATION_DEBUG_LEVEL, "%s: Relaxing stability: ", PPREFIX());
     for(i=0; i<uu->motor_number; i++) {
 	t = uu->motor[i].thrust;
-	nt = truncateToRange(t, 0, 1, NULL);
+	nt = truncateToRange(t, 0, 1, NULL, INDEX_NAN);
 	lprintf(PILOT_THRUST_NORMALIZATION_DEBUG_LEVEL, "%d: %g->%g;  ", i, t, nt);
 	uu->motor[i].thrust = nt;
     }
@@ -859,7 +1041,7 @@ static void pilotCombineAllMotorThrusts(double rollThrust, double pitchThrust, d
 // TODO: Removing everything around altitude from this function
 // TODO: Split it to roll+pitch and yaw
 static void pilotComputeTargetRollPitchYawForWaypoint() {
-    int 		i, r;
+    int 		i;
     vec2		targetPositionVector, targetPositionDroneFrame;
     double 		roll, pitch, yaw;
     double		tdTick, tdRpyFix;	// td stands for Time Delta
@@ -868,7 +1050,6 @@ static void pilotComputeTargetRollPitchYawForWaypoint() {
     vec2		movingVelocityDroneFrame;
     vec2		targetGroundVelocity, targetVelocityDroneFrame, diffVelocityDroneFrame, targetVelocityThrustDroneFrame;
     vec3		cRpy;
-    double		verticalSpeed, targetVerticalSpeed;
     double		dmax, dspeed;
     
     // if not enough of data do nothing
@@ -879,8 +1060,7 @@ static void pilotComputeTargetRollPitchYawForWaypoint() {
 
     // Set some time quantums here
     // tdTick is the length of one pilot tick, it is used as PID controllers step.
-    // TODO: compute tdTick as a real time between previous execution time and the current one
-    tdTick = 1.0/uu->autopilot_loop_Hz;
+    tdTick = 1.0 / uu->autopilot_loop_Hz;
     
     // tdRpyFix is the timeframe in which we want to achieve targeted roll, pitch, yaw
     // TODO: Determine this dynamically someway as well as pilot_reach_goal_position_time depending
@@ -897,7 +1077,7 @@ static void pilotComputeTargetRollPitchYawForWaypoint() {
 
     // We consider as starting position for our computation the estimated position/orientation at time in tdRpyFix/2.0 seconds,
     // i.e. when we suppose that the new orientation of the drone will start taking effect.
-    regressionBufferEstimateForTime(&uu->longBufferPosition, currentTime.dtime + tdRpyFix, posEstimatedInRpyFixTime);
+    regressionBufferEstimateForTime(&uu->longBufferPosition, currentTime.dtime + tdRpyFix/2, posEstimatedInRpyFixTime);
 
     lprintf(30, "%s: Regression from buffer: Position     : %s\n", PPREFIX(), vec2ToString_st(posEstimatedInRpyFixTime));
     lprintf(30, "%s: Regression from buffer: Velocity     : %s\n", PPREFIX(), vec2ToString_st(movingVelocity));
@@ -933,16 +1113,14 @@ static void pilotComputeTargetRollPitchYawForWaypoint() {
     // rotates to the goal pitch&roll (during tdRyFix time), then it travels to the middle of
     // the distance while accelerating, then he rotates to "braking" pitch&roll (another tdRpyFix time)
     // and then slowing down to the final speed zero when reaching the point X.
-    // TODO: The model is not very accurate. If we are nearly in good orientation it will not take as
-    // much to get the orientation. Those times shall be infered from current orientation, rotation speed
-    // and drone max rotation speed. For both acceleration and braking.
+    // TODO: Apply some better model
     
     vec2_sub(targetPositionVector, uu->currentWaypoint.position, posEstimatedInRpyFixTime);
     for(i=0; i<2; i++) {
 	// Restrict targetPositionVector so that we do not need to go over max size in any direction
 	// I think this is here to restrict vertical speed in particular, so that drone does not try to climb/descent
 	// disproportionally and then eclipsing the necessity to hold X,Y position.
-	targetPositionVector[i] = truncateToRange(targetPositionVector[i], -dmax, dmax, NULL);
+	targetPositionVector[i] = truncateToRange(targetPositionVector[i], -dmax, dmax, NULL, INDEX_NAN);
 
 	// Compute the max velocity we want to achieve toward the target point (which will be in the midway to the target).
 	targetGroundVelocity[i] = 2.0 * targetPositionVector[i] / uu->config.pilot_reach_goal_position_time;
@@ -954,6 +1132,7 @@ static void pilotComputeTargetRollPitchYawForWaypoint() {
 
     lprintf(30, "%s: Info: target position vector %s, targetGroundVelocity: %s\n", PPREFIX(), vec2ToString_st(targetPositionVector), vec2ToString_st(targetGroundVelocity));
     
+    // TODO: Maybe do PID in global frame and then translate to drone frame. Wind is in global frame, not drone.
     // Translate everything neccessary to drone frame!
     // Attention: What we currently consider as drone frame is not rotated by drone pitch and roll!!!
     // We compute the target position relative to the drone's position, gravity and drone's yaw.
@@ -977,7 +1156,7 @@ static void pilotComputeTargetRollPitchYawForWaypoint() {
 
     lprintf(30, "%s: XY Velocities:  Current: %s  --> Target: %s,  Difference: %s. Target thrust: %s\n", PPREFIX(), vecToString_st(movingVelocityDroneFrame), vecToString_st(targetVelocityDroneFrame), vecToString_st(targetVelocityThrustDroneFrame), vecToString_st(targetVelocityThrustDroneFrame));
 
-    // Infer target pitch and roll from the diffVelocity. The diffVelocity corresponds to the horizontal velocity
+    // Infer target pitch and roll from the targetVelocityThrusty. It corresponds to the horizontal velocity
     // we need to achieve in tdPositionFix/2.
     // We suppose that the average vertical thrust made by propellers equals to the gravity acceleration (9.8).
     // In normal conditions the drone is holding altitude which is ensured by the altitude PID controller (for the moment, we do not
@@ -988,7 +1167,7 @@ static void pilotComputeTargetRollPitchYawForWaypoint() {
     dspeed = GRAVITY_ACCELERATION * 0.5 * uu->config.pilot_reach_goal_position_time;
     
     // Target pitch and roll is the angle between "gravity vertical speed" and drone "target horizontal speed".
-    // Strictly speaking it is vector between accelerations, but it is not important now.
+    // Strictly speaking it is probably vector between accelerations, but it gives the same result.
     uu->targetPitch = - atan2(targetVelocityThrustDroneFrame[0], dspeed);
     uu->targetRoll = - atan2(targetVelocityThrustDroneFrame[1], dspeed);	
     uu->targetYaw = uu->currentWaypoint.yaw;
@@ -996,8 +1175,8 @@ static void pilotComputeTargetRollPitchYawForWaypoint() {
     // Normalize angles to <-Pi, Pi> range and apply user constraints from the configuration
     uu->targetPitch = normalizeToRange(uu->targetPitch, -M_PI, M_PI);
     uu->targetRoll = normalizeToRange(uu->targetRoll, -M_PI, M_PI);
-    uu->targetPitch = truncateToRange(uu->targetPitch, -uu->config.drone_max_inclination, uu->config.drone_max_inclination, "target pitch");
-    uu->targetRoll = truncateToRange(uu->targetRoll, -uu->config.drone_max_inclination, uu->config.drone_max_inclination, "target roll");
+    uu->targetPitch = truncateToRange(uu->targetPitch, -uu->config.drone_max_inclination, uu->config.drone_max_inclination, "target pitch", INDEX_NAN);
+    uu->targetRoll = truncateToRange(uu->targetRoll, -uu->config.drone_max_inclination, uu->config.drone_max_inclination, "target roll", INDEX_NAN);
 
     lprintf(30, "%s: Pilot Target RPY: [%g, %g, %g]\n", PPREFIX(), uu->targetRoll, uu->targetPitch, uu->targetYaw);
 }
@@ -1008,6 +1187,7 @@ static void pilotAltitudeThrustAverageAndBatteryStatus(double altitudeThrust) {
     static double 	lastSecondSum = 0;
     static int 		lastSecondNumOfSample = 0;
 
+    // TODO: Maybe put a regression buffer here as well to get the mean value
     if (currentSumSecond == currentTime.sec) {
 	lastSecondSum += altitudeThrust;
 	lastSecondNumOfSample ++;
@@ -1017,6 +1197,10 @@ static void pilotAltitudeThrustAverageAndBatteryStatus(double altitudeThrust) {
 	    uu->averageAltitudeThrust = lastSecondSum / lastSecondNumOfSample;
 	    // for the moment the battery status factor is simply the average of altitudeThrusts for the last second
 	    uu->batteryStatusRpyFactor = uu->averageAltitudeThrust;
+	    // Hmm. how to infer percentage in some way from this?
+	    // uu->config.motor_altitude_thrust_max is probably considered as zero percent
+	    // what shall be considered as 100% ???? probably hold
+	    uu->batteryStatusPerc = (uu->averageAltitudeThrust - uu->config.motor_altitude_thrust_hold) / (uu->config.motor_altitude_thrust_max - uu->config.motor_altitude_thrust_hold) * 100.0;
 	}
 	lastSecondSum = 0;
 	lastSecondNumOfSample = 0;
@@ -1026,32 +1210,30 @@ static void pilotAltitudeThrustAverageAndBatteryStatus(double altitudeThrust) {
 }
 
 // This is the main function computing main thrust to reach altitude goal
-static int pilotComputeTargetAltitudeThrustForWaypoint(double targetAltitude, double *altitudeThrust) {
-    double		tdTick;	// td stands for Time Delta
-    double 		altitude, altitudeSpeed, targetAltitudeSpeed;
-    double 		thrust, rpFactor;
+static double pilotComputeAutoThrustForAltitudeHold(double targetAltitude) {
+    double 	thrust;
+    double 	targetAltitudeSpeed, altitudeSpeed, altitude;
+    double 	tdTick;
     
     // if not enough of data do nothing
     if (uu->longBufferPosition.n <= 2) return(-1);
     if (uu->longBufferRpy.n <= 2) return(-1);
 
     // If we run out of battery land!
-    if (uu->averageAltitudeThrust >= uu->config.motor_altitude_thrust_max && uu->flyStage != FS_LAND) {
+    if (uu->averageAltitudeThrust >= uu->config.motor_altitude_thrust_max && uu->flyStage == FS_FLY) {
 	lprintf(1, "%s: Info: Battery low. Landing!\n", PPREFIX());
-	uu->flyStage = FS_LAND;
+	uu->flyStage = FS_EMERGENCY_LANDING;
     }
 
-    if (uu->flyStage == FS_LAND) targetAltitude = -0.1;
+    if (uu->flyStage == FS_EMERGENCY_LANDING) targetAltitude = -0.1;
     
-    // TODO: compute tdTick as a real time between previous execution time and the current one
-    // tdTick = 1.0/uu->autopilot_loop_Hz;
-    tdTick = 1.0/uu->stabilization_loop_Hz;
+    tdTick = pilotGetNormalizedLastStabilizationTickLength();
 
     altitude = uu->droneLastPosition[2];
     altitudeSpeed = uu->droneLastVelocity[2];
 
     targetAltitudeSpeed = (targetAltitude - altitude) / uu->config.pilot_reach_goal_position_time;
-    // In old implementatio this was multiplied by 2 supposing we have to reach target speed in middle time?
+    // In the old implementatio this was multiplied by 2 supposing we have to reach target speed in middle time?
     // Don't think it makes any difference
     // targetAltitudeSpeed = 2.0 * (targetAltitude - altitude) / uu->config.pilot_reach_goal_position_time;
 
@@ -1062,6 +1244,50 @@ static int pilotComputeTargetAltitudeThrustForWaypoint(double targetAltitude, do
     // get the Altitude thrust
     thrust = pidControllerStep(&uu->pidAltitude, targetAltitudeSpeed, altitudeSpeed, tdTick);
 
+#if 1
+    // This may improve altitude stability
+    // TODO: Maybe acceleration data shall be used in the D part of the PID above, or be added to altitude speed?
+    thrust += pidControllerStep(&uu->pidAccAltitude, 0, uu->droneLastAcceleration[2], tdTick);
+#endif
+    
+    return(thrust);
+}
+
+static double pilotComputeAssistedThrustForAltitude() {
+    double 			thrust;
+    double 			mtime;
+    vec3			acceleration;
+    double			accZ;
+
+    regressionBufferGetMean(&uu->shortBufferAcceleration, &mtime, acceleration);
+    
+    accZ = acceleration[2];
+    thrust = uu->manual.altitude.value;
+    // the idea of PID assistance is that we keep climbing speed constant, hence acceleration zero
+    // Hmm. how to incorporate barometer and some kind of altitude hold here ?
+    thrust += pidControllerStep(&uu->pidAccAltitude, 0, accZ, 1.0/uu->stabilization_loop_Hz);
+    return(thrust);
+}
+
+static int pilotComputeTargetAltitudeThrust(double *altitudeThrust) {
+    double 		thrust, rpFactor;
+
+    if (uu->config.pilot_main_mode == MODE_MANUAL_RC) {
+	if (uu->config.manual_rc_altitude.mode == RCM_PASSTHROUGH) {
+	    thrust = uu->manual.altitude.value;
+	} else if (uu->config.manual_rc_altitude.mode == RCM_ASSISTED) {
+	    thrust = pilotComputeAssistedThrustForAltitude();
+	} else {
+	    thrust = pilotComputeAutoThrustForAltitudeHold(uu->manual.altitude.value);
+	}
+    } else {
+	thrust = pilotComputeAutoThrustForAltitudeHold(uu->currentWaypoint.position[2]);
+    }
+    if (thrust < 0) return(-1);
+
+    
+    thrust += uu->config.motor_altitude_thrust_hold;
+    
     // use the new thrust to estimate battery status factor for roll, pitch, yaw control
     pilotAltitudeThrustAverageAndBatteryStatus(thrust);
 
@@ -1084,12 +1310,10 @@ static int pilotComputeTargetAltitudeThrustForWaypoint(double targetAltitude, do
 // This is the main function computing thrust for motors to stabilize drone and get target roll, pitch, yaw.
 //
 
-static int pilotComputeMotorThrustsForRpyStabilization(vec3 rpyThrusts) {
+static int pilotComputeTargetRpyRotationVelocity() {
     double 		roll, pitch, yaw;
-    double		yawThrust, rollThrust, pitchThrust;
-    double		tdTick, tdRpyFix;	// td stands for Time Delta
+    double		tdRpyFix;	// td stands for Time Delta
     vec3		cRpy;
-    double		yawRotationSpeed, rollRotationSpeed, pitchRotationSpeed;
 
     // if not enough of data do nothing
     if (uu->longBufferPosition.n <= 2) return(-1);
@@ -1097,19 +1321,25 @@ static int pilotComputeMotorThrustsForRpyStabilization(vec3 rpyThrusts) {
     if (uu->shortBufferPosition.n <= 2) return(-1);
     if (uu->shortBufferRpy.n <= 2) return(-1);
 
-    // Set some time quantums here
-    // tdTick is the length of one pilot tick, it is used as PID controllers step.
-    // TODO: compute tdTick as a real time between previous execution time and the current one
-    tdTick = 1.0/uu->stabilization_loop_Hz;
-    
     // tdRpyFix is the timeframe in which we want to achieve targeted roll, pitch, yaw
     // TODO: Determine this dynamically someway as well as pilot_reach_goal_position_time depending
     // on the actual difference between target and current state.
     tdRpyFix = uu->config.pilot_reach_goal_orientation_time;
 
-    // get current drone pose and velocity
-    regressionBufferEstimateForTime(&uu->longBufferRpy, currentTime.dtime, cRpy);
+#if 1
     
+    // get pose at the time of interest
+    regressionBufferEstimateForTime(&uu->shortBufferRpy, currentTime.dtime+tdRpyFix/2, cRpy);
+    // regressionBufferEstimateForTime(&uu->shortBufferRpy, currentTime.dtime, cRpy);
+    
+    // some very basic self bug check
+    if (vec3_has_nan(cRpy)) {
+	// bug, bug, bug, panic.
+	lprintf(0, "%s: Some key value is wrong. Panic!\n", PPREFIX());
+	mainStandardShutdown(NULL);
+	return(-1);
+    }
+
     // Get current roll, pitch and yaw from current position pose.
     // pitch - negative == nose down;      positive == nose up
     // roll  - negative == left wing down; positive == left wing up
@@ -1119,35 +1349,67 @@ static int pilotComputeMotorThrustsForRpyStabilization(vec3 rpyThrusts) {
     pitch = cRpy[1];
     yaw   = cRpy[2];
     
+#else
+    
+    // get current pose 
+    if (vec3_has_nan(uu->droneLastRpy)) {
+	// bug, bug, bug, panic.
+	lprintf(0, "%s: Some key value is wrong. Panic!\n", PPREFIX());
+	mainStandardShutdown(NULL);
+	return(-1);
+    }
+    roll = uu->droneLastRpy[0];
+    pitch = uu->droneLastRpy[1];
+    yaw = uu->droneLastRpy[2];
+    
+#endif    
+
+    // Compute rotation speed to get to the target roll, pitch, yaw
+    // And apply limit constraints from the configuration
+    // Actually we shall probably divide by tdRpyFix/2 as we want to accelerate rotation half way and then decelerate
+    uu->targetPitchRotationSpeed = angleSubstract(uu->targetPitch, pitch) / tdRpyFix;
+    uu->targetPitchRotationSpeed =  truncateToRange(uu->targetPitchRotationSpeed, -uu->config.drone_max_rotation_speed, uu->config.drone_max_rotation_speed, "targetPitchRotationSpeed", INDEX_NAN);
+    uu->targetRollRotationSpeed = angleSubstract(uu->targetRoll, roll) / tdRpyFix;
+    uu->targetRollRotationSpeed =  truncateToRange(uu->targetRollRotationSpeed, -uu->config.drone_max_rotation_speed, uu->config.drone_max_rotation_speed, "targetRollRotationSpeed", INDEX_NAN);
+    uu->targetYawRotationSpeed = angleSubstract(uu->targetYaw, yaw) / tdRpyFix;
+    uu->targetYawRotationSpeed =  truncateToRange(uu->targetYawRotationSpeed, -uu->config.drone_max_rotation_speed, uu->config.drone_max_rotation_speed, NULL, INDEX_NAN);
+    // lprintf(27, "%s: tdRpyFix == %g\n", PPREFIX(), tdRpyFix);
+    lprintf(27, "%s: RPY Orientation: Current: [%7.3f %7.3f %7.3f]  --> Target: [%7.3f %7.3f %7.3f]\n", PPREFIX(), roll, pitch, yaw, uu->targetRoll, uu->targetPitch, uu->targetYaw);
+
+    return(0);
+}
+
+static int pilotComputeTargetRpyThrustForRpyVelocity(vec3 rpyThrusts) {
+    double		yawThrust, rollThrust, pitchThrust;
+    double		tdTick;	// td stands for Time Delta
+    double		yawRotationSpeed, rollRotationSpeed, pitchRotationSpeed;
+    
+    // if not enough of data do nothing
+    if (uu->longBufferPosition.n <= 2) return(-1);
+    if (uu->longBufferRpy.n <= 2) return(-1);
+    if (uu->shortBufferPosition.n <= 2) return(-1);
+    if (uu->shortBufferRpy.n <= 2) return(-1);
+
+    // tdTick is the length of one pilot tick, it is used as PID controllers step.
+    tdTick = uu->droneLastStabilizationTickLength;
+    
     rollRotationSpeed  = uu->droneLastRpyRotationSpeed[0];
     pitchRotationSpeed = uu->droneLastRpyRotationSpeed[1];
     yawRotationSpeed   = uu->droneLastRpyRotationSpeed[2];
 
     // some very basic self bug check
-    if (vec3_has_nan(cRpy) || vec3_has_nan(uu->droneLastRpyRotationSpeed)) {
+    if (vec3_has_nan(uu->droneLastRpyRotationSpeed)) {
 	// bug, bug, bug, panic.
 	lprintf(0, "%s: Some key value has wrong value. Panic!\n", PPREFIX());
 	mainStandardShutdown(NULL);
 	return(-1);
     }
 
-    // Compute rotation speed to get to the target roll, pitch, yaw
-    // Also apply user constraints from the configuration
-    uu->targetPitchRotationSpeed = angleSubstract(uu->targetPitch, pitch) / tdRpyFix;
-    uu->targetPitchRotationSpeed =  truncateToRange(uu->targetPitchRotationSpeed, -uu->config.drone_max_rotation_speed, uu->config.drone_max_rotation_speed, "targetPitchRotationSpeed");
-    uu->targetRollRotationSpeed = angleSubstract(uu->targetRoll, roll) / tdRpyFix;
-    uu->targetRollRotationSpeed =  truncateToRange(uu->targetRollRotationSpeed, -uu->config.drone_max_rotation_speed, uu->config.drone_max_rotation_speed, "targetRollRotationSpeed");
-    uu->targetYawRotationSpeed = angleSubstract(uu->targetYaw, yaw) / tdRpyFix;
-    uu->targetYawRotationSpeed =  truncateToRange(uu->targetYawRotationSpeed, -uu->config.drone_max_rotation_speed, uu->config.drone_max_rotation_speed, NULL);
-    // lprintf(27, "%s: tdRpyFix == %g\n", PPREFIX(), tdRpyFix);
-    lprintf(27, "%s: RPY Orientation: Current: [%7.3f %7.3f %7.3f]  --> Target: [%7.3f %7.3f %7.3f]\n", PPREFIX(), roll, pitch, yaw, uu->targetRoll, uu->targetPitch, uu->targetYaw);
-
-
     lprintf(22, "%s: RPY Speed:       Current: [%7.3f %7.3f %7.3f]  --> Target: [%7.3f %7.3f %7.3f]\n", PPREFIX(), rollRotationSpeed, pitchRotationSpeed, yawRotationSpeed, uu->targetRollRotationSpeed, uu->targetPitchRotationSpeed, uu->targetYawRotationSpeed);
 
     // Use PID controllers to compute final roll, pitch yaw thrusts to achieve target rotation speeds from current rotation speeds
-    // In this case a P controller shall do the job!
-    // TODO: roll,pitch yaw thrust shall be multiplied by altitude integral or something to absorb full/empty battery changes
+    // TODO Reconsider: Is voltage sent from ESC proportional to the final speed of the motor+propeller or is it giving them constant acceleration?
+    // It is not clear for me how this physics works and if it changes something in the code.
     rollThrust = pidControllerStep(&uu->pidRoll, uu->targetRollRotationSpeed, rollRotationSpeed, tdTick);
     pitchThrust = pidControllerStep(&uu->pidPitch, uu->targetPitchRotationSpeed, pitchRotationSpeed, tdTick);
     yawThrust = pidControllerStep(&uu->pidYaw, uu->targetYawRotationSpeed, yawRotationSpeed, tdTick);
@@ -1156,29 +1418,62 @@ static int pilotComputeMotorThrustsForRpyStabilization(vec3 rpyThrusts) {
     rpyThrusts[1] = pitchThrust;
     rpyThrusts[2] = yawThrust;
 
-#if 1 || TEST
-    rpyThrusts[0] = rollThrust  * uu->batteryStatusRpyFactor ;
-    rpyThrusts[1] = pitchThrust * uu->batteryStatusRpyFactor ;
-    rpyThrusts[2] = yawThrust * uu->batteryStatusRpyFactor ;
+#if 1
+    // roll,pitch yaw thrust shall be multiplied by battery status to accomodate current strength/weakness of the battery
+    if (uu->batteryStatusRpyFactor > 0 && uu->batteryStatusRpyFactor <= 1.0) {
+	rpyThrusts[0] = rollThrust  * uu->batteryStatusRpyFactor ;
+	rpyThrusts[1] = pitchThrust * uu->batteryStatusRpyFactor ;
+	rpyThrusts[2] = yawThrust * uu->batteryStatusRpyFactor ;
+    } else {
+	lprintf(10, "%s: Internal Error: uu->batteryStatusRpyFactor %g out of range 0-1\n", PPREFIX(), uu->batteryStatusRpyFactor);
+    }
 #endif    
 
     return(0);
 }
 
+static int pilotComputeTargetRpyThrust(vec3 rpyThrusts) {
+    int		r;
+
+    if (uu->config.pilot_main_mode == MODE_MANUAL_RC) {
+	if (uu->config.manual_rc_roll.mode == RCM_TARGET) uu->targetRoll = uu->manual.roll.value;
+	if (uu->config.manual_rc_pitch.mode == RCM_TARGET) uu->targetPitch = uu->manual.pitch.value;
+	if (uu->config.manual_rc_yaw.mode == RCM_TARGET) uu->targetYaw = uu->manual.yaw.value;
+    }
+    
+    pilotComputeTargetRpyRotationVelocity();
+    
+    if (uu->config.pilot_main_mode == MODE_MANUAL_RC) {
+	if (uu->config.manual_rc_roll.mode == RCM_ASSISTED) uu->targetRollRotationSpeed = uu->manual.roll.value;
+	if (uu->config.manual_rc_pitch.mode == RCM_ASSISTED) uu->targetPitchRotationSpeed = uu->manual.pitch.value;
+	if (uu->config.manual_rc_yaw.mode == RCM_ASSISTED) uu->targetYawRotationSpeed = uu->manual.yaw.value;
+	
+	r = pilotComputeTargetRpyThrustForRpyVelocity(rpyThrusts);
+	
+	if (uu->config.manual_rc_roll.mode == RCM_PASSTHROUGH) rpyThrusts[0] = uu->manual.roll.value;
+	if (uu->config.manual_rc_pitch.mode == RCM_PASSTHROUGH) rpyThrusts[1] = uu->manual.pitch.value;
+	if (uu->config.manual_rc_yaw.mode == RCM_PASSTHROUGH) rpyThrusts[2] = uu->manual.yaw.value;	    
+    } else {
+	r = pilotComputeTargetRpyThrustForRpyVelocity(rpyThrusts);
+    }
+    return(r);
+}
+
 // This is the main stabilization function executed each PILOT_STABILIZATION_TICK_MSEC
 void pilotInitiatePids() {
-    int 	r;
     vec3 	rpyThrust;
     double	altitudeThrust;
     
+    uu->droneLastStabilizationTickLength =  1.0/uu->autopilot_loop_Hz;
     pilotGetDronePositionAndVelocityAndStoreInBuffers();
     pilotComputeTargetRollPitchYawForWaypoint();
     
-    pilotComputeTargetAltitudeThrustForWaypoint(0.01, &altitudeThrust);
-    pilotComputeMotorThrustsForRpyStabilization(rpyThrust);
+    pilotComputeTargetAltitudeThrust(&altitudeThrust);
+    pilotComputeTargetRpyThrust(rpyThrust);
+    uu->droneLastTickTime = currentTime.dtime;
 }
 
-static int64_t pilotScheduleNextTick(double frequency, void (*tickfunction)(void *arg), void *arg) {
+int64_t pilotScheduleNextTick(double frequency, void (*tickfunction)(void *arg), void *arg) {
     static int 		lts = 0;
     static int 		skewN=0;
     static double	skewSum=0;
@@ -1207,56 +1502,46 @@ static int64_t pilotScheduleNextTick(double frequency, void (*tickfunction)(void
     return(nextTickUsec);
 }
 
-static void pilotTickSetDebugLevel() {
-    // With -l10 option, log only 10 ticks per second, no matter the rate
-    // This reduces the size of logs --> less pressure to the system and logs are easier to read.
-    if (log10TicksPerSecond == 0 || tickCounter % (int)(1+uu->autopilot_loop_Hz/10) == 0) {
-	logLevel = baseLogLevel;
+static void pilotSetMotorThrust() {
+    double 	altitudeThrust;
+    vec3 	rpyThrust;
+    int 	r;
+
+    r = 0;
+    r |= pilotComputeTargetRpyThrust(rpyThrust);
+    r |= pilotComputeTargetAltitudeThrust(&altitudeThrust);
+    if (r == 0) {
+	pilotCombineAllMotorThrusts(rpyThrust[0], rpyThrust[1], rpyThrust[2], altitudeThrust);
     } else {
-	logLevel = debugLevel+2;
+	// We have a problem.
+	motorsThrustSet(0);
     }
 }
 
-void pilotAutopilotLoopTick(void *d) {
-    // This is the main function called at each tick of standard rapilot.
+void pilotRegularStabilisationTick(void *d) {
+    // This is the main function called at each stabilization tick of standard raspilot
     // lprintf(30, "\n");
     lprintf(100, "%s: Stabilization tick\n", PPREFIX());
-    nextStabilizationTickUsec = pilotScheduleNextTick(uu->autopilot_loop_Hz, pilotAutopilotLoopTick, NULL);
-    pilotTickSetDebugLevel();
+    nextPidTickUsec = pilotScheduleNextTick(uu->stabilization_loop_Hz, pilotRegularStabilisationTick, NULL);
+    uu->droneLastStabilizationTickLength = pilotGetNormalizedLastStabilizationTickLength();    
+    pilotGetDronePositionAndVelocityAndStoreInBuffers();
     if (uu->flyStage >= FS_PRE_FLY) {
-	// pilotGetDronePositionAndVelocityAndStoreInBuffer();
+	if (uu->flyStage >= FS_FLY) {
+	    pilotSetMotorThrust();
+	}
+	pilotSendThrusts(NULL);
     }
-    if (uu->flyStage >= FS_FLY) {
-	pilotComputeTargetRollPitchYawForWaypoint();
-    }
+    // we are done. Values updated for currenbt tick.
+    uu->droneLastTickTime = currentTime.dtime;
 }
 
-void pilotRegularStabilizationTick(void *d) {
-    int		r, s;
-    vec3 	rpyThrust;
-    double	altitudeThrust;
-
-    // This is the main function called at each tick of standard rapilot.
+void pilotRegularMissionModeLoopTick(void *d) {
+    // This is the main function called at each tick of mission raspilot.
     // lprintf(30, "\n");
-    lprintf(100, "%s: PID tick\n", PPREFIX());
-    tickCounter ++;
-    nextPidTickUsec = pilotScheduleNextTick(uu->stabilization_loop_Hz, pilotRegularStabilizationTick, NULL);
-    pilotTickSetDebugLevel();
-    if (uu->flyStage >= FS_PRE_FLY) {
-	pilotGetDronePositionAndVelocityAndStoreInBuffers();
-    }
+    lprintf(100, "%s: Mission tick\n", PPREFIX());
+    nextStabilizationTickUsec = pilotScheduleNextTick(uu->autopilot_loop_Hz, pilotRegularMissionModeLoopTick, NULL);
     if (uu->flyStage >= FS_FLY) {
-	r = pilotComputeMotorThrustsForRpyStabilization(rpyThrust);
-	s = pilotComputeTargetAltitudeThrustForWaypoint(uu->currentWaypoint.position[2], &altitudeThrust);
-	if (r == 0 && s == 0) {
-	    pilotCombineAllMotorThrusts(rpyThrust[0], rpyThrust[1], rpyThrust[2], altitudeThrust);
-	} else {
-	    // We have a problem.
-	    motorsThrustSet(0);
-	}
-    }
-    if (uu->flyStage >= FS_PRE_FLY) {
-	pilotSendThrusts(NULL);
+	pilotComputeTargetRollPitchYawForWaypoint();
     }
 }
 
@@ -1296,10 +1581,10 @@ void pilotRegularSendGimbalPwm(void *d) {
 
     // lprintf(0, "%s: gimbal x,y == %d, %d\n", PPREFIX(), x, y);
 
-    if (x<0 || x>=10000 || y<0 || y>=10000) {
-	lprintf(0, "%s: Internal error: wrong gimbal values %d %d.\n", PPREFIX(), x, y);
-	return;
-    }
+    if (x < 0) x = 0;
+    if (x >= 10000) x = 9999;
+    if (y < 0) y = 0;
+    if (y >= 10000) y = 9999;
 
     if (x != lastx) {
 	lastx = x;
@@ -1312,23 +1597,9 @@ void pilotRegularSendGimbalPwm(void *d) {
     
 }
 
-
-
-void pilotRegularManualControl(void *d) {
-    pilotScheduleNextTick(uu->autopilot_loop_Hz, pilotRegularManualControl, NULL);
-    uu->targetRoll = uu->manual.roll;
-    uu->targetPitch = uu->manual.pitch;
-    uu->targetYaw += uu->manual.yawIncrementPerSecond / uu->autopilot_loop_Hz;
-    uu->currentWaypoint.position[2] = uu->manual.altitude;
-
-    uu->targetGimbalX += uu->manual.gimbalXIncrementPerSecond / uu->autopilot_loop_Hz;
-    uu->targetGimbalY += uu->manual.gimbalYIncrementPerSecond / uu->autopilot_loop_Hz;
-}
-
-void pilotRegularSpecialModeTick(void *d) {
+void pilotRegularMotorTestModeTick(void *d) {
     // Ticks used in other modes than flying like ESC calibration, motor testing, etc.
-    tickCounter ++;
-    pilotScheduleNextTick(PILOT_PRELAUNCH_FREQUENCY_HZ, pilotRegularSpecialModeTick, NULL);
+    pilotScheduleNextTick(PILOT_PRELAUNCH_FREQUENCY_HZ, pilotRegularMotorTestModeTick, NULL);
     pilotSendThrusts(NULL);
 }
 
@@ -1338,7 +1609,7 @@ void pilotRegularStabilizationLoopRescheduleToSoon() {
 
     tt = currentTime.usec + 500;
     if (nextPidTickUsec > tt) {
-	r = timeLineRescheduleUniqueEventIfExisted(tt, pilotRegularStabilizationTick, NULL);
+	r = timeLineRescheduleUniqueEventIfExisted(tt, pilotRegularStabilisationTick, NULL);
 	if (r == 0) nextPidTickUsec = tt;
     }
 }
@@ -1398,16 +1669,20 @@ int pilotAreAllDevicesReady() {
 
 	for(j=0; j<dd->ddtMax; j++) {
 	    if (
-		(dd->ddt[j]->mandatory && (dd->ddt[j]->input == NULL || dd->ddt[j]->input->buffer.n == 0))
-		||
-		(uu->pilotLaunchTime + dd->warming_time > currentTime.dtime)
+		dd->ddt[j]->mandatory &&
+		(
+		    dd->ddt[j]->input == NULL ||
+		    dd->ddt[j]->input->buffer.n < dd->ddt[j]->input->buffer.size ||
+		    uu->pilotLaunchTime + dd->warming_time > currentTime.dtime
+		    )
 		) {
 		// {
 		// if (dd->connection.type ras!= DCT_INTERNAL && dd->lastActivityTime <= uu->pilotStartingTime) {
 		// this sensor did not send data yet, continue waiting
-		if (debugLevel > 0 && currentTime.msec > lastWaitingMsgMsec + 2000) {
+		if (debugLevel > 0 && currentTime.msec > lastWaitingMsgMsec + 3000) {
 		    if (lastWaitingMsgMsec != 0) {
 			lprintf(0, "%s: Info: waiting for device: %s.", PPREFIX(), dd->name);
+			mavlinkPrintfStatusTextToListeners("waiting for device: %s.", dd->name);
 			if (uu->pilotLaunchTime + dd->warming_time > currentTime.dtime) {
 			    lprintf(0, " Remains: %2d seconds.", (int)(uu->pilotLaunchTime + dd->warming_time - currentTime.dtime));
 			}

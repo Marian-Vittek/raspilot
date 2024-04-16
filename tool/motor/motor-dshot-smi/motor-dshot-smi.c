@@ -48,6 +48,10 @@
 
 
 //////////////////////////////////////////////////////////////////////
+// DMA channel
+
+#define DMA_CHANNEL 14
+
 //////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////
 
@@ -66,18 +70,18 @@
 
 // DSHOT_150, tick == 8ns, T0H == 3 * 104 ticks, in my ESC T0H == 84 ticks
 //#define DSHOT_SMI_TIMING 8, 20,64,20
-#define DSHOT_SMI_TIMING 8, 10,64,10
+#define DSHOT_SMI_TIMING 8,10,64,10
 
 #elif DSHOT_VERSION == 300
 
 // DSHOT_300, tick == 4ns, T0H == 3 * 104 ticks, in my ESC T0H == 84 ticks
 //#define DSHOT_SMI_TIMING 4, 20,64,20
-#define DSHOT_SMI_TIMING 4, 10,64,10
+#define DSHOT_SMI_TIMING 4,10,64,10
 
 #elif DSHOT_VERSION == 600
 
 // DSHOT_600, tick 4ns, T0H == 3 * 52 ticks, does not work with my ESC
-#define DSHOT_SMI_TIMING 4, 10,32,10
+#define DSHOT_SMI_TIMING 4,10,32,10
 
 #elif DSHOT_VERSION == 1200
 
@@ -86,13 +90,17 @@
 
 #endif
 
-    
+
+/////////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////
+
 #include <stdio.h>
 #include <signal.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <time.h>
 #include "rpi_dma_utils.h"
 
 #include <assert.h>
@@ -130,6 +138,7 @@ enum {
 
 #define DSHOT_NUM_PINS 		18
 #define DSHOT_BROADCAST_BYTES 	(8*16*4)
+#define TIMESPEC_TO_INT(tt)     (tt.tv_sec * 1000000000LL + tt.tv_nsec)
 
 
 
@@ -248,6 +257,10 @@ volatile SMI_DCD_REG *smi_dcd;
 #define TX_SAMPLE_SIZE  1       // Number of raw bytes per sample
 #define VC_MEM_SIZE(ns) 	(PAGE_SIZE + ((ns)+4)*TX_SAMPLE_SIZE)
 
+// 3D mode, if dshot3dMode != 0 then reverse rotation is enabled
+static int dshot3dMode = 0;
+
+
 //uint8_t sample_buff[NSAMPLES];
 
 void map_devices(void);
@@ -333,7 +346,8 @@ void init_smi(int width, int ns, int setup, int strobe, int hold)
 
 // Wait until DMA is complete
 void dma_wait(int chan) {
-    // wait 200us DSHOT frame shall not take more
+    // wait 300us DSHOT frame shall not take more
+    if (dma_transfer_len(chan)!=0) usleep(100);
     if (dma_transfer_len(chan)!=0) usleep(100);
     if (dma_transfer_len(chan)!=0) usleep(100);
     if (dma_transfer_len(chan)!=0) printf("debug: DMA transfer timeout\n");
@@ -352,13 +366,13 @@ static void dshotDmaSmiSend() {
     uint8_t 	*txdata;
 
     // first check if the previous transfer finished
-    if (previousTransfer && dma_transfer_len(DMA_CHAN_A)!=0) {
+    if (previousTransfer && dma_transfer_len(DMA_CHANNEL)!=0) {
 	printf("debug: Error: Previous DMA transfer timeout.\n");
     }
     // stop the previous dma
     // [M.V.] I've commented this out. Not sure what it is doing but it generated strange peak on the pin
     //if (smi_regs.virt) *REG32(smi_regs, SMI_CS) = 0;
-    stop_dma(DMA_CHAN_A);
+    stop_dma(DMA_CHANNEL);
 
     // Start the new transfer
     smi_dsr->rwidth = SMI_8_BITS; 
@@ -371,19 +385,19 @@ static void dshotDmaSmiSend() {
     cbs = vc_mem.virt;
     txdata = (uint8_t *)(cbs+1);
     // memcpy(txdata, framebits, sample_count);
-    enable_dma(DMA_CHAN_A);
+    enable_dma(DMA_CHANNEL);
     cbs[0].ti = DMA_DEST_DREQ | (DMA_SMI_DREQ << 16) | DMA_CB_SRCE_INC;
     cbs[0].tfr_len = DSHOT_BROADCAST_BYTES;
     cbs[0].srce_ad = MEM_BUS_ADDR((&vc_mem), txdata);
     cbs[0].dest_ad = REG_BUS_ADDR(smi_regs, SMI_D);
     cbs[0].next_cb = 0;
-    start_dma(&vc_mem, DMA_CHAN_A, &cbs[0], 0);
+    start_dma(&vc_mem, DMA_CHANNEL, &cbs[0], 0);
     smi_cs->start = 1;
     
     previousTransfer = 1;
-    //dma_wait(DMA_CHAN_A);
+    //dma_wait(DMA_CHANNEL);
     //if (smi_regs.virt) *REG32(smi_regs, SMI_CS) = 0;
-    //stop_dma(DMA_CHAN_A);
+    //stop_dma(DMA_CHANNEL);
 }
 
 void dshotSendFrames(int motorPins[], int motorMax, unsigned frame[]) {
@@ -458,21 +472,63 @@ static uint32_t getRpiRegBase(void) {
     }
 }
 
+static inline uint64_t dshotGetNanoseconds() {
+    struct timespec tt;
+    clock_gettime(CLOCK_MONOTONIC_RAW, &tt);
+    return(TIMESPEC_TO_INT(tt));
+}
+
+// Send a command repeatedly during a given perion of time
+static void dshotRepeatSendCommand(int motorPins[], int motorMax, int cmd, int telemetry, int64_t timePeriodMsec) {
+    unsigned    frame[DSHOT_NUM_PINS+1];
+    int         i;
+    int64_t     t;
+    
+    for(i=0; i<motorMax; i++) frame[i] = dshotAddChecksumAndTelemetry(cmd, telemetry);
+    t = dshotGetNanoseconds() + timePeriodMsec * 1000000LL;
+    while (dshotGetNanoseconds() <= t) {
+        dshotSendFrames(motorPins, motorMax, frame);
+        usleep(1000);
+    }
+}
+
 //////////////////////////////////////////////////////////////////////////////////////////////
 // Main exported functions of the module implementing raspilot motor instance.
 //////////////////////////////////////////////////////////////////////////////////////////////
 
 // This function allows to set bidirectional rotation (mode3dFlag!=0) and reverse rotation logic (reverseDirectionFlag!=0).
 // Changing 3D mode is interfering with rotation direction (at least on my ESC), so always reset the direction when changing 3D.
+// TODO: Allow changing spin direction per motor !
 void motorImplementationSet3dModeAndSpinDirection(int motorPins[], int motorMax, int mode3dFlag, int reverseDirectionFlag) {
-    // Not yet implemented
+    int         repeatMsec;
+
+    repeatMsec = 25;
+    
+    // This seems to be a delicate operation, I don't know why but it does not work if I do not send
+    // stop motors for some time first.
+
+    dshot3dMode = mode3dFlag;
+    if (dshot3dMode) {
+        dshotRepeatSendCommand(motorPins, motorMax, DSHOT_CMD_3D_MODE_ON, 1, repeatMsec);
+    } else {
+        dshotRepeatSendCommand(motorPins, motorMax, DSHOT_CMD_3D_MODE_OFF, 1, repeatMsec);
+    }
+    dshotRepeatSendCommand(motorPins, motorMax, DSHOT_CMD_SAVE_SETTINGS, 0, repeatMsec);
+
+    if (reverseDirectionFlag) {
+        dshotRepeatSendCommand(motorPins, motorMax, DSHOT_CMD_SPIN_DIRECTION_REVERSED, 1, repeatMsec);
+    } else {
+        dshotRepeatSendCommand(motorPins, motorMax, DSHOT_CMD_SPIN_DIRECTION_NORMAL, 1, repeatMsec);
+    }
+    dshotRepeatSendCommand(motorPins, motorMax, DSHOT_CMD_SAVE_SETTINGS, 0, repeatMsec);
 }
 
 void motorImplementationInitialize(int motorPins[], int motorMax) {
     int 	i,j,k;
     DMA_CB 	*cbs;
     uint32_t 	*txdata;
-
+    void	*mmm;
+    
     for(i=0; i<motorMax; i++) {
 	if (motorPins[i] < DAC_D0_PIN || motorPins[i] >= DAC_D0_PIN+DAC_NPINS) {
 	    printf("debug: wrong motor pin %d. Gpio pins must be in range %d - %d for smi.\n", motorPins[i], DAC_D0_PIN, DAC_D0_PIN+DAC_NPINS-1);
@@ -484,8 +540,6 @@ void motorImplementationInitialize(int motorPins[], int motorMax) {
     rpiRegBase = getRpiRegBase();
     map_devices();
     
-    signal(SIGINT, unmap_devices);
-
     // Initialize SMI to Dshot timing
     init_smi(2, DSHOT_SMI_TIMING);
 
@@ -496,8 +550,10 @@ void motorImplementationInitialize(int motorPins[], int motorMax) {
     smi_cs->clear = smi_cs->seterr = smi_cs->aferr=1;
     // smi_cs->enable = 1;
     smi_dcs->enable = 1;
-    map_uncached_mem(&vc_mem, VC_MEM_SIZE(sample_count));
-
+    mmm = map_uncached_mem(&vc_mem, VC_MEM_SIZE(sample_count));
+    if (mmm == NULL) {
+	printf("debug: can't get uncached memory.\n");
+    }
     // Precompute 'zero' dhsot frame
     cbs = vc_mem.virt;
     txdata = (uint32_t *)(cbs+1);
@@ -508,13 +564,17 @@ void motorImplementationInitialize(int motorPins[], int motorMax) {
     }
 
     for (i=0; i<motorMax; i++) gpio_mode(motorPins[i], GPIO_ALT1);
+
+    // My esc does not spin anything before it stops initial beeping, so
+    // prefer to spend that time here
+    dshotRepeatSendCommand(motorPins, motorMax, DSHOT_CMD_MOTOR_STOP, 0, 2000);    
 }
 
 void motorImplementationFinalize(int motorPins[], int motorMax) {
     int i;
     
     printf("debug: motorImplementationFinalize\n");
-    stop_dma(DMA_CHAN_A);
+    stop_dma(DMA_CHANNEL);
     for (i=0; i<motorMax; i++)gpio_mode(motorPins[i], GPIO_IN);
     unmap_periph_mem(&vc_mem);
     unmap_devices(0);
@@ -529,8 +589,18 @@ void motorImplementationSendThrottles(int motorPins[], int motorMax, double moto
     assert(motorMax < DSHOT_NUM_PINS);
 
     for(i=0; i<motorMax; i++) {
-	// translate double throttles ranging <0, 1> to dshot frames.
-	val = motorThrottle[i] * 1999 + 48;
+        if (dshot3dMode) {
+            // translate double throttles ranging <-1, 1> to dshot frames.
+            if (motorThrottle[i] >= 0) {
+                val = motorThrottle[i] * 999 + 1048;
+            } else {
+                val = -motorThrottle[i] * 999 + 48;
+            }
+        } else {
+            // translate double throttles ranging <0, 1> to dshot frames.
+            val = motorThrottle[i] * 1999 + 48;
+        }
+	// printf("val == %d\n", val);
         if (val < 48 || val >= 2048) val = DSHOT_CMD_MOTOR_STOP;
         frame[i] = dshotAddChecksumAndTelemetry(val, 0);
     }

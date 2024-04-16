@@ -209,7 +209,9 @@ int readThrustFromInputPipe() {
 	printf("debug Error: %s:%d: select returned %d, errno == %d, emergency landing!\n", __FILE__, __LINE__, r, errno);
 	goto emergencyLanding;
     }
-    // check for timeout expired
+    // check for timeout expired.
+    // TODO: Dshot requires commands to be sent all the time, so implement short timeout
+    // for resending last command and a longer one to actual timeout and panic!
     if (r == 0) {
 	if (motorStandBy) return(1);
 	printf("debug Error: %s:%d: select returned 0 == timeout, errno == %d, emergency landing!\n", __FILE__, __LINE__, errno);
@@ -452,7 +454,7 @@ int main(int argc, char *argv[]) {
     // This is the main loop reading and executing PWMs
     while (! motorShutdownInProgress && !motorEmergencyLandingInProgress) {
 	r = readThrustFromInputPipe();
-	if (r) motorSendThrottles();
+	if (r && !motorStandBy) motorSendThrottles();
     }
 
     if (motorEmergencyLandingInProgress) sleep(MOTOR_EMERGENCY_LANDING_TIME_SECONDS);

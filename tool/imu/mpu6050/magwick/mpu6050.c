@@ -120,7 +120,7 @@ int main(int argc, char **argv) {
 	shmbuf->confidence = 1.0;
 	if (raspilotShmPush(shmbuf, t1, rpy, 3) != 0) taskStop(0);
 	if (shmbuf2 != NULL) if (raspilotShmPush(shmbuf2, t1, rpy, 3) != 0) taskStop(0);
-	printf("debug: rpy %g: %9.7f %9.7f %9.7f\n", t1, rpy[0], rpy[1], rpy[2]);
+	// printf("debug: rpy %g: %9.7f %9.7f %9.7f\n", t1, rpy[0], rpy[1], rpy[2]);
 #else
 	printf("rpy %9.7f %9.7f %9.7f\n", rpy[0], rpy[1], rpy[2]);
 	fflush(stdout);
