@@ -24,7 +24,7 @@
 // comma can occur after the last field and constant expressions can be used instead of constants.
 
 // select the pilot main mode
-#define MODE			MODE_MOTOR_TEST
+#define MODE			MODE_MANUAL_RC
 
 // mode can be one of the following:
 #define MODE_MOTOR_TEST		2
