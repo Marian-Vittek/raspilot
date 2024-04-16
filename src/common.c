@@ -824,9 +824,9 @@ void enumNamesInit() {
 
 }
 
-void enumNamesPrint(FILE *ff, char **names) {
+void logEnumNames(int loglevel, char **names) {
     int i;
-    for(i=0; names[i] != NULL; i++) fprintf(ff, "%s\"%s\"", (i==0?"":", "), names[i]);
+    for(i=0; names[i] != NULL; i++) lprintf(loglevel, "%s\"%s\"", (i==0?"":", "), names[i]);
 }
 
 int enumNamesStringToInt(char *s, char **names) {

@@ -23,16 +23,24 @@
 // File format is an "extended" JSON which is JSON where field names can be used without quotes,
 // comma can occur after the last field and constant expressions can be used instead of constants.
 
+// select the pilot main mode
+#define MODE			MODE_MOTOR_TEST
+
+// mode can be one of the following:
+#define MODE_MOTOR_TEST		2
+#define MODE_MANUAL_RC		3
+#define MODE_SINGLE_MISSION	4
+
 #define PI 3.1415926
 #define RATE 200
 {
-#define FPV_TEST 0
-#if FPV_TEST
-    pilot_main_mode: "MODE_MANUAL_RC",
-#elif 1
-    pilot_main_mode: "MODE_MOTOR_TEST",
-#else    
-    pilot_main_mode: "MODE_SINGLE_MISSION",
+
+#if MODE == MODE_MOTOR_TEST
+   pilot_main_mode: "MODE_MOTOR_TEST",
+#elif MODE == MODE_MANUAL_RC
+   pilot_main_mode: "MODE_MANUAL_RC",
+#elif MODE == MODE_SINGLE_MISSION
+   pilot_main_mode: "MODE_SINGLE_MISSION",
 #endif
 
     autopilot_loop_Hz: RATE,
@@ -191,7 +199,7 @@
 	    mount_position: [0, 0, 0.02],
 	    warming_time: 1.0,
             stream: [
-#if FPV_TEST	    
+#if MODE == MODE_MANUAL_RC    
 		//{ type: "DT_POSITION_VECTOR",      tag: "pose:",  mandatory:1, weight: [0, 0, 1.0], regression_size:6, latency: 0.3, debug_level: 77},
 		//{ type: "DT_ORIENTATION_RPY", 	   tag: "rpy:", weight: [1e-20, 1e-20, 1], mandatory:1, regression_size:10, latency: 0, debug_level: 77},
 #else
@@ -204,7 +212,7 @@
 	},
 #endif
 
-#if 1
+#if 0
 	{
 	    name: "altimeter",
 	    connection : {
@@ -214,7 +222,7 @@
 	    warming_time: 1.0,
             stream: [
 	    	// barometer is very noisy, use negative latency to get something closer to the mean than extrapolation
-#if FPV_TEST
+#if MODE == MODE_MANUAL_RC    
 		{ type: "DT_ALTITUDE",    tag: "alt",   weight: 1.0, mandatory:1, regression_size: 45, latency: -0.2, debug_level: 77},
 #else		
 		{ type: "DT_ALTITUDE",    tag: "alt",   weight: 0.1, mandatory:1, regression_size: 160, latency: -4.0, debug_level: 77},

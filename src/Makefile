@@ -11,13 +11,12 @@ OBJS=main.o common.o expmem.o json.o baio.o config.o device.o pilot.o mission.o 
 
 #DRONE=d250
 #DRONE=p2
-#DRONE=192.168.0.178
+DRONE=192.168.0.220
 #DRONE=pifly
-DRONE=pc
+#DRONE=pc
 #DRONE=openhd@pc:2233
 
-
-#set IGNORE_BUILD_ERROR to true if you want to ignore build errors
+#SET IGNORE_BUILD_ERROR to true if you want to ignore build errors
 ifeq ($(DRONE),pc)
 IGNORE_BUILD_ERROR=true
 else

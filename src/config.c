@@ -72,7 +72,7 @@
 	    (d)->name = enumNamesStringToInt(node->u.s, enumnames);	\
 	    if ((d)->name < 0) {					\
 		lprintf(0,"%s: Error wrong value %s in %s. One of ", PPREFIX(), node->u.s, #name); \
-		enumNamesPrint(stdout, enumnames);			\
+		logEnumNames(0, enumnames);			\
 		lprintf(0," expected.\n");					\
 		(d)->name = 0;						\
 		CANT_LOAD_CONFIGURATION_FILE_FATAL(path);		\
@@ -208,7 +208,7 @@ static int configMaybeLoadEnumArray(struct jsonnode *cc, int *vv, int length, ch
 	    vv[i] = enumNamesStringToInt(c->u.s, enumnames);
 	    if (vv[i] < 0) {
 		lprintf(0,"%s: Error wrong value %s in %s. One of ", PPREFIX(), c->u.s, fieldname);
-		enumNamesPrint(stdout, enumnames);
+		logEnumNames(0, enumnames);
 		lprintf(0," expected.\n");
 		vv[i] = 0;
 	    }

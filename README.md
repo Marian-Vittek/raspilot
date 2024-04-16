@@ -129,37 +129,13 @@ the "src" directory. The name of the link shall be "config.json".
     ln -s -f ../cfg/raspilot-myconfiguration.json config.json
 ```
 
-3.) Possibly edit the file "mission.c" and change the body of the
-function "mission" to execute your mission. In the beginning you
-probably just want to perfom test of motors rotating one motor after
-another. The code will be:
-
-```
-  void mission() {
-    missionMotorTest(-1);
-  }
-```
-
-There are a few precoded missions in mission.c. You can inspect and
-use them.  For example, to perform a simple square mission making the
-drone to fly in a square of 20cm at the altitude 10cm use the following
-code:
-
-```
-  void mission() {
-    raspilotPreLaunchSequence();
-    missionSquare(0.20, 0.10, 1.0, 1);
-  }
-```
-
-
-4.) Compile Raspilot
+3.) Compile Raspilot
 
 ```
     make all
 ```
 
-5.) Launch the autopilot with
+4.) Launch the autopilot with
 
 ```
    make starttolog

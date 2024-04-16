@@ -1045,7 +1045,7 @@ int timeLineExecuteScheduledEvents(int updateCurrenttimeFlag) ;
 void timeLineDump() ;
 char *arrayWithDimToStr_st(double *a, int dim) ;
 void enumNamesInit() ;
-void enumNamesPrint(FILE *ff, char **names) ;
+void logEnumNames(int loglevel, char **names) ;
 int enumNamesStringToInt(char *s, char **names) ;
 void initSerialPort(int fd, int baudrate) ;
 void terminalResume() ;
