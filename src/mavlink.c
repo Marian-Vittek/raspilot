@@ -51,12 +51,12 @@ static int getMavlinkMode() {
 	// Hmm. we can control mode by each of component roll,pitch,yaw,altitude
 	// I shall combine that into single mode for mavlink, let's take roll only
 	if (uu->config.manual_rc_roll.mode == RCM_PASSTHROUGH) return(MAV_MODE_MANUAL_DISARMED);
-	if (uu->config.manual_rc_roll.mode == RCM_ASSISTED) return(MAV_MODE_STABILIZE_DISARMED);
+	if (uu->config.manual_rc_roll.mode == RCM_ACRO) return(MAV_MODE_STABILIZE_DISARMED);
 	if (uu->config.manual_rc_roll.mode == RCM_TARGET) return(MAV_MODE_GUIDED_DISARMED);
 	if (uu->config.manual_rc_roll.mode == RCM_AUTO) return(MAV_MODE_AUTO_DISARMED);
     } else {
 	if (uu->config.manual_rc_roll.mode == RCM_PASSTHROUGH) return(MAV_MODE_MANUAL_ARMED);
-	if (uu->config.manual_rc_roll.mode == RCM_ASSISTED) return(MAV_MODE_STABILIZE_ARMED);
+	if (uu->config.manual_rc_roll.mode == RCM_ACRO) return(MAV_MODE_STABILIZE_ARMED);
 	if (uu->config.manual_rc_roll.mode == RCM_TARGET) return(MAV_MODE_GUIDED_ARMED);
 	if (uu->config.manual_rc_roll.mode == RCM_AUTO) return(MAV_MODE_AUTO_ARMED);	
     }
@@ -81,7 +81,7 @@ enum MAV_STATE
 
 static int getMavlinkState() {
     if (uu->flyStage < FS_STANDBY) return(MAV_STATE_CALIBRATING);
-    if (uu->flyStage == FS_STANDBY) return(MAV_STATE_STANDBY);
+    if (uu->flyStage == FS_STANDBY) return(MAV_STATE_CALIBRATING); // return(MAV_STATE_STANDBY);
     if (uu->flyStage == FS_EMERGENCY_LANDING) return(MAV_STATE_EMERGENCY);
     if (uu->flyStage == FS_SHUTDOWN) return(MAV_STATE_FLIGHT_TERMINATION);
     return(MAV_STATE_ACTIVE);
@@ -102,7 +102,7 @@ void mavlinkSendHeartbeatRegular(void *d) {
     dd = uu->device[dindex];
 
     mavlink_msg_heartbeat_pack(dd->connection.u.mavlink.system_id,  dd->connection.u.mavlink.component_id, &msg,
-			       MAV_TYPE_QUADROTOR, MAV_AUTOPILOT_GENERIC_WAYPOINTS_ONLY,
+			       MAV_TYPE_QUADROTOR, MAV_AUTOPILOT_ARDUPILOTMEGA /* don't use GENERIC, does not answer*/,
 			       getMavlinkMode(), 0, getMavlinkState()
 	);
 
@@ -289,6 +289,8 @@ void mavlinkPrintfStatusTextToListeners(char *fmt, ...) {
 
     va_start(ap, fmt);
     mavlinkVPrintfStatusTextToListeners(fmt, ap);
+    // There is some bug in openhd, so that sometimes the last message is not displayed, so always sens an empty message after
+    mavlinkSendStatusTextToListeners("");
     va_end(ap);
 }
 
@@ -296,6 +298,7 @@ void mavlinkPrintfStatusTextToListeners(char *fmt, ...) {
 // receiving
 
 void mavlinkOnHeartbeat(struct deviceData *dd, struct baio *bb, mavlink_message_t *msg) {
+    // lprintf(0, "%s: Warning: Got mavlink heartbeat\n", PPREFIX());
     lastReceivedMavlinkHeartbeatTime = currentTime.dtime;
 }
 
@@ -367,7 +370,7 @@ double mavlinkRcChannelsGetChannelRawValue(struct deviceStreamData *ss, mavlink_
 double mavlinkRcChannelsGetChannelNormalizedValue(struct deviceStreamData *ss, mavlink_rc_channels_override_t *mm, int radioControlIndex) {
     double vv;
     vv = mavlinkRcChannelsGetChannelRawValue(ss, mm, radioControlIndex);
-    // lprintf(0, "Value of index %d --> %f\n", radioControlIndex, vv);
+    // lprintf(0, "Warning: Value of index %d --> %f\n", radioControlIndex, vv);
     if (vv < 1000) return(0.0);
     if (vv > 2000) return(1.0);
     return((vv-1000.0) / 1000.0);
@@ -379,7 +382,8 @@ void mavlinkOnRcChannelsOverride(struct deviceData *dd, struct baio *bb, mavlink
     mavlink_message_t 			oo;
     int					i, len;
     uint8_t 				buf[MAVLINK_MAX_PACKET_LEN];
-
+    static time_t			panicButtonPressedTime;
+    
     mavlink_msg_rc_channels_override_decode(msg, &mm);
 
 #if 0
@@ -412,9 +416,20 @@ void mavlinkOnRcChannelsOverride(struct deviceData *dd, struct baio *bb, mavlink
 	}
     }
     if (mavlinkRcChannelsGetChannelNormalizedValue(ss, &mm, RC_BUTTON_PANIC_SHUTDOWN) < 0.5) {
-	lprintf(0, "%s: Joystick panic button pressed. Raspilot is going down\n", PPREFIX());
-	raspilotShutDownAndExit();
+	if (uu->flyStage > FS_STANDBY) {
+	    lprintf(0, "%s: Joystick panic button pressed. Going to standby mode.\n", PPREFIX());
+	    raspilotGotoStandby();
+	}
+	if (panicButtonPressedTime == 0) {
+	    panicButtonPressedTime = currentTime.sec;
+	} else if (currentTime.sec - panicButtonPressedTime > 5) {
+	    lprintf(0, "%s: Joystick panic button hold for 5 seconds. Raspilot is exiting!\n", PPREFIX());
+	    raspilotShutDownAndExit();
+	}
+    } else {
+	panicButtonPressedTime = 0;
     }
+		
     
 }
 
@@ -462,14 +477,26 @@ int mavlinkParseInput(struct deviceData *dd, struct baio *bb, int fromj, int num
 }
 
 void mavlinkRegularCheckHeartbeat(void *d) {
-    if (uu->flyStage >= FS_FLY && uu->flyStage < FS_EMERGENCY_LANDING) {
-	// TODO: check how often the heartbeat is sent
-	if (currentTime.dtime > lastReceivedMavlinkHeartbeatTime + 2.0) {
+    static int	recheckAfterMs = 200;
+    static int	repeatBeepEveryNSeconds = 10;
+    static int 	beepCounter = 0;
+    // They do not seem to be particularly interested in this they send heartbeat once 10-20 seconds, sometimes more.
+    // I remove this check for sacurity reasons.
+    // TODO: rather check for last received mavlink message at all, not only heartbeat
+    if (currentTime.dtime - lastReceivedMavlinkHeartbeatTime < 0.0) {
+	if (uu->flyStage >= FS_FLY && uu->flyStage < FS_EMERGENCY_LANDING) {
 	    lprintf(0, "%s: Error: mavlink connection timeout. Immediate landing !!!\n", PPREFIX());
 	    uu->flyStage = FS_EMERGENCY_LANDING;
-	}	
+	}
+	// repeat 
+	beepCounter = (beepCounter + 1) % (repeatBeepEveryNSeconds * 1000 / recheckAfterMs);
+	// of course do not 'beep' motor while in air.
+	if (beepCounter == 0 && uu->flyStage < FS_FLY) {
+	    mavlinkPrintfStatusTextToListeners("Mavlink lost: BEEP");
+	    motorsBeep(NULL);
+	}
     }
-    timeLineInsertEvent(UTIME_AFTER_MSEC(200), mavlinkRegularCheckHeartbeat, NULL);
+    timeLineInsertEvent(UTIME_AFTER_MSEC(recheckAfterMs), mavlinkRegularCheckHeartbeat, NULL);
 }
 
 void mavlinkInitiate(struct deviceData *dd, struct baio *bb) {

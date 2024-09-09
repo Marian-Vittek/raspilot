@@ -28,8 +28,8 @@
 #define RATE 200
 {
 
-    // pilot_main_mode: "MODE_SINGLE_MISSION",
-    pilot_main_mode: "MODE_MOTOR_TEST",
+    pilot_main_mode: "MODE_SINGLE_MISSION",
+    // pilot_main_mode: "MODE_MOTOR_TEST",
 
     autopilot_loop_Hz: RATE,
     stabilization_loop_Hz: RATE,
@@ -134,8 +134,8 @@
 	    connection : {
 	    	// direct dshot connection of ESC to raspberry pi pinouts. Numeric arguments of motor-dshot are gpio pins where ESC is connected.
 		type: "DCT_COMMAND_BASH",
-		command: "killall motor-dshot-smi; sleep 0.5; killall -q -9 motor-dshot-smi; sleep 0.5; ulimit -c unlimited; exec chrt -f 99 taskset -c 1 ../tool/motor/motor-dshot-smi/motor-dshot-smi - - 16 21 20 19 "
-		// command: "killall motor-null; sleep 0.5; killall -q -9 motor-null; sleep 0.5; ulimit -c unlimited; exec chrt -f 99 taskset -c 1 ../tool/motor/motor-null/motor-null - - 16 21 20 19 "
+		// command: "killall motor-dshot-smi; sleep 0.5; killall -q -9 motor-dshot-smi; sleep 0.5; ulimit -c unlimited; exec chrt -f 99 taskset -c 1 ../tool/motor/motor-dshot-smi/motor-dshot-smi - - 16 21 20 19 "
+		command: "killall motor-null; sleep 0.5; killall -q -9 motor-null; sleep 0.5; ulimit -c unlimited; exec chrt -f 99 taskset -c 1 ../tool/motor/motor-null/motor-null - - 16 21 20 19 "
 	    },
 	    shutdownExit: true,
 	    stream: [

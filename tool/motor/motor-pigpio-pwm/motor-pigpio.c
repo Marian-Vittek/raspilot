@@ -26,7 +26,7 @@ static void motorFatalInterrupt(int signum) {
     abort();
 }
 
-void motorImplementationInitialize(int motorPins[], int motorMax) {
+void motorImplementationInitialize(int motorPins[], int motorDirections[], int motorMax) {
     int i;
     
     if (gpioInitialise() < 0) {
@@ -56,6 +56,11 @@ void motorImplementationSet3dModeAndSpinDirection(int motorPins[], int motorMax,
 	printf("debug Error: This motor does not support 3d mode and/or reverseDirection.\n");
 	fflush(stdout);	
     }
+}
+
+void motorImplementationBeep(int motorPins[], int motorMax, int beaconIndex) {
+    printf("debug Error: This motor does not support beep.\n");
+    fflush(stdout);	
 }
 
 void motorImplementationSendThrottles(int motorPins[], int motorMax, double motorThrottle[]) {

@@ -262,7 +262,7 @@ enum pilotMainModeEnum {
 enum remoteControlModes {
     RCM_NONE,
     RCM_PASSTHROUGH,	// rc is directly interpreted as thrust 
-    RCM_ASSISTED,	// rc is interpreted as (rotation) speed (assisted by PID controller) (requires gyro)
+    RCM_ACRO,	// rc is interpreted as (rotation) speed (assisted by PID controller) (requires gyro)
     RCM_TARGET,		// rc is interpreted as target roll/pitch/yaw value (requires gyro)
     RCM_AUTO,		// rc is interpreted as drone speed, actual roll/pitch is controlled by autopilot (requires gyro+position(GPS))
     RCM_MAX,
@@ -822,8 +822,9 @@ struct waypoint {
 
 struct manual_rc {
     int				mode;
-    double			min_zone;	// to be renamed to joystick_neutral_zone
+    double			middle_neutral_zone;	// to be renamed to joystick_neutral_zone
     double			scroll_zone;
+    double			initial_scroll_middle;	// initial scroll
     double			min;
     double			max;
     double			sensitivity;
@@ -848,6 +849,7 @@ struct config {
     double			drone_waypoint_reached_angle;
     double			short_buffer_seconds;
     double			long_buffer_seconds;
+    double			emergency_landing_max_time;
 
     // manual rc control
     struct manual_rc		manual_rc_roll;
@@ -864,7 +866,7 @@ struct manualControlState {
     // auxiliary values. 
     double rc_value;		// last used rc value
     double lastReportedValue;	// last value printed to GUI
-    double base;		// central point
+    double base;		// scrolling central point
     double lastUpdateDtime;	// time of the last update
 };
 
@@ -887,6 +889,7 @@ struct universe {
     // if not, initiate landing or return to home
     char			*pingToHost;
     char			*logFileName;
+    uint8_t			autostart;	// flag whether the pilot was auto started
     
     double			autopilot_loop_Hz;
     double			stabilization_loop_Hz;
@@ -963,7 +966,7 @@ struct universe {
     double			targetGimbalY;
 
     // manual
-    struct manualControl	manual;
+    struct manualControl	rc;
     
     // hold a few seconds of historical poses for case somebody needs it
     // TODO: split into historyPosition and historyRpy, so that position sensors
@@ -1144,6 +1147,7 @@ int raspilotWaypointReached() ;
 void pilotSendThrusts(void *d) ;
 void motorsExit(void *d) ;
 void motorsStandby(void *d) ;
+void motorsBeep(void *d) ;
 void motorsSendStreamThrustFactor(void *d) ;
 void motorsThrustSet(double thrust) ;
 void motorThrustSetAndSend(int i, double thrust) ;

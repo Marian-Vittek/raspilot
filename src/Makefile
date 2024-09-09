@@ -11,10 +11,11 @@ OBJS=main.o common.o expmem.o json.o baio.o config.o device.o pilot.o mission.o 
 
 #DRONE=d250
 #DRONE=p2
-DRONE=192.168.0.220
+#DRONE=192.168.0.220
 #DRONE=pifly
 #DRONE=pc
-#DRONE=openhd@pc:2233
+#DRONE=pi5
+DRONE=openhd@pc:2233
 
 #SET IGNORE_BUILD_ERROR to true if you want to ignore build errors
 ifeq ($(DRONE),pc)
@@ -68,6 +69,11 @@ prestart: prestartchecks stop
 start: prestart
 	sudo bash -c "ulimit -c unlimited ; chrt -r 20 taskset -c 0 ./raspilot  -d 1 -ll 6 "
 
+autostart: prestart
+	sudo bash -c "ulimit -c unlimited ; chrt -r 20 taskset -c 0 ./raspilot  -auto -d 0 -ll 6 "
+# it is supposed that the autostart goal is called from crontab a few seconds after reboot, supposed crontab line is:
+# @reboot         nohup /home/openhd/raspilot/src/autostart.sh &
+
 starttolog: prestart
 	sudo bash -c "ulimit -c unlimited ; chrt -r 20 taskset -c 0 ./raspilot -d 6 -ll 33 "
 	# Copy the log on the ssh server
@@ -102,7 +108,7 @@ distclean: stop clean
 	rm -f ../misc/pose-vizualization/{*.o,raspicam-april}
 
 dist:   distclean
-	(cd ../.. && tar cfHz raspilot.tgz posix --exclude='raspilot/.git' --exclude='raspilot/log' raspilot && cp raspilot.tgz raspilot-`date "+%Y-%m-%d"`.tgz)
+	(cd ../.. && tar cfHz raspilot.tgz posix --exclude='raspilot/.git' --exclude='raspilot/log/*' raspilot && cp raspilot.tgz raspilot-`date "+%Y-%m-%d"`.tgz)
 
 #######################################################
 

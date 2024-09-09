@@ -486,7 +486,9 @@ static void dshotRepeatSendCommand(int motorPins[], int motorMax, int cmd, int t
     
     for(i=0; i<motorMax; i++) frame[i] = dshotAddChecksumAndTelemetry(cmd, telemetry);
     t = dshotGetNanoseconds() + timePeriodMsec * 1000000LL;
-    while (dshotGetNanoseconds() <= t) {
+    dshotSendFrames(motorPins, motorMax, frame);
+    usleep(1000);
+    while (dshotGetNanoseconds() < t) {
         dshotSendFrames(motorPins, motorMax, frame);
         usleep(1000);
     }
@@ -523,11 +525,19 @@ void motorImplementationSet3dModeAndSpinDirection(int motorPins[], int motorMax,
     dshotRepeatSendCommand(motorPins, motorMax, DSHOT_CMD_SAVE_SETTINGS, 0, repeatMsec);
 }
 
-void motorImplementationInitialize(int motorPins[], int motorMax) {
+void motorImplementationBeep(int motorPins[], int motorMax, int beaconIndex) {
+    dshotRepeatSendCommand(motorPins, motorMax, DSHOT_CMD_BEACON1+beaconIndex, 0, 30);
+    printf("debug: MOTOR BEEP.\n");fflush(stdout);
+}
+
+void motorImplementationInitialize(int motorPins[], int motorDirections[], int motorMax) {
     int 	i,j,k;
     DMA_CB 	*cbs;
     uint32_t 	*txdata;
     void	*mmm;
+    int		pp[64];
+			     
+    // printf("debug: MOTOR INIT.\n");fflush(stdout);
     
     for(i=0; i<motorMax; i++) {
 	if (motorPins[i] < DAC_D0_PIN || motorPins[i] >= DAC_D0_PIN+DAC_NPINS) {
@@ -567,7 +577,15 @@ void motorImplementationInitialize(int motorPins[], int motorMax) {
 
     // My esc does not spin anything before it stops initial beeping, so
     // prefer to spend that time here
-    dshotRepeatSendCommand(motorPins, motorMax, DSHOT_CMD_MOTOR_STOP, 0, 2000);    
+    dshotRepeatSendCommand(motorPins, motorMax, DSHOT_CMD_MOTOR_STOP, 0, 2000);
+
+    // set normal and reverse mode for motors
+    k = 0;
+    for(i=0; i<motorMax; i++) if (motorDirections[i] >= 0) pp[k++] = motorPins[i];
+    motorImplementationSet3dModeAndSpinDirection(pp, k, 0, 0);
+    k = 0;
+    for(i=0; i<motorMax; i++) if (motorDirections[i] < 0) pp[k++] = motorPins[i];
+    motorImplementationSet3dModeAndSpinDirection(pp, k, 0, 1);
 }
 
 void motorImplementationFinalize(int motorPins[], int motorMax) {

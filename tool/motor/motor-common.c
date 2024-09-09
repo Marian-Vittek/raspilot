@@ -38,7 +38,8 @@ A usual invocation is
 
 where <input pipe>/<output_pipe> can be '-' for stdin/stdout
 respectively, n is the number of motors and pin_i is the connection to
-i-th motor. 
+i-th motor. If pin_i is negative, then -pin_i is the right GPIO and the motor
+shall spin in reverse direction.
 
 When started this task is reading <input_pipe> (or stdin) for the lines containign one of the following commands:
 
@@ -65,6 +66,7 @@ int motorShutdownInProgress = 0;
 int motorEmergencyLandingInProgress = 0;
 int motorStandBy = 1;
 
+int motorDirections[MOTOR_MAX];
 int motorPins[MOTOR_MAX];
 double motorThrottle[MOTOR_MAX];
 int motorMax = 0;
@@ -359,6 +361,10 @@ int readThrustFromInputPipe() {
 		motorThrottleFactor = 0;
 	    }
 	    res |= 0;
+	} else if (q[0] == 'b' && q[1] == 'e' && q[2] == 'e' && q[3] == 'p') {
+	    // beep with motors
+	    motorImplementationBeep(motorPins, motorMax, 0);
+	    res |= 0;
 	} else if (q[0] == 0) {
 	    // empty line, ignore
 	    res |= 0;
@@ -441,15 +447,24 @@ int main(int argc, char *argv[]) {
     
     for (i=0; i<argc-3; i++) {
 	g = atoi(argv[i+3]);
-	motorPins[i] = g;
+	if (g > 0) {
+	    motorPins[i] = g;
+	    motorDirections[i] = 1;
+	} else {
+	    motorPins[i] = -g;
+	    motorDirections[i] = -1;
+	}
 	motorThrottle[i] = 0;
 	// motorThrottleSafeLand[i] = 1500;
 	motorThrottleSafeLand[i] = THROTTLE_LANDING;
     }
     motorMax = i;
-   
-    motorImplementationInitialize(motorPins, motorMax);
 
+    motorImplementationInitialize(motorPins, motorDirections, motorMax);
+
+    // Since now, put only positive values as motor pins
+    for(i=0; i<motorMax; i++) motorPins[i] = abs(motorPins[i]);
+    
     motorSendThrottles();
     // This is the main loop reading and executing PWMs
     while (! motorShutdownInProgress && !motorEmergencyLandingInProgress) {

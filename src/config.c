@@ -470,7 +470,7 @@ void configLoadRcSpec(struct jsonnode *cc, struct manual_rc *ss, char *fieldname
     c = jsonFindObjectField(cc, fieldname);
     if (c == NULL) {
 	ss->mode = RCM_NONE;
-	ss->min_zone = 0;
+	ss->middle_neutral_zone = 0;
 	ss->min = 0;
 	ss->max = 0;
 	return;
@@ -478,13 +478,14 @@ void configLoadRcSpec(struct jsonnode *cc, struct manual_rc *ss, char *fieldname
     c->used = 1;
     LOAD_CONFIG_CONTEXT_PUSH(context, "%s", fieldname);
     LOAD_CONFIG_ENUM_STRING_OPTION(c, context, ss, remoteControlModeNames, mode);
-    LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(c, context, ss, min_zone, 0.1);
+    LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(c, context, ss, middle_neutral_zone, 0.0);
     LOAD_CONFIG_DOUBLE_OPTION(c, context, ss, min);
     LOAD_CONFIG_DOUBLE_OPTION(c, context, ss, max);
     LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(c, context, ss, scroll_zone, 0.0);
-    LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(c, context, ss, sensitivity, (ss->max-ss->min) / (1.0-ss->min_zone));
+    LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(c, context, ss, initial_scroll_middle, (ss->max+ss->min)/2);
+    LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(c, context, ss, sensitivity, (ss->max-ss->min) / (1.0-ss->middle_neutral_zone));
     LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(c, context, ss, scroll_speed, (ss->max-ss->min) / 5);
-    if (ss->min_zone < 0.0 || ss->min_zone > 1.0) {
+    if (ss->middle_neutral_zone < 0.0 || ss->middle_neutral_zone > 1.0) {
 	lprintf(0,"%s: Error: %s.%s shall be a number between 0 and 1\n", PPREFIX(), context, "zero_zone");
 	CANT_LOAD_CONFIGURATION_FILE_FATAL(path);
 	raspilotShutDownAndExit();
@@ -542,6 +543,7 @@ void configLoadFromJsonNode(struct jsonnode *cc, char *path, char *context) {
 	lprintf(0, "%s: Error: long_buffer_seconds must be larger than 1/stabilization_loop_Hz\n", PPREFIX());
 	uu->config.long_buffer_seconds = 20.0/uu->autopilot_loop_Hz;
     }
+    LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(cc, context, cfg, emergency_landing_max_time, 30.0);
     
     LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(cc, context, cfg, motor_thrust_min_spin, 0.01);
     LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(cc, context, cfg, motor_altitude_thrust_hold, 0.1);

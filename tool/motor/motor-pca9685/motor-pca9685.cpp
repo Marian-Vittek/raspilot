@@ -12,7 +12,7 @@
 
 Adafruit_PWMServoDriver pwm;
 
-void motorImplementationInitialize(int motorPins[], int motorMax) {
+void motorImplementationInitialize(int motorPins[], int motorDirections[], int motorMax) {
     pwm.begin();
     /*
    * In theory the internal oscillator (clock) is 25MHz but it really isn't
@@ -45,6 +45,11 @@ void motorImplementationSet3dModeAndSpinDirection(int motorPins[], int motorMax,
 	printf("debug Error: This motor does not support 3d mode and/or reverseDirection.\n");
 	fflush(stdout);	
     }
+}
+
+void motorImplementationBeep(int motorPins[], int motorMax, int beaconIndex) {
+  printf("debug Error: This motor does not support beep.\n");
+  fflush(stdout);	
 }
 
 void motorImplementationSendThrottles(int motorPins[], int motorMax, double motorThrottle[]) {

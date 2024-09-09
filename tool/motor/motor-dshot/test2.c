@@ -5,7 +5,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-extern void motorImplementationInitialize(int motorPins[], int motorMax) ;
+extern void motorImplementationInitialize(int motorPins[], int motorDirections[], int motorMax) ;
 extern void motorImplementationFinalize(int motorPins[], int motorMax) ;
 extern void motorImplementationSendThrottles(int motorPins[], int motorMax, double motorThrottle[]) ;
 extern void motorImplementationSet3dModeAndSpinDirection(int motorPins[], int motorMax, int mode3dFlag, int reverseDirectionFlag) ;
@@ -14,6 +14,7 @@ extern void motorImplementationSet3dModeAndSpinDirection(int motorPins[], int mo
 
 int n;
 int motorPins[MAXN];
+int motorDirections[MAXN];
 double throttles[MAXN];
 
 int main(int argc, char **argv) {
@@ -28,6 +29,7 @@ int main(int argc, char **argv) {
     n = 0;
     for(i=1; i<argc; i++) {
 	motorPins[n] = atoi(argv[i]);
+	motorDirections[n] = 1;
 	if (motorPins[n] > 0 && motorPins[n] < 28) {
 	    n ++;
 	} else {
@@ -35,8 +37,7 @@ int main(int argc, char **argv) {
 	}
     }
     
-    motorImplementationInitialize(motorPins, n);
-    // motorImplementationSet3dModeAndSpinDirection(motorPins, n, 1, 0);
+    motorImplementationInitialize(motorPins, motorDirections, n);
 
     // make spinning 1 motor after another
     for(i=0; i<n; i++) throttles[i] = 0;

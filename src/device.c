@@ -210,14 +210,14 @@ void manualPilotSetControl(struct manualControlState *cc, double rc_value, struc
     
     //printf("%s: rcvalue: %g;   base: %g --> %g; min_zone: %g\n", controlName, rc_value, oldbase, cc->base, ss->min_zone);
 
-    if (rc_value > 0.5 - ss->min_zone/2 && rc_value < 0.5 + ss->min_zone/2) {
+    if (rc_value > 0.5 - ss->middle_neutral_zone/2 && rc_value < 0.5 + ss->middle_neutral_zone/2) {
 	newvalue = cc->base;
 	//printf("%s: case 0: value: %g --> %g;\n", controlName, cc->value, newvalue);
     } else if (rc_value < 0.5) {
-	newvalue = (rc_value - 0.5 + ss->min_zone/2) * ss->sensitivity + cc->base;
+	newvalue = (rc_value - 0.5 + ss->middle_neutral_zone/2) * ss->sensitivity + cc->base;
 	//printf("%s: case 1: value: %g --> %g;\n", controlName, cc->value, newvalue);
     } else {
-	newvalue = (rc_value - 0.5 - ss->min_zone/2) * ss->sensitivity + cc->base;
+	newvalue = (rc_value - 0.5 - ss->middle_neutral_zone/2) * ss->sensitivity + cc->base;
 	//printf("%s: case 2: value: %g --> %g;\n", controlName, cc->value, newvalue);
     }
 
@@ -231,24 +231,26 @@ void manualPilotSetControl(struct manualControlState *cc, double rc_value, struc
     cc->lastUpdateDtime = currentTime.dtime;
 
     // Hmm. Make this step configurable
+    // lprintf(0, "%s: Warning: manual control %s: raw %g --> %g\n", PPREFIX(), controlName, rc_value, cc->value);
     if (fabs(cc->lastReportedValue - cc->value) >= 0.01) {
 	lprintf(loglevel, "%s: manual control %s: raw %g --> %g\n", PPREFIX(), controlName, rc_value, cc->value);
+	// lprintf(0, "%s: Warning: manual control %s: raw %g --> %g\n", PPREFIX(), controlName, rc_value, cc->value);
 	// printf("%s: manual control %s: raw %g --> %g\n", PPREFIX(), controlName, rc_value, cc->value);
 	if (loglevel < 5) {
-	    mavlinkPrintfStatusTextToListeners("rc: %s set to %g\n", controlName, cc->value);
+	    mavlinkPrintfStatusTextToListeners("rc: %s: %g", controlName, cc->value);
 	}
 	cc->lastReportedValue = cc->value;
     }
 }
 
 void manualPilotSetRoll(double vv) {
-    manualPilotSetControl(&uu->manual.roll, vv, &uu->config.manual_rc_roll, "roll", 20);
+    manualPilotSetControl(&uu->rc.roll, vv, &uu->config.manual_rc_roll, "roll", 20);
 }
 void manualPilotSetPitch(double vv) {
-    manualPilotSetControl(&uu->manual.pitch, vv, &uu->config.manual_rc_pitch, "pitch", 20);
+    manualPilotSetControl(&uu->rc.pitch, vv, &uu->config.manual_rc_pitch, "pitch", 20);
 }
 void manualPilotSetYaw(double vv) {
-    manualPilotSetControl(&uu->manual.yaw, vv, &uu->config.manual_rc_yaw, "yaw", 20);
+    manualPilotSetControl(&uu->rc.yaw, vv, &uu->config.manual_rc_yaw, "yaw", 20);
 }
 void manualPilotSetAltitude(double vv) {
     int loglevel;
@@ -258,23 +260,24 @@ void manualPilotSetAltitude(double vv) {
     } else {
 	loglevel = 20;
     }
-    manualPilotSetControl(&uu->manual.altitude, vv, &uu->config.manual_rc_altitude, "altitude", loglevel);
+    manualPilotSetControl(&uu->rc.altitude, vv, &uu->config.manual_rc_altitude, "altitude", loglevel);
 }
 
 void manualControlInit(struct manualControlState *ss, struct manual_rc *mm) {
     ss->lastReportedValue = 0;
     ss->rc_value = 0.5;
     ss->lastUpdateDtime = currentTime.dtime;
+    ss->base = mm->initial_scroll_middle;
     manualPilotSetControl(ss, 0.5, mm, "Init", 99);
 }
 
 void manualControlRegularCheck(void *d) {
     pilotScheduleNextTick(2, manualControlRegularCheck, NULL);
 
-    manualPilotSetControl(&uu->manual.roll, uu->manual.roll.rc_value, &uu->config.manual_rc_roll, "roll", 20);
-    manualPilotSetControl(&uu->manual.pitch, uu->manual.pitch.rc_value,  &uu->config.manual_rc_pitch, "pitch", 20);
-    manualPilotSetControl(&uu->manual.yaw, uu->manual.yaw.rc_value, &uu->config.manual_rc_yaw, "yaw", 20);
-    manualPilotSetControl(&uu->manual.altitude, uu->manual.altitude.rc_value, &uu->config.manual_rc_altitude, "altitude", 20);
+    manualPilotSetControl(&uu->rc.roll, uu->rc.roll.rc_value, &uu->config.manual_rc_roll, "roll", 20);
+    manualPilotSetControl(&uu->rc.pitch, uu->rc.pitch.rc_value,  &uu->config.manual_rc_pitch, "pitch", 20);
+    manualPilotSetControl(&uu->rc.yaw, uu->rc.yaw.rc_value, &uu->config.manual_rc_yaw, "yaw", 20);
+    manualPilotSetControl(&uu->rc.altitude, uu->rc.altitude.rc_value, &uu->config.manual_rc_altitude, "altitude", 20);
 
 #if 0
     uu->targetGimbalX += uu->manual.gimbalXIncrementPerSecond / uu->autopilot_loop_Hz;
@@ -342,11 +345,11 @@ int parseJstestJoystickFlighControl(double *rr, char *tag, char *s, struct devic
 #if 1
 	case 4:
 	    // gimbal X
-	    uu->manual.gimbalXIncrementPerSecond = 2 * signd(dvalue) * M_PI / 2;
+	    uu->rc.gimbalXIncrementPerSecond = 2 * signd(dvalue) * M_PI / 2;
 	    break;
 	case 5:
 	    // gimbal Y
-	    uu->manual.gimbalYIncrementPerSecond = 2 * - signd(dvalue) * M_PI / 2;
+	    uu->rc.gimbalYIncrementPerSecond = 2 * - signd(dvalue) * M_PI / 2;
 	    break;
 #endif	    
 	default:
@@ -1038,7 +1041,7 @@ void deviceInitiate(int i) {
 	bb = baioNewNamedPipes(dd->connection.u.namedPipes.read_pipe, dd->connection.u.namedPipes.write_pipe, 0);
 	break;
     case DCT_MAVLINK_PTTY:
-	bb = baioNewPseudoTerminal(dd->connection.u.mavlink.link, 1152000, 0);
+	bb = baioNewPseudoTerminal(dd->connection.u.mavlink.link, 1000000, 0);
 	mavlinkInitiate(dd, bb);
 	break;
     default:

@@ -816,7 +816,7 @@ void enumNamesInit() {
     
     ENUM_NAME_SET(remoteControlModeNames, RCM_NONE);
     ENUM_NAME_SET(remoteControlModeNames, RCM_PASSTHROUGH);
-    ENUM_NAME_SET(remoteControlModeNames, RCM_ASSISTED);
+    ENUM_NAME_SET(remoteControlModeNames, RCM_ACRO);
     ENUM_NAME_SET(remoteControlModeNames, RCM_TARGET);
     ENUM_NAME_SET(remoteControlModeNames, RCM_AUTO);
     ENUM_NAME_SET(remoteControlModeNames, RCM_MAX);

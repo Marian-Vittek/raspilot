@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-extern void motorImplementationInitialize(int motorPins[], int motorMax) ;
+extern void motorImplementationInitialize(int motorPins[], int motorDirections[], int motorMax) ;
 extern void motorImplementationFinalize(int motorPins[], int motorMax) ;
 extern void motorImplementationSendThrottles(int motorPins[], int motorMax, double motorThrottle[]) ;
 
@@ -10,6 +10,7 @@ extern void motorImplementationSendThrottles(int motorPins[], int motorMax, doub
 #define MAXN 	40
 
 int motorPins[MAXN];
+int motorDirections[MAXN];
 double throttles[MAXN];
 
 int main(int argc, char **argv) {
@@ -24,6 +25,7 @@ int main(int argc, char **argv) {
     n = 0;
     for(i=1; i<argc; i++) {
 	motorPins[n] = atoi(argv[i]);
+	motorDirections[n] = 1;
 	if (motorPins[n] >= 8 && motorPins[n] <= 25) {
 	    n ++;
 	} else {
@@ -31,7 +33,7 @@ int main(int argc, char **argv) {
 	}
     }
     
-    motorImplementationInitialize(motorPins, n);
+    motorImplementationInitialize(motorPins, motorDirections, n);
 
     printf("Initializing ESC / Arm, waiting 5 seconds.\n");
     fflush(stdout);

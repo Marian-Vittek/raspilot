@@ -356,6 +356,8 @@ int mainProcessCommandLineArgs(int argc, char **argv) {
 		uu->pingToHost = argv[i];
 		lprintf(0, "%s: Info: ping to host %s\n", PPREFIX(), uu->pingToHost);
 	    }
+	} else if (strcmp(argv[i], "-auto") == 0) {
+	    uu->autostart = 1;
 	} else {
 	    if (argv[i][1] != 'h') {
 		lprintf(0, "Error: unknown option %s\n\n", argv[i]);
@@ -516,6 +518,12 @@ int raspilotInit(int argc, char **argv) {
     mainProcessCommandLineArgs(argc, argv);
     logbaioInit();
     configloadFile();
+
+    if (uu->autostart && uu->config.pilot_main_mode != MODE_MANUAL_RC) {
+	printf("%s: Raspilot is not auto starting, because the main mode is not MODE_MANUAL_RC.\n", PPREFIX());
+	exit(1);
+    }
+    
     initConfiguredPilot();
 
     trajectoryLogInit();
@@ -865,7 +873,7 @@ static void pilotSingleMotorTest(int motorIndex) {
     motorsThrustSetAndSend(0);
     lprintf(0, "%s: Warning: testing motor %d\n", PPREFIX(), motorIndex);
     motorThrustSetAndSend(motorIndex, uu->config.motor_thrust_min_spin);
-    raspilotBusyWaitUntilTimeoutOrStandby(1.0);
+    raspilotBusyWaitUntilTimeoutOrStandby(2.0);
     motorThrustSetAndSend(motorIndex, 0);
     raspilotBusyWaitUntilTimeoutOrStandby(1.0);
 }
@@ -895,9 +903,15 @@ static int droneHasEmergencyLanded() {
 }
 
 void mainEmergencyLanding() {
+    time_t	landingStartTime;
+    
     lprintf(0, "%s: Info: Emergency landing. Waiting for land.\n", PPREFIX());
     mavlinkPrintfStatusTextToListeners("Emergency Landing!");
-    while (uu->flyStage == FS_EMERGENCY_LANDING && ! droneHasEmergencyLanded()) {
+    landingStartTime = currentTime.sec;
+    while (uu->flyStage == FS_EMERGENCY_LANDING
+	   && ! droneHasEmergencyLanded()
+	   && currentTime.sec - landingStartTime < uu->config.emergency_landing_max_time
+	) {
 	raspilotPoll();
     }
     // If we are landed
@@ -906,16 +920,16 @@ void mainEmergencyLanding() {
 
 static void pilotModeManualRc() {
     // In this mode the drone is controller by the joystick or similar
-    manualControlInit(&uu->manual.roll, &uu->config.manual_rc_roll);
-    manualControlInit(&uu->manual.pitch, &uu->config.manual_rc_pitch);
-    manualControlInit(&uu->manual.yaw, &uu->config.manual_rc_yaw);
-    manualControlInit(&uu->manual.altitude, &uu->config.manual_rc_altitude);
+    manualControlInit(&uu->rc.roll, &uu->config.manual_rc_roll);
+    manualControlInit(&uu->rc.pitch, &uu->config.manual_rc_pitch);
+    manualControlInit(&uu->rc.yaw, &uu->config.manual_rc_yaw);
+    manualControlInit(&uu->rc.altitude, &uu->config.manual_rc_altitude);
     timeLineInsertEvent(UTIME_AFTER_MSEC(10), manualControlRegularCheck, NULL);
     uu->flyStage = FS_STANDBY;
     timeLineInsertEvent(UTIME_AFTER_MSEC(2), pilotRegularStabilisationTick, NULL);
     // This is the main loop when raspilot is in manual rc mode
     while (uu->flyStage == FS_STANDBY) {
-	uu->manual.altitude.value = -9999;
+	uu->rc.altitude.value = -9999;
 	lprintf(0, "%s: Standby\n", PPREFIX());
 	mavlinkPrintfStatusTextToListeners("Standby mode");
 	usleep(10000);
@@ -929,7 +943,7 @@ static void pilotModeManualRc() {
 	    raspilotPreLaunchSequence(1);
 	    if (uu->flyStage == FS_STANDBY) {
 		lprintf(0, "%s: Info: Launch sequence interrupted.\n", PPREFIX());		
-	    } else if (uu->manual.altitude.value <= -9999) {
+	    } else if (uu->rc.altitude.value <= -9999) {
 		lprintf(0, "%s: Error: Launch altitude not set during prefly. Interrupting!\n", PPREFIX());
 		mavlinkPrintfStatusTextToListeners("Launch altitude not set during prefly. Interrupting!\n");
 		uu->flyStage = FS_STANDBY;

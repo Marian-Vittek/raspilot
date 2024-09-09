@@ -320,7 +320,9 @@ static void dshotRepeatSendCommand(int motorPins[], int motorMax, int cmd, int t
     
     for(i=0; i<motorMax; i++) frame[i] = dshotAddChecksumAndTelemetry(cmd, telemetry);
     t = dshotGetNanoseconds() + timePeriodMsec * 1000000LL;
-    while (dshotGetNanoseconds() <= t) {
+    dshotSendFrames(motorPins, motorMax, frame);
+    usleep(USLEEP_BEFORE_REBROADCAST);
+    while (dshotGetNanoseconds() < t) {
         dshotSendFrames(motorPins, motorMax, frame);
         usleep(USLEEP_BEFORE_REBROADCAST);
     }
@@ -355,7 +357,11 @@ void motorImplementationSet3dModeAndSpinDirection(int motorPins[], int motorMax,
     dshotRepeatSendCommand(motorPins, motorMax, DSHOT_CMD_SAVE_SETTINGS, 0, repeatMsec);
 }
 
-void motorImplementationInitialize(int motorPins[], int motorMax) {
+void motorImplementationBeep(int motorPins[], int motorMax, int beaconIndex) {
+    dshotRepeatSendCommand(motorPins, motorMax, DSHOT_CMD_BEACON1+beaconIndex, 0, 0);
+}
+
+void motorImplementationInitialize(int motorPins[], int motorDirections[], int motorMax) {
     int         i, pin;
 
     dshotSetupIo();

@@ -24,6 +24,7 @@
 // comma can occur after the last field and constant expressions can be used instead of constants.
 
 // select the pilot main mode
+// #define MODE			MODE_MOTOR_TEST
 #define MODE			MODE_MANUAL_RC
 
 // mode can be one of the following:
@@ -93,7 +94,9 @@
     // Maximal value sent to motor for holding altitude. With the right value the drone gently lands when the battery is empty.
     motor_altitude_thrust_max:     0.6,
     motor_altitude_thrust_hold:    0.3,
-    
+
+    // basically how long we are expected to touch ground after emergency land, and before motors start beep beacon
+    emergency_landing_max_time:	   5,
     
     //////////////////////////////////////////////
     // PID controllers.
@@ -114,7 +117,7 @@
 
     pidRoll:     { p:RPB,  i:RPB/5,  d:0.00002},
     pidPitch:    { p:RPB,  i:RPB/5,  d:0.00002},
-    pidYaw:      { p:0.1,  i:0.03,  d:0.00001},
+    pidYaw:      { p:0.2,  i:0.03,  d:0.00001},
 
     // The last sort of PID controller is pidAltitude. It translates desired vertical speed (usually 0)
     // to motor thrust. It shall have P factor large enough to launch and stabilize the drone altitude.
@@ -126,13 +129,13 @@
     // pidAltitude: { p:0.,  i:0.0,  d:0},
     pidAltitude: { p:0.03,  i:0.06,  d:0.000},
 
-    manual_rc_roll:     {mode:"RCM_TARGET", min_zone: 0.1, min:-0.2, max: 0.2},
-    manual_rc_pitch:    {mode:"RCM_TARGET", min_zone: 0.1, min:-0.2, max: 0.2},
-    manual_rc_yaw:      {mode:"RCM_ASSISTED", min_zone: 0.8, min:-1.0, max: 1.0},
+    manual_rc_roll:     {mode:"RCM_ACRO", middle_neutral_zone: 0.1, min:-0.2, max: 0.2},
+    manual_rc_pitch:    {mode:"RCM_ACRO", middle_neutral_zone: 0.1, min:-0.2, max: 0.2},
+    manual_rc_yaw:      {mode:"RCM_ACRO", middle_neutral_zone: 0.8, min:-1.0, max: 1.0},
 
-    manual_rc_altitude: {mode:"RCM_PASSTHROUGH", min_zone: 0.0, min:-0.6, max: 0.8, scroll_zone: 0.05, sensitivity:0.1},
-    // manual_rc_altitude: {mode:"RCM_ASSISTED", min_zone: 0.0, min:-0.6, max: 0.8, scroll_zone: 0.05, sensitivity:0.1},
-    // manual_rc_altitude: {mode:"RCM_TARGET", min_zone: 0.0, min:-1.0, max: 2.0},
+    manual_rc_altitude: {mode:"RCM_PASSTHROUGH", min:0.0, max: 0.8},
+    // manual_rc_altitude: {mode:"RCM_ACRO", middle_neutral_zone: 0.0, scroll_zone: 0.05, min:-0.6, max: 0.8, sensitivity:0.1},
+    // manual_rc_altitude: {mode:"RCM_TARGET", middle_neutral_zone: 0.0, scroll_zone: 0.0, min:-1.0, max: 2.0},
 
     // to be removed?
     pidAccAltitude: { p:0.1,  i:0.1,  d:0},
@@ -149,11 +152,12 @@
 	    connection : {
 	    	// direct dshot connection of ESC to raspberry pi pinouts. Numeric arguments of motor-dshot are gpio pins where ESC is connected.
 		type: "DCT_COMMAND_BASH",
-		// command: "killall motor-dshot; sleep 0.5; killall -q -9 motor-dshot; sleep 0.5; ulimit -c unlimited; exec chrt -f 99 taskset -c 1 ../tool/motor/motor-dshot/motor-dshot - - 16 21 20 19 "
+		// command: "killall motor-dshot; sleep 0.5; killall -q -9 motor-dshot; sleep 0.5; ulimit -c unlimited; exec chrt -f 99 taskset -c 1 ../tool/motor/motor-dshot/motor-dshot - - 19 -20 21 16"
 		// to work with openhd you have to use vc4-kms-v3d instead of vc4-fkms-v3d
-		command: "killall motor-dshot-smi; sleep 0.5; killall -q -9 motor-dshot-smi; sleep 0.5; ulimit -c unlimited; exec chrt -f 99 taskset -c 1 ../tool/motor/motor-dshot-smi/motor-dshot-smi - - 16 21 20 19 "
-		// command: "killall motor-null; sleep 0.5; killall -q -9 motor-null; sleep 0.5; ulimit -c unlimited; exec chrt -f 99 taskset -c 1 ../tool/motor/motor-null/motor-null - - 16 21 20 19 "
+		command: "killall motor-dshot-smi; sleep 0.5; killall -q -9 motor-dshot-smi; sleep 0.5; ulimit -c unlimited; exec chrt -f 99 taskset -c 1 ../tool/motor/motor-dshot-smi/motor-dshot-smi - - 19 -20 21 16"
+		// command: "killall motor-null; sleep 0.5; killall -q -9 motor-null; sleep 0.5; ulimit -c unlimited; exec chrt -f 99 taskset -c 1 ../tool/motor/motor-null/motor-null - - 1 1 1 1 "
 	    },
+	    warming_time: 5.0,
 	    shutdownExit: true,
 	    stream: [
 	    	// sending

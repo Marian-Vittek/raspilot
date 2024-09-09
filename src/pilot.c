@@ -71,45 +71,39 @@ void motorsStop(void *d) {
     motorsThrustSetAndSend(0);
 }
 
-void motorsStandby(void *d) {
+void motorsSendMessage(char *fmt, ...) {
     struct deviceStreamData 	*ddl;
     struct baio			*bb;
+    va_list			ap, aa;
 
     // Hmm. Do this nicer by adding some special datatype instead of DT_THRUST
+    va_start(ap, fmt);
     for(ddl=uu->deviceStreamDataByType[DT_THRUST]; ddl!=NULL; ddl=ddl->nextWithSameType) {
 	bb = baioFromMagic(ddl->dd->baioMagic);
 	if (bb != NULL) {
-	    baioPrintfToBuffer(bb, "stan\n");
+	    va_copy(aa, ap);
+	    baioVprintfToBuffer(bb, fmt, aa);
+	    va_end(aa);
 	}
     }
+    va_end(ap);
+}
+
+void motorsStandby(void *d) {
+    motorsSendMessage("stan\n");
 }
 
 void motorsExit(void *d) {
-    struct deviceStreamData 	*ddl;
-    struct baio			*bb;
-
-    // Hmm. Do this nicer by adding some special datatype instead of DT_THRUST
-    for(ddl=uu->deviceStreamDataByType[DT_THRUST]; ddl!=NULL; ddl=ddl->nextWithSameType) {
-	bb = baioFromMagic(ddl->dd->baioMagic);
-	if (bb != NULL) {
-	    baioPrintfToBuffer(bb, "exit\n");
-	}
-    }
+    motorsSendMessage("exit\n");
 }
 
 void motorsSendStreamThrustFactor(void *d) {
-    struct deviceStreamData 	*ddl;
-    struct baio			*bb;
-
-    for(ddl=uu->deviceStreamDataByType[DT_THRUST]; ddl!=NULL; ddl=ddl->nextWithSameType) {
-	bb = baioFromMagic(ddl->dd->baioMagic);
-	if (bb != NULL) {
-	    baioPrintfToBuffer(bb, "mfac %g\n", (double)MOTOR_STREAM_THRUST_FACTOR);
-	}
-    }
+    motorsSendMessage("mfac %g\n", (double)MOTOR_STREAM_THRUST_FACTOR);
 }
 
-
+void motorsBeep(void *d) {
+    motorsSendMessage("beep\n");
+}
 
 // This is an emergency function which does not use baio library
 // and sends command directly to motor fd, it is used in from interrupt handler
@@ -1259,13 +1253,16 @@ static double pilotComputeAssistedThrustForAltitude() {
     vec3			acceleration;
     double			accZ;
 
-    regressionBufferGetMean(&uu->shortBufferAcceleration, &mtime, acceleration);
-    
-    accZ = acceleration[2];
-    thrust = uu->manual.altitude.value;
-    // the idea of PID assistance is that we keep climbing speed constant, hence acceleration zero
-    // Hmm. how to incorporate barometer and some kind of altitude hold here ?
-    thrust += pidControllerStep(&uu->pidAccAltitude, 0, accZ, 1.0/uu->stabilization_loop_Hz);
+    if (uu->flyStage == FS_EMERGENCY_LANDING) {
+	thrust = uu->config.motor_thrust_min_spin;
+    } else {
+	regressionBufferGetMean(&uu->shortBufferAcceleration, &mtime, acceleration);
+	accZ = acceleration[2];
+	thrust = uu->rc.altitude.value;
+	// the idea of PID assistance is that we keep climbing speed constant, hence acceleration zero
+	// Hmm. how to incorporate barometer and some kind of altitude hold here ?
+	thrust += pidControllerStep(&uu->pidAccAltitude, 0, accZ, 1.0/uu->stabilization_loop_Hz);
+    }
     return(thrust);
 }
 
@@ -1274,11 +1271,15 @@ static int pilotComputeTargetAltitudeThrust(double *altitudeThrust) {
 
     if (uu->config.pilot_main_mode == MODE_MANUAL_RC) {
 	if (uu->config.manual_rc_altitude.mode == RCM_PASSTHROUGH) {
-	    thrust = uu->manual.altitude.value;
-	} else if (uu->config.manual_rc_altitude.mode == RCM_ASSISTED) {
+	    if (uu->flyStage == FS_EMERGENCY_LANDING) {
+		thrust = uu->config.motor_thrust_min_spin;
+	    } else {
+		thrust = uu->rc.altitude.value;
+	    }
+	} else if (uu->config.manual_rc_altitude.mode == RCM_ACRO) {
 	    thrust = pilotComputeAssistedThrustForAltitude();
 	} else {
-	    thrust = pilotComputeAutoThrustForAltitudeHold(uu->manual.altitude.value);
+	    thrust = pilotComputeAutoThrustForAltitudeHold(uu->rc.altitude.value);
 	}
     } else {
 	thrust = pilotComputeAutoThrustForAltitudeHold(uu->currentWaypoint.position[2]);
@@ -1436,23 +1437,23 @@ static int pilotComputeTargetRpyThrust(vec3 rpyThrusts) {
     int		r;
 
     if (uu->config.pilot_main_mode == MODE_MANUAL_RC) {
-	if (uu->config.manual_rc_roll.mode == RCM_TARGET) uu->targetRoll = uu->manual.roll.value;
-	if (uu->config.manual_rc_pitch.mode == RCM_TARGET) uu->targetPitch = uu->manual.pitch.value;
-	if (uu->config.manual_rc_yaw.mode == RCM_TARGET) uu->targetYaw = uu->manual.yaw.value;
+	if (uu->config.manual_rc_roll.mode == RCM_TARGET) uu->targetRoll = uu->rc.roll.value;
+	if (uu->config.manual_rc_pitch.mode == RCM_TARGET) uu->targetPitch = uu->rc.pitch.value;
+	if (uu->config.manual_rc_yaw.mode == RCM_TARGET) uu->targetYaw = uu->rc.yaw.value;
     }
     
     pilotComputeTargetRpyRotationVelocity();
     
     if (uu->config.pilot_main_mode == MODE_MANUAL_RC) {
-	if (uu->config.manual_rc_roll.mode == RCM_ASSISTED) uu->targetRollRotationSpeed = uu->manual.roll.value;
-	if (uu->config.manual_rc_pitch.mode == RCM_ASSISTED) uu->targetPitchRotationSpeed = uu->manual.pitch.value;
-	if (uu->config.manual_rc_yaw.mode == RCM_ASSISTED) uu->targetYawRotationSpeed = uu->manual.yaw.value;
+	if (uu->config.manual_rc_roll.mode == RCM_ACRO) uu->targetRollRotationSpeed = uu->rc.roll.value;
+	if (uu->config.manual_rc_pitch.mode == RCM_ACRO) uu->targetPitchRotationSpeed = uu->rc.pitch.value;
+	if (uu->config.manual_rc_yaw.mode == RCM_ACRO) uu->targetYawRotationSpeed = uu->rc.yaw.value;
 	
 	r = pilotComputeTargetRpyThrustForRpyVelocity(rpyThrusts);
 	
-	if (uu->config.manual_rc_roll.mode == RCM_PASSTHROUGH) rpyThrusts[0] = uu->manual.roll.value;
-	if (uu->config.manual_rc_pitch.mode == RCM_PASSTHROUGH) rpyThrusts[1] = uu->manual.pitch.value;
-	if (uu->config.manual_rc_yaw.mode == RCM_PASSTHROUGH) rpyThrusts[2] = uu->manual.yaw.value;	    
+	if (uu->config.manual_rc_roll.mode == RCM_PASSTHROUGH) rpyThrusts[0] = uu->rc.roll.value;
+	if (uu->config.manual_rc_pitch.mode == RCM_PASSTHROUGH) rpyThrusts[1] = uu->rc.pitch.value;
+	if (uu->config.manual_rc_yaw.mode == RCM_PASSTHROUGH) rpyThrusts[2] = uu->rc.yaw.value;	    
     } else {
 	r = pilotComputeTargetRpyThrustForRpyVelocity(rpyThrusts);
     }
