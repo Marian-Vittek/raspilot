@@ -2,6 +2,8 @@
 
 
 int deviceIsSharedMemoryDataStream(struct deviceStreamData *ddl) {
+    return(1);
+    /*
     int shmFlag;
     switch (ddl->type) {
     case DT_POSITION_SHM:
@@ -14,6 +16,7 @@ int deviceIsSharedMemoryDataStream(struct deviceStreamData *ddl) {
 	break;
     }
     return(shmFlag);
+    */
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -31,6 +34,7 @@ static int parsePong(char *tag, char *p, struct deviceData *dd, struct deviceStr
 }
 
 static int parseDeviceDebugPrint(char *tag, char *p, struct deviceData *dd, struct deviceStreamData *ddd) {
+    // printf("%s: Info: %s: Debug: %s\n", PPREFIX(), dd->name, p); fflush(stdout) ;
     lprintf(100 - ddd->debug_level, "%s: Info: %s: Debug: %s\n", PPREFIX(), dd->name, p);
     return(0);
 }
@@ -165,30 +169,6 @@ int parseNmeaPosition(double *rr, char *tag, char *s, struct deviceData *dd, str
     return(0);
 }
 
-struct deviceData *deviceFindByName(char *name) {
-    int i;
-    for(i=0; i<uu->deviceMax; i++) {
-	if (strcmp(uu->device[i]->name, name) == 0) return(uu->device[i]);
-    }
-    return(NULL);
-}
-
-struct deviceStreamData *deviceFindStreamByName(struct deviceData *dd, char *name) {
-    int i;
-    for(i=0; i<dd->ddtMax; i++) {
-	if (strcmp(dd->ddt[i]->name, name) == 0) return(dd->ddt[i]);
-    }
-    return(NULL);
-}
-
-struct deviceStreamData *deviceFindStreamByType(struct deviceData *dd, int type) {
-    int i;
-    for(i=0; i<dd->ddtMax; i++) {
-	if (dd->ddt[i]->type == type) return(dd->ddt[i]);
-    }
-    return(NULL);
-}
-
 void manualPilotSetControl(struct manualControlState *cc, double rc_value, struct manual_rc *ss, char *controlName, int loglevel) {
     double newvalue, newbase;
     
@@ -255,7 +235,7 @@ void manualPilotSetYaw(double vv) {
 void manualPilotSetAltitude(double vv) {
     int loglevel;
     
-    if (uu->flyStage <= FS_PRE_FLY) {
+    if (uu->flyStage <= FS_SENSORS_READY) {
 	loglevel = 2;
     } else {
 	loglevel = 20;
@@ -320,7 +300,7 @@ int parseJstestJoystickFlighControl(double *rr, char *tag, char *s, struct devic
     if (type == 1) {
 	
 	// buttton
-	if (1 || uu->flyStage >= FS_PRE_FLY) {
+	if (1 || uu->flyStage >= FS_SENSORS_READY) {
 	    lprintf(0, "%s: Unknown joystick button pressed. Emergency landing!\n", PPREFIX());
 	    uu->flyStage = FS_EMERGENCY_LANDING;
 	}
@@ -381,32 +361,6 @@ static void deviceDeduceMountOrientationFromQuaternion(struct deviceData *dd, do
 }
 #endif
 
-static void deviceSensorPositionToDronePosition(vec3 resDronePosition, vec3 sensorPosition, struct deviceData *dd, double time) {
-    quat 	ii,droneOrientation;
-    vec3	mm, ww;
-    double	*pose;
-    double 	r,p,y;
-    
-    // translate from mount point to drone center of gravity
-    raspilotRingBufferFindRecordForTime(uu->historyPose, time, NULL, &pose);
-    if (pose == NULL) {
-	// no info about orientation, suppose we are on level
-	r = p = y = 0;
-    } else {
-	r = pose[3];
-	p = pose[4];
-	y = pose[5];
-    }
-    // TODO, do the rotation by r,p,y directly here
-    rpyToQuat(r, p, y, droneOrientation);
-    quat_inverse(ii, droneOrientation);
-    quat_mul_vec3(mm, ii, dd->mount_position);
-    vec3_add(resDronePosition, mm, sensorPosition);
-    //lprintf(PILOT_SENSOR_MERGE_DEBUG_LEVEL,"%s: --> %s\n", PPREFIX(), vecToString_st(resDronePosition));
-    vec3_sub(resDronePosition, resDronePosition, dd->mount_position);
-    //lprintf(PILOT_SENSOR_MERGE_DEBUG_LEVEL,"%s: --> %s\n", PPREFIX(), vecToString_st(resDronePosition));
-}
-
 
 static void deviceTranslateBottomRangeToAltitude(struct deviceData *dd, struct deviceStreamData *ddd, double sampleTime, double *ran, double *altitude) {
     double range, alt;
@@ -416,6 +370,10 @@ static void deviceTranslateBottomRangeToAltitude(struct deviceData *dd, struct d
     ddd->input->confidence = 1.0;
     if (range < ddd->min_range) ddd->input->confidence = 0;
     if (range > ddd->max_range) ddd->input->confidence = 0;
+    
+    // in order to get launch even if out of range
+    if (ddd->input->confidence == 0) range = 0;
+    
     // we suppose that at the launch time the rangefinder looks downward!!!
     // translate range to altitude
     if (! ddd->launchPoseSetFlag) {
@@ -424,6 +382,7 @@ static void deviceTranslateBottomRangeToAltitude(struct deviceData *dd, struct d
 	raspilotRingBufferFindRecordForTime(uu->historyPose, sampleTime, NULL, &pose);
 	alt = range * fabs(cos(pose[3]) * cos(pose[4]));
 	// lprintf(0, "range, r,p alt == %8f, %8f, %8f --> %8f\n", range, pose[3], pose[4], alt);
+	// There may be a problem because at the launch time the sonar is probably out of minimum range, so set to 0?
 	alt -= ddd->launchData[0];
     }
     *altitude = alt;
@@ -540,33 +499,33 @@ void deviceParseInputStreamLineToInputBuffer(struct deviceData *dd, char *s, int
 	if (strncmp(p, tag, taglen) == 0) {
 	    tagFoundFlag = 1;
 	    t = p + taglen;
-	    if (deviceDataStreamVectorLength[ddd->type] == 0 || ddd->input == NULL) {
+	    if (uu->deviceDataStreamVectorLength[ddd->type] == 0 || ddd->input == NULL) {
 		inputVector = NULL;
 	    } else {
 		inputVector = raspilotRingBufferGetFirstFreeVector(&ddd->input->buffer);
-		memset(inputVector, 0, deviceDataStreamVectorLength[ddd->type] * sizeof(double));
+		memset(inputVector, 0, uu->deviceDataStreamVectorLength[ddd->type] * sizeof(double));
 	    }
 	    sampletime = currentTime.dtime ;
 	    switch(ddd->type) {
 	    case DT_VOID:
-		assert(deviceDataStreamVectorLength[ddd->type] == 0);
+		assert(uu->deviceDataStreamVectorLength[ddd->type] == 0);
 		r = 0;
 		break;
 	    case DT_DEBUG:
-		assert(deviceDataStreamVectorLength[ddd->type] == 0);
+		assert(uu->deviceDataStreamVectorLength[ddd->type] == 0);
 		r = parseDeviceDebugPrint(tag, t, dd, ddd);
 		break;
 	    case DT_PONG:
-		assert(deviceDataStreamVectorLength[ddd->type] == 0);
+		assert(uu->deviceDataStreamVectorLength[ddd->type] == 0);
 		r = parsePong(tag, t, dd, ddd);
 		break;
-	    case DT_ORIENTATION_RPY:
-		assert(deviceDataStreamVectorLength[ddd->type] == 3);
-		r = parseVector(inputVector, deviceDataStreamVectorLength[ddd->type], tag, t, dd, ddd);
+	    case DT_ORIENTATION_RPY_SENSOR:
+		assert(uu->deviceDataStreamVectorLength[ddd->type] == 3);
+		r = parseVector(inputVector, uu->deviceDataStreamVectorLength[ddd->type], tag, t, dd, ddd);
 		break;
-	    case DT_EARTH_ACCELERATION:
-		assert(deviceDataStreamVectorLength[ddd->type] == 3);
-		r = parseVector(inputVector, deviceDataStreamVectorLength[ddd->type], tag, t, dd, ddd);
+	    case DT_EARTH_ACCELERATION_SENSOR:
+		assert(uu->deviceDataStreamVectorLength[ddd->type] == 3);
+		r = parseVector(inputVector, uu->deviceDataStreamVectorLength[ddd->type], tag, t, dd, ddd);
 		break;
 		/*
 	    case DT_ORIENTATION_QUATERNION:
@@ -584,29 +543,29 @@ void deviceParseInputStreamLineToInputBuffer(struct deviceData *dd, char *s, int
 	    case DT_JSTEST:
 		r = parseJstestJoystickFlighControl(inputVector, tag, t, dd, ddd);
 		break;
-	    case DT_POSITION_VECTOR:
-		assert(deviceDataStreamVectorLength[ddd->type] == 3);
-		r = parseVector(inputVector, deviceDataStreamVectorLength[ddd->type], tag, t, dd, ddd);
+	    case DT_POSITION_SENSOR:
+		assert(uu->deviceDataStreamVectorLength[ddd->type] == 3);
+		r = parseVector(inputVector, uu->deviceDataStreamVectorLength[ddd->type], tag, t, dd, ddd);
 		break;
 	    case DT_BOTTOM_RANGE:
-		assert(deviceDataStreamVectorLength[ddd->type] == 1);
-		r = parseVector(inputVector, deviceDataStreamVectorLength[ddd->type], tag, t, dd, ddd);
+		assert(uu->deviceDataStreamVectorLength[ddd->type] == 1);
+		r = parseVector(inputVector, uu->deviceDataStreamVectorLength[ddd->type], tag, t, dd, ddd);
 		break;
 	    case DT_FLOW_XY:
-		assert(deviceDataStreamVectorLength[ddd->type] == 2);
-		r = parseVector(inputVector, deviceDataStreamVectorLength[ddd->type], tag, t, dd, ddd);
+		assert(uu->deviceDataStreamVectorLength[ddd->type] == 2);
+		r = parseVector(inputVector, uu->deviceDataStreamVectorLength[ddd->type], tag, t, dd, ddd);
 		break;
 	    case DT_ALTITUDE:
-		assert(deviceDataStreamVectorLength[ddd->type] == 1);
-		r = parseVector(inputVector, deviceDataStreamVectorLength[ddd->type], tag, t, dd, ddd);
+		assert(uu->deviceDataStreamVectorLength[ddd->type] == 1);
+		r = parseVector(inputVector, uu->deviceDataStreamVectorLength[ddd->type], tag, t, dd, ddd);
 		break;
 	    case DT_TEMPERATURE:
-		assert(deviceDataStreamVectorLength[ddd->type] == 1);
-		r = parseVector(inputVector, deviceDataStreamVectorLength[ddd->type], tag, t, dd, ddd);
+		assert(uu->deviceDataStreamVectorLength[ddd->type] == 1);
+		r = parseVector(inputVector, uu->deviceDataStreamVectorLength[ddd->type], tag, t, dd, ddd);
 		break;
 	    case DT_MAGNETIC_HEADING:
-		assert(deviceDataStreamVectorLength[ddd->type] == 3);
-		r = parseVector(inputVector, deviceDataStreamVectorLength[ddd->type], tag, t, dd, ddd);
+		assert(uu->deviceDataStreamVectorLength[ddd->type] == 3);
+		r = parseVector(inputVector, uu->deviceDataStreamVectorLength[ddd->type], tag, t, dd, ddd);
 		break;
 	    default:
 		if (! dd->data_ignore_unknown_tags) printf("%s: %s: Error: Tag %s not implemented!\n", PPREFIX(), dd->name, tag);
@@ -614,7 +573,7 @@ void deviceParseInputStreamLineToInputBuffer(struct deviceData *dd, char *s, int
 	    }
 	    if (r == 0) {
 		ddd->totalNumberOfRecordsReceivedForStatistics ++;
-		if (deviceDataStreamVectorLength[ddd->type] > 0) {
+		if (uu->deviceDataStreamVectorLength[ddd->type] > 0) {
 		    assert(inputVector != NULL);
 		    assert(ddd->input != NULL);
 		    raspilotRingBufferAddElem(&ddd->input->buffer, sampletime, inputVector);
@@ -630,33 +589,70 @@ void deviceParseInputStreamLineToInputBuffer(struct deviceData *dd, char *s, int
     return;
 }
 
-static void deviceMaybeAddDriftToOutputVector(struct deviceData *dd, struct deviceStreamData *ddd, double outputVector[DEVICE_DATA_VECTOR_MAX]) {
+static inline double deviceDriftOffsetForTime(struct deviceStreamData *ddd, int i, double dtime) {
+    double 	td, driftOffset, driftFixTime;
+    
+    td = dtime - ddd->driftOffsetLastIncrementTime;
+    driftOffset = ddd->driftOffset[i] + td * ddd->drift_per_second[i];
+    return(driftOffset);
+}
+
+static void deviceDriftMaybeAddDriftToOutputVector(struct deviceData *dd, struct deviceStreamData *ddd, double outputVector[DEVICE_DATA_VECTOR_MAX]) {
     int 	i;
     double 	td;
     
     if (ddd->driftOffsetLastIncrementTime != 0) {
 	td = currentTime.dtime - ddd->driftOffsetLastIncrementTime;
-	if (td < 0 || td > 10.0) {
-	    lprintf(0, "%s: %s: %s: Drift offset time delta %g out of range.\n", PPREFIX(), dd->name, ddd->name, td);
-	} else {
-	    for(i=0; i<deviceDataStreamVectorLength[ddd->type]; i++) {
-		ddd->driftOffset[i] += td * ddd->drift_offset_per_second[i];
-		outputVector[i] = outputVector[i] + ddd->driftOffset[i];
-	    }
-	    ddd->driftOffsetLastIncrementTime = currentTime.dtime;
+	for(i=0; i<uu->deviceDataStreamVectorLength[ddd->type]; i++) {
+	    outputVector[i] = outputVector[i] + deviceDriftOffsetForTime(ddd, i, currentTime.dtime);
 	}
+	// i = 2; lprintf(10, "%s: %s: %s: Output vector: %g: Drift offset: %g + %g * %g == %g.\n", PPREFIX(), dd->name, ddd->name, outputVector[i], ddd->driftOffset[i], td, ddd->drift_per_second[i], ddd->driftOffset[i] + td * ddd->drift_per_second[i]);
     }
 }
 
-static void deviceRegularAutoAdjustementOfDrifts(void *aaa) {
+static void deviceDriftInitCoefficients(struct deviceData *dd, struct deviceStreamData *ddd, int i) {
+    double					deviceValue[DEVICE_DATA_VECTOR_MAX];
+
+    regressionBufferEstimateForTime(&ddd->outputBuffer, uu->droneLastTickTime, deviceValue);
+
+    ddd->driftOffset[i] = 0;
+    ddd->drift_per_second[i] = 0;
+    
+    switch (ddd->type) {
+    case DT_ORIENTATION_RPY_SENSOR:
+	// for now we are only fixing drifting in yaw
+	if (i != 2) {
+	    lprintf(0, "%s: Error: driftAutoUpdate %s: %s:%s. Only yaw drift is implemented for orientation at the moment.\n",
+		    PPREFIX(), uu->deviceDataTypeNames[ddd->type], dd->name, ddd->name
+		);
+	}
+	break;
+    case DT_EARTH_ACCELERATION_SENSOR:
+	// for now we are only fixing drifting in altitude
+	if (i != 2) {
+	    lprintf(0, "%s: Error: driftAutoUpdate %s: %s:%s. Only altitude drift is implemented for position at the moment.\n",
+		    PPREFIX(), uu->deviceDataTypeNames[ddd->type], dd->name, ddd->name
+		);
+	}
+	break;
+    default:
+	lprintf(0, "%s: Error: deviceDriftInitCoefficients for type %s: %s:%s not yet implemented\n", PPREFIX(), uu->deviceDataTypeNames[ddd->type], dd->name, ddd->name);
+	break;
+    }    
+
+}
+
+
+static void deviceDriftAdjustCoefficients(void *aaa) {
     struct deviceStreamDataDriftUpdateStr 	*a;
     struct deviceData 				*dd;
     struct deviceStreamData 			*ddd;
     int						i;
     double					vv[DEVICE_DATA_VECTOR_MAX];
-    double					actualValue, deviceValue;
-    double					drift;
+    double					actualValue, deviceValueNoDriftCorrection, deviceValueWithDriftCorrections;
+    double					newDriftOffset;
     double					driftFixTime;
+    double					td;
     
     a = (struct deviceStreamDataDriftUpdateStr *) aaa;
     ddd = a->ddd;
@@ -665,50 +661,75 @@ static void deviceRegularAutoAdjustementOfDrifts(void *aaa) {
 
     lprintf(60, "%s: driftAutoUpdate: %s:%s:%d\n", PPREFIX(), dd->name, ddd->name, i);
 
+    // ---- Handle some special cases, like stopping update and initial update
+    
     // if somebody set drift_auto_fix_period to zero do nothing more.
     driftFixTime = ddd->drift_auto_fix_period[i] * 2;
-    if (driftFixTime == 0) {
-	lprintf(0, "%s: Info: Removing stream from drift auto updates.\n",
-		PPREFIX(), deviceDataTypeNames[ddd->type], dd->name, ddd->name
+    if (ddd->drift_auto_fix_period[i] == 0) {
+	lprintf(0, "%s: Info:  %s: %s:%s. Drift will not be updated anymore.\n",
+		PPREFIX(), uu->deviceDataTypeNames[ddd->type], dd->name, ddd->name
 	    );
+	// Hold the so far computed vales however.
+	// ddd->driftOffset[i] = 0;
+	// ddd->drift_per_second[i] = 0;
 	return;
     }
     
     // schedule next update
-    timeLineInsertEvent(currentTime.usec+ddd->drift_auto_fix_period[i]*1000000, deviceRegularAutoAdjustementOfDrifts, a);
+    timeLineInsertEvent(currentTime.usec+ddd->drift_auto_fix_period[i]*1000000, deviceDriftAdjustCoefficients, a);
 
-    // Fix drift also during waiting for sensors, for now.
-    if (uu->flyStage < FS_PRE_FLY) return;
+    // If not enough of values, do nothing
+    if (ddd->outputBuffer.n < 2) return;
+    
+    // If sensors are not ready nothing to do here
+    if (uu->flyStage < FS_SENSORS_READY) return;
 
-    regressionBufferEstimateForTime(&ddd->outputBuffer, currentTime.dtime, vv);
-    deviceValue = vv[i];
+    // ddd->driftOffsetLastIncrementTime is serving as flag whether we are initialized or not
+    if (ddd->driftOffsetLastIncrementTime == 0) {
+	if (ddd->launchPoseSetFlag) {
+	    // first invocation after setting launch poses, init drifts
+	    deviceDriftInitCoefficients(dd, ddd, i);
+	    ddd->driftOffsetLastIncrementTime = currentTime.dtime;
+	}
+	return;
+    }
 
-    //double			drift_auto_fix_period[DEVICE_DATA_VECTOR_MAX];
-    //double   			drift_offset_per_second[DEVICE_DATA_VECTOR_MAX];
-    //double			driftOffset[DEVICE_DATA_VECTOR_MAX];
-    //double			driftOffsetLastIncrementTime;
+    // --- OK: We are going to do a regular update of drifts
+    
+    regressionBufferEstimateForTime(&ddd->outputBuffer, uu->droneLastTickTime, vv);
+    deviceValueWithDriftCorrections = vv[i];
+    td = uu->droneLastTickTime - ddd->driftOffsetLastIncrementTime;
+    deviceValueNoDriftCorrection = deviceValueWithDriftCorrections - deviceDriftOffsetForTime(ddd, i, uu->droneLastTickTime);
 
     switch (ddd->type) {
-    case DT_ORIENTATION_RPY:
-    case DT_ORIENTATION_RPY_SHM:
-	// for now we are only fixing drifting in yaw
-	if (i != 2) {
-	    lprintf(0, "%s: Error: driftAutoUpdate %s: %s:%s. Only yaw drift is implemented at the moment.\n",
-		    PPREFIX(), deviceDataTypeNames[ddd->type], dd->name, ddd->name
-		);
-	    return;
-	}
-	actualValue = uu->droneLastRpy[2];
-	drift = actualValue - deviceValue;
-	// we are supposed to fix the drift in drift_auto_fix_period * 2;
-	ddd->drift_offset_per_second[i] = drift / driftFixTime;
-	lprintf(20, "%s: Info: driftAutoUpdate %s: %s:%s. Yaw drift set to %g.\n",
-		PPREFIX(), deviceDataTypeNames[ddd->type], dd->name, ddd->name, ddd->drift_offset_per_second[i]
+    case DT_ORIENTATION_RPY_SENSOR:
+	// TODO: join all drift case into one
+	// only yaw drift (i==2) is implemented
+	if (i != 2) return;
+	actualValue = uu->droneLastRpy[i];
+	newDriftOffset = angleSubstract(actualValue, deviceValueNoDriftCorrection);
+	ddd->driftOffset[i] = normalizeAngle(newDriftOffset, -M_PI, M_PI);
+	ddd->drift_per_second[i] += angleSubstract(actualValue, deviceValueWithDriftCorrections) / td;
+	lprintf(0, "%s: Info: driftAutoUpdate %s: %s:%s. Yaw drift set to %g + dt * %g.\n",
+		PPREFIX(), uu->deviceDataTypeNames[ddd->type], dd->name, ddd->name, ddd->driftOffset[i], ddd->drift_per_second[i]
+	    );
+	ddd->driftOffsetLastIncrementTime = currentTime.dtime;
+	break;
+    case DT_POSITION_SENSOR:
+	// TODO: join all drift case into one
+	// only altitude drift (i==2) is implemented
+	if (i != 2) return;
+	actualValue = uu->droneLastPosition[i];
+	newDriftOffset = actualValue - deviceValueNoDriftCorrection;
+	ddd->driftOffset[i] = newDriftOffset;
+	ddd->drift_per_second[i] += (actualValue - deviceValueWithDriftCorrections) / td;
+	lprintf(20, "%s: Info: driftAutoUpdate %s: %s:%s. Altitude drift set to %g + dt * %g.\n",
+		PPREFIX(), uu->deviceDataTypeNames[ddd->type], dd->name, ddd->name, ddd->driftOffset[i], ddd->drift_per_second[i]
 	    );
 	ddd->driftOffsetLastIncrementTime = currentTime.dtime;
 	break;
     default:
-	lprintf(0, "%s: Error: driftAutoUpdate for type %s: %s:%s not yet implemented\n", PPREFIX(), deviceDataTypeNames[ddd->type], dd->name, ddd->name);
+	lprintf(0, "%s: Error: driftAutoUpdate for type %s: %s:%s not yet implemented\n", PPREFIX(), uu->deviceDataTypeNames[ddd->type], dd->name, ddd->name);
 	break;
     }    
     
@@ -719,19 +740,48 @@ static void deviceInitiateRegularAutoAdjustementOfDrifts(struct deviceData *dd) 
     struct deviceStreamData 			*ddd;
     struct deviceStreamDataDriftUpdateStr 	*a;
 
+    // no drift fix in gyro test mode
+    if (uu->config.pilot_main_mode != MODE_SINGLE_MISSION) return;
+
+    //anyway all this drift fix is obsolete. It shall be done in the sensor's task.
     for(j=0; j<dd->ddtMax; j++) {
 	ddd = dd->ddt[j];
-	for(i=0; i<deviceDataStreamVectorLength[ddd->type]; i++) {
+	for(i=0; i<uu->deviceDataStreamVectorLength[ddd->type]; i++) {
 	    if (ddd->drift_auto_fix_period[i] != 0) {
 		ALLOC(a, struct deviceStreamDataDriftUpdateStr);
 		a->ddd = ddd;
 		a->i = i;
-		timeLineInsertEvent(UTIME_AFTER_MSEC(100), deviceRegularAutoAdjustementOfDrifts, a);
+		timeLineInsertEvent(UTIME_AFTER_MSEC(100), deviceDriftAdjustCoefficients, a);
 	    }
 	}
     }
 }
 
+void deviceStopRegularAutoAdjustementOfDrifts() {
+    struct deviceData 		*dd;
+    struct deviceStreamData 	*ddd;
+    int 			datatype, i, j, k;
+
+    lprintf(1, "%s: Stopping all auto drift adjustements!\n", PPREFIX());
+
+    /*
+      // TODO: Stop adjustement only for datatype where we do not have non-drifted device
+    for(datatype = DT_NONE; datatype<DT_MAX; datatype++) {
+	for(ddl=uu->deviceStreamDataByType[datatype]; ddl!=NULL; ddl=ddl->nextWithSameType) {
+	}
+    }
+    */
+    
+    for(i=0; i<uu->deviceMax; i++) {
+	dd = uu->device[i];	
+	for(j=0; j<dd->ddtMax; j++) {
+	    ddd = dd->ddt[j];
+	    for(k=0; k<uu->deviceDataStreamVectorLength[ddd->type]; k++) {
+		ddd->drift_auto_fix_period[k] = 0;
+	    }
+	}
+    }
+}
 
 // This is the main function translating inputBuffer to outputBuffer, i.e. translating raw data read from the device
 // to the drone position and/or orientation to be fused by pilot.
@@ -752,7 +802,7 @@ void deviceTranslateInputToOutput(struct deviceStreamData *ddd) {
 	return;
     }
     // If shared and not in ok state do nothing
-    lprintf( 66, "%s: %s.%s: Shared memory: status %d, n %d.\n", PPREFIX(), dd->name, ddd->name, ddd->input->status, ddd->input->buffer.n);
+    // lprintf(1, "%s: %s.%s: Shared memory: status %d, n %d.\n", PPREFIX(), dd->name, ddd->name, ddd->input->status, ddd->input->buffer.n);
     if (ddd->input->status == RIBS_SHARED_INITIALIZE || ddd->input->status == RIBS_SHARED_FINALIZE) return;
     if (ddd->input->status == RIBS_SHARED_OK) {
 	// shared memory input, get mutex
@@ -760,6 +810,9 @@ void deviceTranslateInputToOutput(struct deviceStreamData *ddd) {
 	pthread_mutex_lock(&ddd->input->mutex);
 	__sync_synchronize();
     }
+    
+    ddd->input->lastReadTimeUsec = currentTime.usec;
+    
     // I did not process n last values
     count = ddd->input->buffer.n - ddd->inputToOutputN;
     // do not translate more then outputbuffer size.
@@ -773,9 +826,10 @@ void deviceTranslateInputToOutput(struct deviceStreamData *ddd) {
     for(; ii<imax; ii++) {
     	i = ii % ddd->input->buffer.size;
 	sampletime = ddd->input->buffer.a[i * (ddd->input->buffer.vectorsize+1)] - ddd->latency;
+	// lprintf(1, "%s: input==%p, i == %d timestamp %g.\n", PPREFIX(), ddd->input, i, sampletime);
 
 	// Some basic chect to detect wrong time on sender side
-	// lprintf(1, "%s: %s.%s: checking time %g.\n", PPREFIX(), dd->name, ddd->name, sampletime);
+	// lprintf(1, "%s: %s.%s: checking time %g %g.\n", PPREFIX(), dd->name, ddd->name, sampletime, currentTime.dtime);
 	if (sampletime < currentTime.dtime - 7*24*60*60 || sampletime > currentTime.dtime + 7*24*60*60) {
 	    static time_t msgtime = 0;
 	    if (time(NULL) != msgtime) {
@@ -789,10 +843,9 @@ void deviceTranslateInputToOutput(struct deviceStreamData *ddd) {
 	case DT_DEBUG:
 	case DT_PONG:
 	    break;
-	case DT_ORIENTATION_RPY:
-	case DT_ORIENTATION_RPY_SHM:
+	case DT_ORIENTATION_RPY_SENSOR:
 	    // apply mount corrections
-	    for(j=0; j<deviceDataStreamVectorLength[ddd->type]; j++) {
+	    for(j=0; j<uu->deviceDataStreamVectorLength[ddd->type]; j++) {
 		outputVector[j] = inputVector[dd->mount_rpy_order[j]] * dd->mount_rpy_scale[j] - dd->mount_rpy[j];
 	    }
 	    // vec3_mul_elem(outputVector, outputVector, dd->mount_rpy_scale);
@@ -800,11 +853,16 @@ void deviceTranslateInputToOutput(struct deviceStreamData *ddd) {
 	    if (ddd->launchPoseSetFlag) {
 		// Originally I though that Yaw during launch shall be zero, so deduce launch yaw reported by the sensor
 		// but maybe we will have yaw directly the one reported by some sensors (Magnetometer for example).
+		// If that is the case review also implementation of drifting fix.
 		outputVector[2] -= ddd->launchData[2];
 	    }
 	    break;
-	case DT_EARTH_ACCELERATION:
-	case DT_EARTH_ACCELERATION_SHM:
+	case DT_ORIENTATION_RPY_DRONE:
+	    assert(uu->deviceDataStreamVectorLength[ddd->type] == 3);
+	    vec3_assign(outputVector, inputVector);
+	    break;
+	case DT_EARTH_ACCELERATION_SENSOR:
+	case DT_EARTH_ACCELERATION_DRONE:
 	    vec3_assign(outputVector, inputVector);
 	    break;
 	    /*
@@ -823,21 +881,24 @@ void deviceTranslateInputToOutput(struct deviceStreamData *ddd) {
 	case DT_JSTEST:
 	    lprintf(0, "%s: Not yet implemented\n", PPREFIX());
 	    break;
-	case DT_POSITION_VECTOR:
-	case DT_POSITION_SHM:
-	    assert(deviceDataStreamVectorLength[ddd->type] == 3);
+	case DT_POSITION_SENSOR:
+	    assert(uu->deviceDataStreamVectorLength[ddd->type] == 3);
 	    deviceSensorPositionToDronePosition(outputVector, inputVector, dd, sampletime);
 	    if (ddd->launchPoseSetFlag) {
 		vec3_sub(outputVector, outputVector, ddd->launchData);
 	    }
 	    break;
+	case DT_POSITION_DRONE:
+	    assert(uu->deviceDataStreamVectorLength[ddd->type] == 3);
+	    vec3_assign(outputVector, inputVector);
+	    break;
 	case DT_BOTTOM_RANGE:
-	    assert(deviceDataStreamVectorLength[ddd->type] == 1);
+	    assert(uu->deviceDataStreamVectorLength[ddd->type] == 1);
 	    outputVector[0] = inputVector[0];
 	    deviceTranslateBottomRangeToAltitude(dd, ddd, sampletime, inputVector, outputVector);
 	    break;
 	case DT_FLOW_XY:
-	    assert(deviceDataStreamVectorLength[ddd->type] == 2);
+	    assert(uu->deviceDataStreamVectorLength[ddd->type] == 2);
 	    if (ddd->input->buffer.n >= 2) {
 		li = (i + ddd->input->buffer.size - 1) % ddd->input->buffer.size;
 		previousSampleTime = ddd->input->buffer.a[li*(ddd->input->buffer.vectorsize+1)];
@@ -847,7 +908,7 @@ void deviceTranslateInputToOutput(struct deviceStreamData *ddd) {
 	    }
 	    break;
 	case DT_ALTITUDE:
-	    assert(deviceDataStreamVectorLength[ddd->type] == 1);
+	    assert(uu->deviceDataStreamVectorLength[ddd->type] == 1);
 	    // Deduce launch altitude
 	    if (ddd->launchPoseSetFlag) {
 		outputVector[0] = inputVector[0] - ddd->launchData[0];
@@ -856,11 +917,11 @@ void deviceTranslateInputToOutput(struct deviceStreamData *ddd) {
 	    }
 	    break;
 	case DT_TEMPERATURE:
-	    assert(deviceDataStreamVectorLength[ddd->type] == 1);
+	    assert(uu->deviceDataStreamVectorLength[ddd->type] == 1);
 	    outputVector[0] = inputVector[0];
 	    break;
 	case DT_MAGNETIC_HEADING:
-	    assert(deviceDataStreamVectorLength[ddd->type] == 3);
+	    assert(uu->deviceDataStreamVectorLength[ddd->type] == 3);
 	    lprintf(0, "%s: Magnetic heading: not yet implemented\n", PPREFIX());
 	    break;
 	default:
@@ -868,13 +929,13 @@ void deviceTranslateInputToOutput(struct deviceStreamData *ddd) {
 	}
 	if (ddd->outputBuffer.vectorsize > 0) {
 	    // For drifting devices add the drift
-	    deviceMaybeAddDriftToOutputVector(dd, ddd, outputVector);
+	    deviceDriftMaybeAddDriftToOutputVector(dd, ddd, outputVector);
 	    regressionBufferAddElem(&ddd->outputBuffer, sampletime, outputVector);
 	    ddd->confidence = ddd->input->confidence;
 	    lprintf(100 - ddd->debug_level, "%s: %s: %s: Translating %16.6f: %s --> %s\n", PPREFIX(), dd->name, ddd->name, sampletime, arrayWithDimToStr_st(inputVector, ddd->input->buffer.vectorsize), arrayWithDimToStr_st(outputVector, ddd->outputBuffer.vectorsize));
 	}
     }
-    
+
     if (ddd->input->status == RIBS_SHARED_OK) {
 	// shared memory input, free mutex
 	pthread_mutex_unlock(&ddd->input->mutex);
@@ -882,6 +943,140 @@ void deviceTranslateInputToOutput(struct deviceStreamData *ddd) {
     }
     return;
 }
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////
+// Internal pseudo-devices
+
+// This function always return position 0,0,0
+// It is used when we need to only stabilize the drone
+static void pseudoDeviceZeroposeUpdatePose(struct deviceStreamData *gg) {
+    vec3			vv;
+    
+    if (gg == NULL || gg->input == NULL) return;
+
+    assert(gg->outputBuffer.vectorsize == 3);
+    memset(&vv, 0, sizeof(vv));
+    raspilotRingBufferAddElem(&gg->input->buffer, currentTime.dtime, vv);
+    // give me a small confidence, not to interfere with real devices
+    gg->input->confidence = 1e-50;
+}
+
+static void deviceGetVelocityDecreasedBySlowDownParameter(struct deviceStreamData *gg, vec3 result, vec3 velocity, double dt) {
+    int i;
+
+    // decrease velocity by multiplying by (1 - gg->acc_slow_down[0]) and substracting acc_slow_down[1] (per second).
+    // printf("%s: velocity slow down : velocity == %f - %f - %f\n", PPREFIX(), velocity[2], velocity[2]*(1 - pow((1 - gg->slow_down[0]), dt)), dt * gg->slow_down[1]);
+    vec3_scale(result, velocity, pow((1 - gg->slow_down[0]), dt));
+    for(i=0; i<3; i++) {
+	if (result[i] > dt * gg->slow_down[1]) result[i] -= dt * gg->slow_down[1];
+	if (result[i] < - dt * gg->slow_down[1]) result[i] += dt * gg->slow_down[1];
+    }
+}
+
+// Compute current pose from previous pose, velocity and current acceleration
+static void pseudoDeviceAccelerationUdpatePose(struct deviceStreamData *gg, vec3 acceleration, vec3 rpy) {
+    vec3				aa, ppp, velocity, pose, mean;
+    double				meantime, dt, speed;
+    struct deviceData 			*dd;
+    struct acceleratorPosePrivateData	*pp;
+    int					i;
+    
+    if (gg == NULL || gg->input == NULL) return;
+    if (gg->dd == NULL || gg->dd->privateData == NULL) return;
+    pp = gg->dd->privateData;
+    
+    assert(gg->outputBuffer.vectorsize == 3);
+
+    dt = currentTime.dtime - uu->droneLastTickTime;
+    // some safety check
+    if (dt <= 0) dt = 1e-10;
+
+    // Hmm. This filter is dynamically "recalibrating" the acceleration by substracting long term mean
+    // This corresponds to the intuition that the mean of long time acceleration shall be zero
+    regressionBufferAddElem(&pp->longTimeAccelerationHistory, currentTime.dtime, acceleration);
+    regressionBufferGetMean(&pp->longTimeAccelerationHistory, &meantime, mean);
+    vec3_sub(acceleration, acceleration, mean);
+
+    // if small, consider it is noise and set it to zero
+    for(i=0; i<3; i++) if (fabs(acceleration[i]) < 0.075) acceleration[i] = 0;
+
+    // new velocity = old velocity + acceleration * time * ad-hoc user factor
+    vec3_scale(velocity, acceleration, dt * gg->factor);
+    vec3_add(velocity, velocity, pp->accumulatedVelocity);
+
+    // Damping of velocity in order not to accumulate error (and keep the drone continuously controllable through assisted RC),
+    deviceGetVelocityDecreasedBySlowDownParameter(gg, velocity, velocity, dt);
+    
+    // new position = old position + velocity * time * factor
+    vec3_scale(pose, velocity, dt);
+    vec3_add(pose, pose, pp->accumulatedPosition);
+
+    // save accumulated values
+    vec3_assign(pp->accumulatedVelocity, velocity);
+    vec3_assign(pp->accumulatedPosition, pose);
+    
+#if 0
+    printf("%s: acceleration: %10.05f,   |  speed: %15.12f  | altitude: %15.12f -> %15.12f\n", PPREFIX(), acceleration[2], velocity[2], uu->droneLastPosition[2], pose[2]);
+    lprintf(PILOT_SENSOR_MERGE_DEBUG_LEVEL, "acceleration: %10.05f,   |  speed: %15.12f  | altitude: %15.12f -> %15.12f\n", acceleration[2], velocity[2], uu->droneLastPosition[2], pose[2]);
+    if (currentTime.sec % 8 == 0) printf("\n\n");
+#endif
+    
+    raspilotRingBufferAddElem(&gg->input->buffer, currentTime.dtime, pose);
+    
+    gg->input->confidence = 1.0;
+}
+
+// Compute current pose from previous pose and velocity
+static void pseudoDeviceInertiaUpdatePose(struct deviceStreamData *gg) {
+    vec3			velocity, pp;
+    double			dt;
+    
+    if (gg == NULL || gg->input == NULL) return;
+
+    assert(gg->outputBuffer.vectorsize == 3);
+
+    dt = currentTime.dtime - uu->droneLastTickTime;
+
+    // Damping of velocity in order not to accumulate error (and keep the drone continuously controllable through assisted RC),
+    deviceGetVelocityDecreasedBySlowDownParameter(gg, velocity, uu->droneLastVelocity, dt);
+    vec3_scale(pp, velocity, dt);
+    vec3_add(pp, pp, uu->droneLastPosition);
+    raspilotRingBufferAddElem(&gg->input->buffer, currentTime.dtime, pp);
+   
+    gg->input->confidence = 1.0;
+}
+
+int pseudoDeviceUpdatePoses(vec3 acceleration, vec3 rpy) {
+    struct deviceData		*dd;
+    struct deviceStreamData	*ddl;
+    
+    lprintf(60, "%s: Updating position computed internally from acceleration and/or orientation\n", PPREFIX());
+
+    // TODO: precompute a list of all internal devices
+    for(ddl=uu->deviceStreamDataByType[DT_POSITION_SENSOR]; ddl!=NULL; ddl=ddl->nextWithSameType) {
+	dd = ddl->dd;
+	if (dd->connection.type == DCT_INTERNAL_ALGO) {
+	    switch (dd->connection.u.algo) {
+	    case IA_ZERO_POSE:
+		pseudoDeviceZeroposeUpdatePose(ddl);
+		break;
+	    case IA_ACCELERATION_POSE:
+		pseudoDeviceAccelerationUdpatePose(ddl, acceleration, rpy);
+		break;
+	    case IA_INERTIA_POSE:
+		pseudoDeviceInertiaUpdatePose(ddl);
+		break;
+	    default:
+		lprintf(60, "%s: Warning: Internal algo device %d not yet implemented\n", PPREFIX(), dd->connection.u.algo);
+		break;
+	    }
+	}
+    }
+    
+    return(0);
+}
+
 
 //////////////////////////////////////////////////////////////////////////////////////////////////
 // devices communication
@@ -926,7 +1121,7 @@ static int baioLineInputDevCallBackOnRead(struct deviceData *dd, struct baio *bb
 		    lprintf( 55, "%s: Info: skipping empty line from %s\n", PPREFIX(), dd->name);
 		} else {
 		    // only call the callback if the line is not empty
-		    if (! shutDownInProgress) deviceParseInputStreamLineToInputBuffer(dd, &b->b[b->i], i - b->i);
+		    if (! uu->shutDownInProgress) deviceParseInputStreamLineToInputBuffer(dd, &b->b[b->i], i - b->i);
 		}
 		b->b[i] = '\n';
 	    }
@@ -955,7 +1150,7 @@ static int baioDeviceCallBackOnDelete(struct baio *b) {
     int			i;
     struct deviceData 	*dd;
 
-    if (shutDownInProgress) return(0);
+    if (uu->shutDownInProgress) return(0);
 	
     if (b->baioType == BAIO_TYPE_FD) baioCloseFd(b);
     i = b->userParam[0].i;
@@ -1017,6 +1212,29 @@ static int baioDeviceCallBackOnRead(struct baio *bb, int fromj, int num) {
     return(res);
 }
 
+static void deviceInternalAlgoInit(struct deviceData *dd) {
+    struct acceleratorPosePrivateData *pp;
+    
+    assert(dd->connection.type == DCT_INTERNAL_ALGO);
+    
+    if (dd->connection.u.algo == IA_ACCELERATION_POSE) {
+	CALLOC(pp, struct acceleratorPosePrivateData);
+	// 10 seconds buffer
+	vec3_set(pp->accumulatedVelocity, 0);
+	vec3_set(pp->accumulatedPosition, 0);
+	regressionBufferInit(&pp->longTimeAccelerationHistory, 3, uu->autopilot_loop_Hz*10.0, "acceleration mean buffer");
+	dd->privateData = pp;
+    }
+}
+
+static void devicePrepareEnvironmentForCommand(struct deviceData *dd) {
+    char  sss[TMP_STRING_SIZE];
+    
+    // reset environment variables
+    setenv("RP_DEVICE_NAME", dd->name, 1);
+    setenv("RP_I2C_SHARED", "1", 1);
+}
+
 void deviceInitiate(int i) {
     struct deviceData 	*dd;
     struct baio 	*bb;
@@ -1025,16 +1243,22 @@ void deviceInitiate(int i) {
     dd->enabled = 0;
     dd->baioMagic = 0;
 
+    // TODO: Remove this completely. Devices will be responsible to fix their drift themself!
+    deviceInitiateRegularAutoAdjustementOfDrifts(dd);
+
     switch (dd->connection.type) {
-    case DCT_INTERNAL_ZEROPOSE:
+    case DCT_INTERNAL_ALGO:
 	bb = NULL;
 	dd->enabled = 1;
+	deviceInternalAlgoInit(dd);
+	// nothing more to do here, return
 	return;
-	break;
     case DCT_COMMAND_EXEC:
+	devicePrepareEnvironmentForCommand(dd);
 	bb = baioNewPipedCommand(dd->connection.u.command, BAIO_IO_DIRECTION_RW, 0, 0);
 	break;
     case DCT_COMMAND_BASH:
+	devicePrepareEnvironmentForCommand(dd);
 	bb = baioNewPipedCommand(dd->connection.u.command, BAIO_IO_DIRECTION_RW, 1, 0);
 	break;
     case DCT_NAMED_PIPES:
@@ -1066,8 +1290,6 @@ void deviceInitiate(int i) {
     callBackAddToHook(&bb->callBackOnError, (callBackHookFunArgType) baioDeviceCallBackOnError);
     callBackAddToHook(&bb->callBackOnDelete, (callBackHookFunArgType) baioDeviceCallBackOnDelete);
     bb->userParam[0].i = i;
-
-    deviceInitiateRegularAutoAdjustementOfDrifts(dd);
 }
 
 void deviceFinalize(int i) {
@@ -1084,6 +1306,7 @@ void deviceFinalize(int i) {
 	if (ddd != NULL) {
 	    if (deviceIsSharedMemoryDataStream(ddd) && ddd->input != NULL) {
 		ddd->input->status = RIBS_SHARED_FINALIZE;
+		shm_unlink(raspilotDeviceStreamSharedMemName_st(dd->name, ddd->name));
 	    }
 	}
     }

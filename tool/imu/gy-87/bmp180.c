@@ -11,24 +11,8 @@
  */
 
 
-#ifndef __BMP180__
-#define __BMP180__
-#include <stdint.h>
+#include "common.h"
 #include "bmp180.h"
-#include <string.h>
-#include <stdbool.h>
-#include <stdlib.h>
-#include <fcntl.h>
-#include <unistd.h>
-#include <errno.h>
-#include <stdio.h>
-#include <linux/i2c-dev.h>
-#include <time.h>
-#include <math.h>
-// [MV] added
-#include <signal.h>
-#include "pi2c.h"
-#endif
 
 
 /* 
@@ -611,77 +595,33 @@ static void deviceGetData(double *data) {
 
 
 int main(int argc, char **argv) {
-    double 	t0, t1, samplePeriod;
-    int		i, usleepTime;
+    int64_t			sampleTime;
+    int				i, streami;
+    double			data[3];
+    struct raspilotTlibStr      ttt, *tt;
 
-    int		optSharedI2cFlag;
-    char	*optI2cPath;
-    double	optRate;
-    double	data[3];
 
-#ifdef SHM
-    struct raspilotInputBuffer 	*shmbuf;
-    struct raspilotInputBuffer 	*shmbuf2;
-#endif
-
-    optSharedI2cFlag = 0;
-    optI2cPath = (char*)"/dev/i2c-1";
-    optRate = 100.0; 			// default rate 1kHz
+    tt = raspilotTlibInit(&ttt, argc, argv, TLIB_UNIVERSE_MAP_NO);
+    streami = raspilotTlibInitStream(tt, (char*)"alt", TLIB_SHM_YES);
     
-    for(i=1; i<argc; i++) {
-	if (strcmp(argv[i], "-s") == 0) {
-	    // share i2c. Do not reset shared semaphores
-	    optSharedI2cFlag = 1;
-	} else if (strcmp(argv[i], "-r") == 0) {
-	    // refresh rate in Hz
-	    i++;
-	    if (i<argc) optRate = strtod(argv[i], NULL);
-	} else {
-	    optI2cPath = argv[i];
-	}
-    }	
+    if (tt->optSharedI2cFlag) pi2cInit(tt->optI2cPath, tt->optSharedI2cFlag);
 
-    if (optSharedI2cFlag) pi2cInit(optI2cPath, 1);
-
-#ifdef SHM
-    shmbuf = raspilotShmConnect((char *)"raspilot.gyro-mpu6050-magwick-shm.rpy");
-    if (shmbuf == NULL) exit(-1);
-#endif
-    
     signal(SIGINT, taskStop);
 
-    deviceInit(optI2cPath, 0x77);
+    deviceInit(tt->optI2cPath, 0x77);
 
-    usleepTime = 1000000 / optRate;
-    // It's around 20ms to get data from bmp
-    usleepTime -= 20000;
-    if (usleepTime < 0) usleepTime = 0;
+    usleep(100000);
 
-    usleep(usleepTime);
-
-    t0 = doubleGetTime();
+    sampleTime = raspilotTlibUsecTime();
     i = 0;
     for(;;) {
 	
 	deviceGetData(data);
-	t1 = doubleGetTime();
+	sampleTime = raspilotTlibUsecTime();
 
-#ifdef SHM
-	shmbuf->confidence = 1.0;
-	if (raspilotShmPush(shmbuf, t1, data, 3) != 0) taskStop(0);
-	// printf("debug: pressure, altitude, temperature: %g: %9.7f %9.7f %9.7f\n", t1, data[0], data[1], data[2]);
-#else
-	printf("alt %9.7f\n", data[1]);
-	printf("temp %9.7f\n", data[2]);
-	fflush(stdout);
-#endif	
-	
-	t0 = t1;
-	if (samplePeriod > 1.0/optRate && usleepTime > 100) usleepTime-=100;
-	else if (samplePeriod < 1.0/optRate) usleepTime+=100;
-	usleep(usleepTime);
-
-	// if (i++ % 1000 == 0) printf("debug usleepTime == %d\n", usleepTime);
+	raspilotTlibSend(tt, streami, sampleTime, 1.0, &data[1], 1);
+	// raspilotTlibSend(tt, streamitemp, sampleTime, 1.0, &data[2], 1);
+	raspilotTlibMainLoopSleep(tt, sampleTime);
     }
 
     taskStop(0);

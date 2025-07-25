@@ -45,19 +45,8 @@ Modified fo fit raspilot shared pi2c interface
 
 */
 
-#include <stdio.h>
-#include <stdint.h>
-#include <stdlib.h>
-#include <fcntl.h>
-#include <unistd.h>
-#include <string.h>
-#include <errno.h>
-#include <sys/ioctl.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <linux/i2c-dev.h>
+#include "common.h"
 #include "I2Cdev.h"
-#include "pi2c.h"
 
 /** Default constructor.
  */

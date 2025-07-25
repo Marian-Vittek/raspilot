@@ -4,13 +4,6 @@
 //////////////////////////////////////////////////////////////////////////////////////////
 // TODO: probably create a new file for those functions
 
-enum statisticsActionEnum {
-    STATISTIC_NONE,
-    STATISTIC_INIT,
-    STATISTIC_PRINT,
-    STATISTIC_MAX,
-};
-
 void mainLoadPreviousFlyTime() {
     FILE * ff;
     uu->previousTotalFlyTime = 0;
@@ -24,7 +17,7 @@ void mainLoadPreviousFlyTime() {
 void mainSavePreviousFlyTime() {
     FILE * ff;
 
-    // do not touch if did not fly at all
+    // Do not touch total flytime file if did not fly at all
     if (uu->flyStage < FS_FLY) return;
     
     ff = fopen("totalFlyTime.txt", "w");
@@ -78,7 +71,7 @@ void mainStatisticsSensors(int action) {
     int 			i, j, k;
     struct deviceData		*dd;
     struct deviceStreamData	*ddd;
-    char			*sep;
+    char			*sep, *sep0;
     
     if (action == STATISTIC_PRINT) {
 	lprintf(0, "%s:\n", PPREFIX());
@@ -106,14 +99,14 @@ void mainStatisticsSensors(int action) {
 			if (action == STATISTIC_PRINT) lprintf(0, "average round trip latency: %g ms from %d pings", 1000.0*ddd->pongTotalTimeForStatistics/ddd->totalNumberOfRecordsReceivedForStatistics, ddd->totalNumberOfRecordsReceivedForStatistics);
 			break;
 		    default:
-			sep = "average: [";
+			sep = sep0 = "average: [";
 			for(k=0; k<ddd->outputBuffer.vectorsize; k++) {
 			    if (action == STATISTIC_INIT) ddd->outputBuffer.totalSumForStatistics[k]=0;
 			    if (action == STATISTIC_PRINT && ddd->outputBuffer.totalElemsForStatistics != 0) lprintf(0, "%s%g", sep, ddd->outputBuffer.totalSumForStatistics[k] / ddd->outputBuffer.totalElemsForStatistics);
 			    sep = ", ";
 			}
 			if (action == STATISTIC_INIT) ddd->outputBuffer.totalElemsForStatistics = 0;
-			if (action == STATISTIC_PRINT) lprintf(0, "]");
+			if (action == STATISTIC_PRINT && sep != sep0) lprintf(0, "]");
 			break;
 		    }
 		    if (action == STATISTIC_PRINT) lprintf(0, "\n");
@@ -191,6 +184,7 @@ void shutdown() {
 void mainExit(void *d) {
     printf("%s: Exiting.\n", PPREFIX());
     fflush(stdout);
+    destroyUniverse();
     exit(0);
 }
 
@@ -211,7 +205,7 @@ void mainStandardShutdown(void *d) {
     uu->flyStage = FS_SHUTDOWN;
     
     
-    shutDownInProgress = 1;
+    uu->shutDownInProgress = 1;
 
     // Deinitialize/close all devices
     for(i=0; i<uu->deviceMax; i++) deviceFinalize(i);
@@ -238,9 +232,9 @@ void pilotInterruptHandler(int sig) {
     }
     
     // try to print info message
-    ss = signalInterruptNames[sig];
+    ss = uu->signalInterruptNames[sig];
     if (ss == NULL) ss = "";
-    printf("%s: FATAL ERROR: Signal %s (%d) received. Aborting!\n", PPREFIX(), signalInterruptNames[sig], sig);
+    printf("%s: FATAL ERROR: Signal %s (%d) received. Aborting!\n", PPREFIX(), uu->signalInterruptNames[sig], sig);
     fflush(stdout);
 
     // TODO: Remove this exception for production, i.e. do safe landing on interrupt
@@ -341,7 +335,7 @@ int mainProcessCommandLineArgs(int argc, char **argv) {
 		lprintf(0, "%s: Error: Command line: -l shall be followed by log file name\n", PPREFIX());
 	    } else {
 		i++;
-		uu->logFileName = argv[i];
+		uu->logFileName = strDuplicate(argv[i]);
 		lprintf(0, "%s: Info: log file: %s\n", PPREFIX(), uu->logFileName);
 	    }
 	} else if (strcmp(argv[i], "-p") == 0) {
@@ -353,7 +347,7 @@ int mainProcessCommandLineArgs(int argc, char **argv) {
 		lprintf(0, "%s: Error: Command line: -p shall be followed by IP address of host to ping\n", PPREFIX());
 	    } else {
 		i++;
-		uu->pingToHost = argv[i];
+		uu->pingToHost = strDuplicate(argv[i]);
 		lprintf(0, "%s: Info: ping to host %s\n", PPREFIX(), uu->pingToHost);
 	    }
 	} else if (strcmp(argv[i], "-auto") == 0) {
@@ -381,43 +375,43 @@ void mainInitDeviceDataStreamVectorLengths(int motor_number) {
     
     // Streams in general are providing a vector of doubles.
     // This is the length of that vector for the given stream
-    for(i=0; i<DT_MAX; i++) deviceDataStreamVectorLength[i] = -1;    
-    deviceDataStreamVectorLength[DT_NONE] = 0;
-    deviceDataStreamVectorLength[DT_VOID] = 0;
-    deviceDataStreamVectorLength[DT_DEBUG] = 0;
-    deviceDataStreamVectorLength[DT_PONG] = 0;
-    deviceDataStreamVectorLength[DT_POSITION_VECTOR] = 3;
-    deviceDataStreamVectorLength[DT_BOTTOM_RANGE] = 1;
-    deviceDataStreamVectorLength[DT_FLOW_XY] = 2;
-    deviceDataStreamVectorLength[DT_ALTITUDE] = 1;
-    deviceDataStreamVectorLength[DT_TEMPERATURE] = 1;
-    deviceDataStreamVectorLength[DT_MAGNETIC_HEADING] = 3;
-    deviceDataStreamVectorLength[DT_ORIENTATION_RPY] = 3;
-    deviceDataStreamVectorLength[DT_EARTH_ACCELERATION] = 3;
+    for(i=0; i<DT_MAX; i++) uu->deviceDataStreamVectorLength[i] = -1;    
+    uu->deviceDataStreamVectorLength[DT_NONE] = 0;
+    uu->deviceDataStreamVectorLength[DT_VOID] = 0;
+    uu->deviceDataStreamVectorLength[DT_DEBUG] = 0;
+    uu->deviceDataStreamVectorLength[DT_PONG] = 0;
+    uu->deviceDataStreamVectorLength[DT_POSITION_SENSOR] = 3;
+    uu->deviceDataStreamVectorLength[DT_POSITION_DRONE] = 3;
+    uu->deviceDataStreamVectorLength[DT_BOTTOM_RANGE] = 1;
+    uu->deviceDataStreamVectorLength[DT_FLOW_XY] = 2;
+    uu->deviceDataStreamVectorLength[DT_ALTITUDE] = 1;
+    uu->deviceDataStreamVectorLength[DT_TEMPERATURE] = 1;
+    uu->deviceDataStreamVectorLength[DT_MAGNETIC_HEADING] = 3;
+    uu->deviceDataStreamVectorLength[DT_ORIENTATION_RPY_SENSOR] = 3;
+    uu->deviceDataStreamVectorLength[DT_ORIENTATION_RPY_DRONE] = 3;
+    uu->deviceDataStreamVectorLength[DT_EARTH_ACCELERATION_SENSOR] = 3;
+    uu->deviceDataStreamVectorLength[DT_EARTH_ACCELERATION_DRONE] = 3;
     // deviceDataStreamVectorLength[DT_ORIENTATION_QUATERNION] = 4;
-    deviceDataStreamVectorLength[DT_POSITION_NMEA] = 3;
-    deviceDataStreamVectorLength[DT_MAGNETIC_HEADING_NMEA] = 1;
-    deviceDataStreamVectorLength[DT_JSTEST] = 0;
-    deviceDataStreamVectorLength[DT_POSITION_SHM] = 3;
-    deviceDataStreamVectorLength[DT_EARTH_ACCELERATION_SHM] = 3;
-    deviceDataStreamVectorLength[DT_ORIENTATION_RPY_SHM] = 3;
+    uu->deviceDataStreamVectorLength[DT_POSITION_NMEA] = 3;
+    uu->deviceDataStreamVectorLength[DT_MAGNETIC_HEADING_NMEA] = 1;
+    uu->deviceDataStreamVectorLength[DT_JSTEST] = 0;
 
-    deviceDataStreamVectorLength[DT_PING] = 1;
-    deviceDataStreamVectorLength[DT_THRUST] = motor_number;
-    deviceDataStreamVectorLength[DT_THRUST_SHM] = motor_number;
-    deviceDataStreamVectorLength[DT_GIMBAL_X] = 1;
-    deviceDataStreamVectorLength[DT_GIMBAL_Y] = 1;
+    uu->deviceDataStreamVectorLength[DT_PING] = 1;
+    uu->deviceDataStreamVectorLength[DT_THRUST] = motor_number;
+    uu->deviceDataStreamVectorLength[DT_THRUST_SHM] = motor_number;
+    uu->deviceDataStreamVectorLength[DT_GIMBAL_X] = 1;
+    uu->deviceDataStreamVectorLength[DT_GIMBAL_Y] = 1;
 
-    deviceDataStreamVectorLength[DT_MAVLINK_RC_CHANNELS_OVERRIDE] = 18;
-    deviceDataStreamVectorLength[DT_MAVLINK_ATTITUDE] = 6;
-    deviceDataStreamVectorLength[DT_MAVLINK_BATTERY_STATUS] = 6;
-    deviceDataStreamVectorLength[DT_MAVLINK_GLOBAL_POSITION] = 7;
-    deviceDataStreamVectorLength[DT_MAVLINK_HOME_POSITION] = 7;
-    deviceDataStreamVectorLength[DT_MAVLINK_STATUSTEXT] = 0;
+    uu->deviceDataStreamVectorLength[DT_MAVLINK_RC_CHANNELS_OVERRIDE] = 18;
+    uu->deviceDataStreamVectorLength[DT_MAVLINK_ATTITUDE] = 6;
+    uu->deviceDataStreamVectorLength[DT_MAVLINK_BATTERY_STATUS] = 6;
+    uu->deviceDataStreamVectorLength[DT_MAVLINK_GLOBAL_POSITION] = 7;
+    uu->deviceDataStreamVectorLength[DT_MAVLINK_HOME_POSITION] = 7;
+    uu->deviceDataStreamVectorLength[DT_MAVLINK_STATUSTEXT] = 0;
 	
     // check that we did not forget anything.
     for(i=0; i<DT_MAX; i++) {
-	if (deviceDataStreamVectorLength[i] == -1) {
+	if (uu->deviceDataStreamVectorLength[i] == -1) {
 	    fprintf(stderr, "%s: Internal Error: deviceDataTypeLength[%d] not set. Exiting!\n", PPREFIX(), i);
 	}
     }
@@ -428,10 +422,9 @@ static void initTask() {
     cpu_set_t 	set;
 
     // the very first initializations of the system
-
-    memset(uu, 0, sizeof(*uu));
     uu->flyStage = FS_START;
     enumNamesInit();
+    deviceStreamTypesInit();
     setCurrentTime();
     uu->pilotStartingTime = currentTime.dtime;
 
@@ -465,6 +458,7 @@ static void initConfiguredPilot() {
     uu->pilotLaunchTime = currentTime.dtime;
     regressionBufferInit(&uu->longBufferPosition, 3, uu->config.long_buffer_seconds * uu->autopilot_loop_Hz + 0.5, "long buffer pose");
     regressionBufferInit(&uu->longBufferRpy, 3, uu->config.long_buffer_seconds * uu->autopilot_loop_Hz + 0.5, "long buffer orientation");
+    regressionBufferInit(&uu->longBufferAcceleration, 3, uu->config.long_buffer_seconds * uu->autopilot_loop_Hz + 0.5, "long buffer acceleration");
     regressionBufferInit(&uu->shortBufferPosition, 3, uu->config.short_buffer_seconds * uu->autopilot_loop_Hz + 0.5, "short buffer pose");
     regressionBufferInit(&uu->shortBufferRpy, 3, uu->config.short_buffer_seconds * uu->autopilot_loop_Hz + 0.5, "short buffer orientation");
     regressionBufferInit(&uu->shortBufferAcceleration, 3, uu->config.short_buffer_seconds * uu->autopilot_loop_Hz + 0.5, "short buffer acceleration");
@@ -496,8 +490,11 @@ int raspilotPoll() {
     timeLineTimeToNextEvent(&tv, 1);
     // execute I/O operations
     r = baioPoll(tv.tv_sec*1000000+tv.tv_usec);
+    // Hmm. Maybe not necessary here to reset time. It was set after select
     setCurrentTime();
-    // execute planned operations
+    // Maybe to be added here: actions waiting for shared memories updates
+    // raspilotScheduleShmDependencies(...); ?
+    // Execute planned operations
     r += timeLineExecuteScheduledEvents(0);
     return(r);
 }
@@ -513,8 +510,12 @@ void raspilotBusyWaitUntilTimeoutOrStandby(double sleeptime) {
 int raspilotInit(int argc, char **argv) {
     double 	tt;
 
+    // the very first thing to do is to create the universe
+    createUniverse();
+
     stdbaioInit();
     initTask();
+    
     mainProcessCommandLineArgs(argc, argv);
     logbaioInit();
     configloadFile();
@@ -547,6 +548,13 @@ int raspilotInit(int argc, char **argv) {
     return(0);
 }
 
+static void pilotWaitUntilAllDevicesWarmed() {
+    while (! pilotAreAllDevicesReady()) {
+	raspilotPoll();
+	if (uu->flyStage == FS_STANDBY) return;
+    }
+}
+
 void raspilotPreLaunchSequence(int flightControllerOnlyMode) {
     double	thrust;
     int		i, n;
@@ -566,15 +574,13 @@ void raspilotPreLaunchSequence(int flightControllerOnlyMode) {
 
     lprintf(1, "%s: Info: Starting prefly sequence.\n", PPREFIX());
     mavlinkPrintfStatusTextToListeners("Starting prefly sequence");
-    while (! pilotAreAllDevicesReady()) {
-	raspilotPoll();
-	if (uu->flyStage == FS_STANDBY) goto launchCanceled;
-    }
+    pilotWaitUntilAllDevicesWarmed();
+    if (uu->flyStage == FS_STANDBY) goto launchCanceled;
     
     lprintf(1, "%s: Info: All sensors/devices ready.\n", PPREFIX());
 
     // This will arm motors
-    uu->flyStage = FS_PRE_FLY;
+    uu->flyStage = FS_SENSORS_READY;
     // wait until motor beeps (ARM)
     motorsThrustSet(0);
     raspilotBusyWaitUntilTimeoutOrStandby(PILOT_WARMING_WARNING_ROTATIONS_TO_LAUNCH);
@@ -589,18 +595,20 @@ void raspilotPreLaunchSequence(int flightControllerOnlyMode) {
 	motorsThrustSet(0);
 	raspilotBusyWaitUntilTimeoutOrStandby(PILOT_WARMING_WARNING_ROTATIONS_DELAY);
 	if (uu->flyStage == FS_STANDBY) goto launchCanceled;
+    } else {
+	// Wait one second to get some values from sensors to their buffers to be able to store launch poses
+	raspilotBusyWaitUntilTimeoutOrStandby(1.0);	
     }
     
-    // launch pose has to be stored between rotations. To have enough of time to accumulate reasonable values
-    // for lauch pose and also to get enough of time to accumulate real values  (with substracted launchpose)
-    // before the real launch. 
+    // launch pose has to be stored after all sensors are ready but as soon as possible in order to have some time
+    // before the actual launch to get drifting constants infered. Also we need some time to accumulate
+    // to accumulate real values  (with substracted launchpose) before the real launch. 
     pilotLaunchPoseSet(NULL);
 
     // One more time wait until all regression buffers are full with launch pose corrected values
-    while (! pilotAreAllDevicesReady()) {
-	raspilotPoll();
-	if (uu->flyStage == FS_STANDBY) goto launchCanceled;
-    }
+    pilotWaitUntilAllDevicesWarmed();
+    
+    if (uu->flyStage == FS_STANDBY) goto launchCanceled;
 
     lprintf(1, "%s: Warning: Second warning rotation!\n", PPREFIX());
     mavlinkPrintfStatusTextToListeners("Warning rotation");
@@ -620,6 +628,7 @@ void raspilotPreLaunchSequence(int flightControllerOnlyMode) {
 
     lprintf(5, "%s: Info: Prefly sequence done.\n", PPREFIX());
 
+    deviceStopRegularAutoAdjustementOfDrifts();
     mainLoadPreviousFlyTime();
     mainStatistics(STATISTIC_INIT);
     pilotInitiatePids();
@@ -893,6 +902,15 @@ static void pilotModeMotorTest(int i) {
     raspilotShutDownAndExit();
 }
 
+static void pilotModeGyroTest() {
+    timeLineInsertEvent(UTIME_AFTER_MSEC(2), pilotGyroTestStabilisationTick, NULL);
+    pilotWaitUntilAllDevicesWarmed();
+    pilotLaunchPoseSet(NULL);
+    lprintf(1, "%s: Info: Gyro Test Start!\n", PPREFIX());
+    uu->flyStage = FS_FLY;
+    raspilotBusyWaitUntilTimeoutOrStandby(9999999999.9);
+}
+
 static int droneHasEmergencyLanded() {
     if (uu->flyStage != FS_EMERGENCY_LANDING) return(0);
     // If we are on low altitude, confitm land
@@ -977,6 +995,14 @@ int main(int argc, char **argv) {
 	break;
     case MODE_MOTOR_TEST:
 	pilotModeMotorTest(-1);
+	break;
+    case MODE_GYRO_TEST:
+	pilotModeGyroTest();
+	break;
+    case MODE_FULL_TEST:
+	timeLineInsertEvent(UTIME_AFTER_MSEC(1), pilotRegularMissionModeLoopTick, NULL);
+	timeLineInsertEvent(UTIME_AFTER_MSEC(2), pilotRegularStabilisationTick, NULL);
+	missionFullTest();
 	break;
     case MODE_MANUAL_RC:
 	pilotModeManualRc();

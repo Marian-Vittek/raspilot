@@ -4,13 +4,13 @@
 
 /* alignment at  which returned pointers are rounded.  Intel does not
  * require alignment, however it is a good habit  */
-#define EXPMEM_REQUIRED_ALIGNMENT		16
+#define EXPMEM_REQUIRED_ALIGNMENT	16
 
 /* Only  chunks smaller than  MAX_CHUNK_TO_KEEP_ALLOCATED are  kept in
  * exponential free lists. Really big chunks are allocated directly by
  * malloc  */
-#define MAX_CHUNK_LOG 				  	16   		/* log(MAX_CHUNK_TO_KEEP_ALLOCATED) */
-#define MAX_CHUNK_TO_KEEP_ALLOCATED 	(1<<MAX_CHUNK_LOG) 		/* has to be a power of two! */
+#define MAX_CHUNK_LOG 			16   			/* log(MAX_CHUNK_TO_KEEP_ALLOCATED) */
+#define MAX_CHUNK_TO_KEEP_ALLOCATED 	(1<<MAX_CHUNK_LOG) 	/* has to be a power of two! */
 
 
 /* Very  small  chunks  (i.e.    chunks  smaller  than  the  following

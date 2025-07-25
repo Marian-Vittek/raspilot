@@ -48,10 +48,6 @@
 
 
 //////////////////////////////////////////////////////////////////////
-// DMA channel
-
-#define DMA_CHANNEL 14
-
 //////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////
 
@@ -70,18 +66,18 @@
 
 // DSHOT_150, tick == 8ns, T0H == 3 * 104 ticks, in my ESC T0H == 84 ticks
 //#define DSHOT_SMI_TIMING 8, 20,64,20
-#define DSHOT_SMI_TIMING 8,10,64,10
+#define DSHOT_SMI_TIMING 8, 10,64,10
 
 #elif DSHOT_VERSION == 300
 
 // DSHOT_300, tick == 4ns, T0H == 3 * 104 ticks, in my ESC T0H == 84 ticks
 //#define DSHOT_SMI_TIMING 4, 20,64,20
-#define DSHOT_SMI_TIMING 4,10,64,10
+#define DSHOT_SMI_TIMING 4, 10,64,10
 
 #elif DSHOT_VERSION == 600
 
 // DSHOT_600, tick 4ns, T0H == 3 * 52 ticks, does not work with my ESC
-#define DSHOT_SMI_TIMING 4,10,32,10
+#define DSHOT_SMI_TIMING 4, 10,32,10
 
 #elif DSHOT_VERSION == 1200
 
@@ -90,17 +86,13 @@
 
 #endif
 
-
-/////////////////////////////////////////////////////////////////////////////////////
-/////////////////////////////////////////////////////////////////////////////////////
-
+    
 #include <stdio.h>
 #include <signal.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <time.h>
 #include "rpi_dma_utils.h"
 
 #include <assert.h>
@@ -137,8 +129,9 @@ enum {
 };
 
 #define DSHOT_NUM_PINS 		18
-#define DSHOT_BROADCAST_BYTES 	(8*16*4)
-#define TIMESPEC_TO_INT(tt)     (tt.tv_sec * 1000000000LL + tt.tv_nsec)
+// total length of transfer is 4 bytes (32 possible pins) x 8 bytes (to transfer 1 dshot bit) x 17
+// (16 bits in dshot frame plus one initial zero bit)
+#define DSHOT_BROADCAST_BYTES 	(8*17*4)
 
 
 
@@ -254,12 +247,10 @@ volatile SMI_DCS_REG *smi_dcs;
 volatile SMI_DCA_REG *smi_dca;
 volatile SMI_DCD_REG *smi_dcd;
 
-#define TX_SAMPLE_SIZE  1       // Number of raw bytes per sample
-#define VC_MEM_SIZE(ns) 	(PAGE_SIZE + ((ns)+4)*TX_SAMPLE_SIZE)
+#define VC_MEM_SIZE(ns) 	(PAGE_SIZE + ns)
 
 // 3D mode, if dshot3dMode != 0 then reverse rotation is enabled
 static int dshot3dMode = 0;
-
 
 //uint8_t sample_buff[NSAMPLES];
 
@@ -274,11 +265,14 @@ void dma_wait(int chan);
 // If any of these fail, program will be terminated
 void map_devices(void)
 {
+    int i;
     map_periph(&gpio_regs, (void *)GPIO_BASE, PAGE_SIZE);
     map_periph(&dma_regs, (void *)DMA_BASE, PAGE_SIZE);
     map_periph(&clk_regs, (void *)CLK_BASE, PAGE_SIZE);
     map_periph(&smi_regs, (void *)SMI_BASE, PAGE_SIZE);
-    memset(smi_regs.virt, 0, SMI_REGLEN);
+    // memset causes 'Bus error' on 64-bit OS, that is why there is a loop
+    // memset(smi_regs.virt, 0, SMI_REGLEN);
+    for(i=0; i<SMI_REGLEN; i++) ((char*)smi_regs.virt)[i] = 0;
 }
 
 // Catastrophic failure in initial setup
@@ -346,8 +340,7 @@ void init_smi(int width, int ns, int setup, int strobe, int hold)
 
 // Wait until DMA is complete
 void dma_wait(int chan) {
-    // wait 300us DSHOT frame shall not take more
-    if (dma_transfer_len(chan)!=0) usleep(100);
+    // wait 200us DSHOT frame shall not take more
     if (dma_transfer_len(chan)!=0) usleep(100);
     if (dma_transfer_len(chan)!=0) usleep(100);
     if (dma_transfer_len(chan)!=0) printf("debug: DMA transfer timeout\n");
@@ -366,13 +359,13 @@ static void dshotDmaSmiSend() {
     uint8_t 	*txdata;
 
     // first check if the previous transfer finished
-    if (previousTransfer && dma_transfer_len(DMA_CHANNEL)!=0) {
+    if (previousTransfer && dma_transfer_len(DMA_CHAN_A)!=0) {
 	printf("debug: Error: Previous DMA transfer timeout.\n");
     }
     // stop the previous dma
     // [M.V.] I've commented this out. Not sure what it is doing but it generated strange peak on the pin
     //if (smi_regs.virt) *REG32(smi_regs, SMI_CS) = 0;
-    stop_dma(DMA_CHANNEL);
+    stop_dma(DMA_CHAN_A);
 
     // Start the new transfer
     smi_dsr->rwidth = SMI_8_BITS; 
@@ -385,19 +378,19 @@ static void dshotDmaSmiSend() {
     cbs = vc_mem.virt;
     txdata = (uint8_t *)(cbs+1);
     // memcpy(txdata, framebits, sample_count);
-    enable_dma(DMA_CHANNEL);
+    enable_dma(DMA_CHAN_A);
     cbs[0].ti = DMA_DEST_DREQ | (DMA_SMI_DREQ << 16) | DMA_CB_SRCE_INC;
     cbs[0].tfr_len = DSHOT_BROADCAST_BYTES;
     cbs[0].srce_ad = MEM_BUS_ADDR((&vc_mem), txdata);
     cbs[0].dest_ad = REG_BUS_ADDR(smi_regs, SMI_D);
     cbs[0].next_cb = 0;
-    start_dma(&vc_mem, DMA_CHANNEL, &cbs[0], 0);
+    start_dma(&vc_mem, DMA_CHAN_A, &cbs[0], 0);
     smi_cs->start = 1;
     
     previousTransfer = 1;
-    //dma_wait(DMA_CHANNEL);
+    //dma_wait(DMA_CHAN_A);
     //if (smi_regs.virt) *REG32(smi_regs, SMI_CS) = 0;
-    //stop_dma(DMA_CHANNEL);
+    //stop_dma(DMA_CHAN_A);
 }
 
 void dshotSendFrames(int motorPins[], int motorMax, unsigned frame[]) {
@@ -409,6 +402,10 @@ void dshotSendFrames(int motorPins[], int motorMax, unsigned frame[]) {
 
     cbs = vc_mem.virt;
     txdata = (uint32_t *)(cbs+1);
+    // Skip the initial 'zero' bit
+    txdata += 8;
+
+    // There is something wrong with this memory, you cannot access it with non-64 bit aligned access on 64bit os.
 
     // compute masks for zero bits in all frames
     j = 0;
@@ -440,7 +437,7 @@ static int dshotAddChecksumAndTelemetry(int packet, int telem) {
     return ((packet_telemetry << 4) | csum);
 }
 
-static uint32_t getRpiRegBase(void) {
+static uintptr_t getRpiRegBase(void) {
     const char *revision_file = "/proc/device-tree/system/linux,revision";
     uint8_t revision[4] = { 0 };
     uint32_t cpu = 4;
@@ -472,23 +469,16 @@ static uint32_t getRpiRegBase(void) {
     }
 }
 
-static inline uint64_t dshotGetNanoseconds() {
-    struct timespec tt;
-    clock_gettime(CLOCK_MONOTONIC_RAW, &tt);
-    return(TIMESPEC_TO_INT(tt));
-}
 
-// Send a command repeatedly during a given perion of time
-static void dshotRepeatSendCommand(int motorPins[], int motorMax, int cmd, int telemetry, int64_t timePeriodMsec) {
+// Send a command repeatedly 
+void dshotRepeatSendCommand(int motorPins[], int motorMax, int cmd, int telemetry, int repeatCounter) {
+    unsigned    ff;
     unsigned    frame[DSHOT_NUM_PINS+1];
     int         i;
-    int64_t     t;
-    
-    for(i=0; i<motorMax; i++) frame[i] = dshotAddChecksumAndTelemetry(cmd, telemetry);
-    t = dshotGetNanoseconds() + timePeriodMsec * 1000000LL;
-    dshotSendFrames(motorPins, motorMax, frame);
-    usleep(1000);
-    while (dshotGetNanoseconds() < t) {
+
+    ff = dshotAddChecksumAndTelemetry(cmd, telemetry);
+    for(i=0; i<motorMax; i++) frame[i] = ff;
+    for(i=0; i<repeatCounter; i++) {
         dshotSendFrames(motorPins, motorMax, frame);
         usleep(1000);
     }
@@ -502,27 +492,33 @@ static void dshotRepeatSendCommand(int motorPins[], int motorMax, int cmd, int t
 // Changing 3D mode is interfering with rotation direction (at least on my ESC), so always reset the direction when changing 3D.
 // TODO: Allow changing spin direction per motor !
 void motorImplementationSet3dModeAndSpinDirection(int motorPins[], int motorMax, int mode3dFlag, int reverseDirectionFlag) {
-    int         repeatMsec;
+    int         repeat;
 
-    repeatMsec = 25;
+    // First, stop/arm motors for around 3 seconds. Strangely my ESC requires so much time to re-init.
+    dshotRepeatSendCommand(motorPins, motorMax, DSHOT_CMD_MOTOR_STOP, 0, 3000);
+
+    repeat = 10;
     
     // This seems to be a delicate operation, I don't know why but it does not work if I do not send
     // stop motors for some time first.
 
     dshot3dMode = mode3dFlag;
     if (dshot3dMode) {
-        dshotRepeatSendCommand(motorPins, motorMax, DSHOT_CMD_3D_MODE_ON, 1, repeatMsec);
+        dshotRepeatSendCommand(motorPins, motorMax, DSHOT_CMD_3D_MODE_ON, 1, repeat);
     } else {
-        dshotRepeatSendCommand(motorPins, motorMax, DSHOT_CMD_3D_MODE_OFF, 1, repeatMsec);
+        dshotRepeatSendCommand(motorPins, motorMax, DSHOT_CMD_3D_MODE_OFF, 1, repeat);
     }
-    dshotRepeatSendCommand(motorPins, motorMax, DSHOT_CMD_SAVE_SETTINGS, 0, repeatMsec);
+    dshotRepeatSendCommand(motorPins, motorMax, DSHOT_CMD_SAVE_SETTINGS, 0, repeat);
+    usleep(50000);
 
     if (reverseDirectionFlag) {
-        dshotRepeatSendCommand(motorPins, motorMax, DSHOT_CMD_SPIN_DIRECTION_REVERSED, 1, repeatMsec);
+        dshotRepeatSendCommand(motorPins, motorMax, DSHOT_CMD_SPIN_DIRECTION_REVERSED, 1, repeat);
     } else {
-        dshotRepeatSendCommand(motorPins, motorMax, DSHOT_CMD_SPIN_DIRECTION_NORMAL, 1, repeatMsec);
+        dshotRepeatSendCommand(motorPins, motorMax, DSHOT_CMD_SPIN_DIRECTION_NORMAL, 1, repeat);
     }
-    dshotRepeatSendCommand(motorPins, motorMax, DSHOT_CMD_SAVE_SETTINGS, 0, repeatMsec);
+    dshotRepeatSendCommand(motorPins, motorMax, DSHOT_CMD_SAVE_SETTINGS, 0, repeat);
+    usleep(50000);
+
 }
 
 void motorImplementationBeep(int motorPins[], int motorMax, int beaconIndex) {
@@ -536,9 +532,7 @@ void motorImplementationInitialize(int motorPins[], int motorDirections[], int m
     uint32_t 	*txdata;
     void	*mmm;
     int		pp[64];
-			     
-    // printf("debug: MOTOR INIT.\n");fflush(stdout);
-    
+
     for(i=0; i<motorMax; i++) {
 	if (motorPins[i] < DAC_D0_PIN || motorPins[i] >= DAC_D0_PIN+DAC_NPINS) {
 	    printf("debug: wrong motor pin %d. Gpio pins must be in range %d - %d for smi.\n", motorPins[i], DAC_D0_PIN, DAC_D0_PIN+DAC_NPINS-1);
@@ -550,6 +544,8 @@ void motorImplementationInitialize(int motorPins[], int motorDirections[], int m
     rpiRegBase = getRpiRegBase();
     map_devices();
     
+    signal(SIGINT, unmap_devices);
+
     // Initialize SMI to Dshot timing
     init_smi(2, DSHOT_SMI_TIMING);
 
@@ -567,10 +563,15 @@ void motorImplementationInitialize(int motorPins[], int motorDirections[], int m
     // Precompute 'zero' dhsot frame
     cbs = vc_mem.virt;
     txdata = (uint32_t *)(cbs+1);
+    // There is something wrong with this memory, you cannot access it with non-64 bit aligned access on 64bit os.
     j = 0;
+    // first 'bit' will always be zero.
+    // This hack removes strange irregularity on first bit signal probably due to dma not fast enough at the beginning
+    for(k=0; k<8; k++) txdata[j++] = 0;
     for(i=0; i<16; i++) {
-	for(k=0; k<3;k++) txdata[j++] = 0xffffffff;
-	for(k=0; k<5;k++) txdata[j++] = 0;
+      for(k=0; k<3;k++) txdata[j++] = 0xffffffff;
+      for(k=0; k<3;k++) j++;
+      for(k=0; k<2;k++) txdata[j++] = 0;
     }
 
     for (i=0; i<motorMax; i++) gpio_mode(motorPins[i], GPIO_ALT1);
@@ -585,14 +586,14 @@ void motorImplementationInitialize(int motorPins[], int motorDirections[], int m
     motorImplementationSet3dModeAndSpinDirection(pp, k, 0, 0);
     k = 0;
     for(i=0; i<motorMax; i++) if (motorDirections[i] < 0) pp[k++] = motorPins[i];
-    motorImplementationSet3dModeAndSpinDirection(pp, k, 0, 1);
+    motorImplementationSet3dModeAndSpinDirection(pp, k, 0, 1);    
 }
 
 void motorImplementationFinalize(int motorPins[], int motorMax) {
     int i;
     
     printf("debug: motorImplementationFinalize\n");
-    stop_dma(DMA_CHANNEL);
+    stop_dma(DMA_CHAN_A);
     for (i=0; i<motorMax; i++)gpio_mode(motorPins[i], GPIO_IN);
     unmap_periph_mem(&vc_mem);
     unmap_devices(0);

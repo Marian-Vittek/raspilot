@@ -14,6 +14,16 @@
 #endif
 #include "expmem.h"
 
+// Since we export everything in one single chunk of shared memory
+// we can not use actual malloc anymore. We us our own shared malloc
+#if 0
+#define real_malloc(n) malloc(n)
+#define real_free(p) free(p)
+#else
+extern char *raspilotUniverseMalloc(int n);
+#define real_malloc(n) raspilotUniverseMalloc(n)
+#define real_free(p) {}
+#endif
 
 #define MAX_EXP_MEMORY_BLOCK_LOG 		31	/* we will not memorize blocks of size larger than 2^30 == 1GB */
 
@@ -41,16 +51,16 @@ typedef struct expmemFreeChunkHeader {
 
 typedef struct expmemAllocatedChunkHeader {
     union {
-	long long int		 freeInfo;
-	char				 alignment[EXPMEM_REQUIRED_ALIGNMENT];
+	long long int		 	freeInfo;
+	char				alignment[EXPMEM_REQUIRED_ALIGNMENT];
     } u;
 } S_expmemAllocatedChunkHeader;
 
 typedef struct expmemChunkHeader {
     union {
-	long long int		 			freeInfo;		// allocated block
-	struct expmemChunkHeader 		*nextfree;		// free block
-	char				 			alignment[EXPMEM_REQUIRED_ALIGNMENT];
+	long long int		 	freeInfo;		// allocated block
+	struct expmemChunkHeader 	*nextfree;		// free block
+	char				alignment[EXPMEM_REQUIRED_ALIGNMENT];
     } u;
 } S_expmemChunkHeader;
 
@@ -65,12 +75,12 @@ static S_expmemChunkHeader 	*s_expmemChunks[MAX_EXP_MEMORY_BLOCK_LOG] = {NULL};
 // Chunks of small sizes are allocted by "cutting off" from one large chunk
 // Shall give better cache allocation for very small pieces of memory
 static S_expmemChunkHeader 	*s_expmemDirectListChunks[EXPMEM_MAX_SIZE_FOR_DIRECT_LISTS] = {NULL};
-static char 					*s_expmemDirectListPool;
-static int 						s_expmemDirectListPoolRemainingSize;
+static char 			*s_expmemDirectListPool;
+static int 			s_expmemDirectListPoolRemainingSize;
 
 // for debugging purposes
-static long long				maxFreeingInfo = MAX_CHUNK_TO_KEEP_ALLOCATED;
-static int						singleThreadEnteredFlag = 0;
+static long long		maxFreeingInfo = MAX_CHUNK_TO_KEEP_ALLOCATED;
+static int			singleThreadEnteredFlag = 0;
 
 /* ************************************************************************ */
 
@@ -138,7 +148,6 @@ static struct expmemChunkHeader *expmemRemoveFromList(int i) {
     return(nf);
 }
 
-
 //& the freeingInfo is the number to be sent to expmem0Free when freeing this block
 static void *expmemInternalMalloc(int n, int *freeingInfo) {
     int		 				allocIndex, freeInfo;
@@ -156,7 +165,7 @@ static void *expmemInternalMalloc(int n, int *freeingInfo) {
 	} else {
 	    if (n > s_expmemDirectListPoolRemainingSize) {
 		s_expmemDirectListPoolRemainingSize = DIRECT_LIST_ALLOCATIONS_POOL_SIZE;
-		s_expmemDirectListPool = malloc(s_expmemDirectListPoolRemainingSize);
+		s_expmemDirectListPool = real_malloc(s_expmemDirectListPoolRemainingSize);
 	    }
 	    space = (S_expmemChunkHeader *) s_expmemDirectListPool;
 	    if (space == NULL) goto fini;
@@ -168,7 +177,7 @@ static void *expmemInternalMalloc(int n, int *freeingInfo) {
 	goto fini;
     }
     if (n > MAX_CHUNK_TO_KEEP_ALLOCATED) {
-	space = (S_expmemChunkHeader *) malloc(n);
+	space = (S_expmemChunkHeader *) real_malloc(n);
 	freeInfo = n;
     } else {
 	allocIndex = expmemLog(n);
@@ -191,7 +200,7 @@ static void *expmemInternalMalloc(int n, int *freeingInfo) {
 	    if (space == NULL) {
 		i ++;
 		// printf("allocating %d bytes\n", s_expmemPowers[i]);
-		space = (struct expmemChunkHeader *) malloc(s_expmemPowers[i]);
+		space = (struct expmemChunkHeader *) real_malloc(s_expmemPowers[i]);
 		if (space == NULL) goto fini;
 	    }
 	    for(i--; i>=allocIndex; i--) {
@@ -233,7 +242,7 @@ static void expmemInternalFree(void *p, int freeingInfo) {
 	    assert(0);
 #endif
 	} else {
-	    free(p);
+	    real_free(p);
 	}
     } else {
 	if (freeingInfo >= MAX_EXP_MEMORY_BLOCK_LOG) {

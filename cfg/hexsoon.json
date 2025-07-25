@@ -107,8 +107,8 @@
 	    mount_position: [0, 0, -0.10],
 	    mount_rpy: [-0.010, 0.006, 0],
             stream: [
-		{ type: "DT_ORIENTATION_RPY", tag: "rpy",  mandatory:1, weight: 1.0, debug_level: 22},
-		{ type: "DT_POSITION_VECTOR", tag: "pose",  mandatory:1, weight: 1.0, debug_level: 22},
+		{ type: "DT_ORIENTATION_RPY_SENSOR", tag: "rpy",  mandatory:1, weight: 1.0, debug_level: 22},
+		{ type: "DT_POSITION_SENSOR", tag: "pose",  mandatory:1, weight: 1.0, debug_level: 22},
 		{ type: "DT_DEBUG",           tag: "debug", debug_level: 1},
             ],
 	},

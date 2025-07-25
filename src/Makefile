@@ -1,21 +1,24 @@
 #######################################################
 # raspilot makefile
 
-CFLAGS= -g -DEDEBUG -Wall -Wno-format-truncation -Wno-unused-variable -Wno-pointer-sign -Wno-unused-but-set-variable -I../lib/pi2c -I../lib -L/usr/local/lib
+CFLAGS= -g -DEDEBUG -Wall -Wno-format-truncation -Wno-unused-variable -Wno-pointer-sign -Wno-unused-but-set-variable -I../lib -L/usr/local/lib
 LINKFLAGS= -pthread -lm -lrt 
 
-INCLUDES=common.h raspilotshm.h expmem.h sglib.h linmath.h linmath2.h ../lib/pi2c/pi2c.h
-OBJS=main.o common.o expmem.o json.o baio.o config.o device.o pilot.o mission.o mavlink.o ../lib/pi2c/pi2c.c
+INCLUDES=common.h expmem.h sglib.h linmath.h linmath2.h 
+OBJS=main.o common.o expmem.o json.o baio.o config.o device.o pilot.o mission.o mavlink.o raspilot_tlib.o
 
 ########################################################
 
 #DRONE=d250
 #DRONE=p2
-#DRONE=192.168.0.220
+#DRONE=192.168.0.178
+#DRONE=192.168.0.194
 #DRONE=pifly
+DRONE=pifly3
 #DRONE=pc
 #DRONE=pi5
-DRONE=openhd@pc:2233
+#DRONE=openhd@pc:2233
+#DRONE=openhd@pc:2234
 
 #SET IGNORE_BUILD_ERROR to true if you want to ignore build errors
 ifeq ($(DRONE),pc)
@@ -33,20 +36,24 @@ raspilot: $(OBJS) $(INCLUDES)
 %.o : %.c $(INCLUDES)
 	gcc -c $(CFLAGS) $< -o $@
 
+%.o++ : %.c $(INCLUDES)
+	g++ -c $(CFLAGS) $< -o $@
+
 # go through '../tool' and make every directory containing Makefile.raspilot
-tools: libs
+tools: libs raspilot_tlib.o raspilot_tlib.o++
 	export RASPILOT_HOME=`dirname $$PWD`; find ../tool -name "Makefile.raspilot" -execdir make -f Makefile.raspilot \; || $(IGNORE_BUILD_ERROR)
 
 # go through '../lib' and make every directory containing Makefile.raspilot
 libs: always
-	# for libraries like FussionMagwick, first run cmake if not yet done 
-	export RASPILOT_HOME=`dirname $$PWD`; find ../lib -name "CMakeLists.txt" -execdir bash -c "test -f Makefile || cmake ." \; || $(IGNORE_BUILD_ERROR)
-	export RASPILOT_HOME=`dirname $$PWD`; find ../lib -name "Makefile.raspilot" -execdir make -f Makefile.raspilot \; || $(IGNORE_BUILD_ERROR)
-	
+	# for libraries like FussionMagwick, first run cmake if not yet done
+	# TODO: make sure in some way that cmake, gcc, g++ is installed on the system
+	export RASPILOT_HOME=`dirname $$PWD`; find ../lib -name "CMakeLists.txt" -execdir bash -c "test -f Makefile || cmake . || $(IGNORE_BUILD_ERROR) " \; || $(IGNORE_BUILD_ERROR)
+	export RASPILOT_HOME=`dirname $$PWD`; find ../lib -name "Makefile.raspilot" -execdir bash -c "make -f Makefile.raspilot || $(IGNORE_BUILD_ERROR) " \; || $(IGNORE_BUILD_ERROR)
+
 # go recursively through '../tool' and '../lib' and clean every directory containing Makefile.raspilot
 dirsclean: always
-	export RASPILOT_HOME=`dirname $$PWD`; find ../tool -name "Makefile.raspilot" -execdir make -f Makefile.raspilot clean \; || $(IGNORE_BUILD_ERROR)
-	export RASPILOT_HOME=`dirname $$PWD`; find ../lib -name "Makefile.raspilot" -execdir make -f Makefile.raspilot clean \; || $(IGNORE_BUILD_ERROR)
+	export RASPILOT_HOME=`dirname $$PWD`; find ../tool -name "Makefile.raspilot" -execdir bash -c "make -f Makefile.raspilot clean  || $(IGNORE_BUILD_ERROR)" \;
+	export RASPILOT_HOME=`dirname $$PWD`; find ../lib -name "Makefile.raspilot" -execdir bash -c "make -f Makefile.raspilot clean  || $(IGNORE_BUILD_ERROR)" \;
 
 viz: always
 	make -C ../misc/pose-vizualization || $(IGNORE_BUILD_ERROR)

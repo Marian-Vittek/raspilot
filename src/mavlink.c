@@ -47,18 +47,18 @@ static int getMavlinkMode() {
     // Translate raspilot mode into mavlink mode
     if (uu->flyStage < FS_STANDBY) {
 	return(MAV_MODE_PREFLIGHT);
-    } else if (1 /* always disarmed, otherwise openhd stops wifi */ || uu->flyStage < FS_PRE_FLY) {
+    } else if (1 /* always disarmed, otherwise openhd stops wifi */ || uu->flyStage < FS_SENSORS_READY) {
 	// Hmm. we can control mode by each of component roll,pitch,yaw,altitude
 	// I shall combine that into single mode for mavlink, let's take roll only
 	if (uu->config.manual_rc_roll.mode == RCM_PASSTHROUGH) return(MAV_MODE_MANUAL_DISARMED);
 	if (uu->config.manual_rc_roll.mode == RCM_ACRO) return(MAV_MODE_STABILIZE_DISARMED);
-	if (uu->config.manual_rc_roll.mode == RCM_TARGET) return(MAV_MODE_GUIDED_DISARMED);
-	if (uu->config.manual_rc_roll.mode == RCM_AUTO) return(MAV_MODE_AUTO_DISARMED);
+	if (uu->config.manual_rc_roll.mode == RCM_STABILIZE) return(MAV_MODE_GUIDED_DISARMED);
+	if (uu->config.manual_rc_roll.mode == RCM_STEADY) return(MAV_MODE_AUTO_DISARMED);
     } else {
 	if (uu->config.manual_rc_roll.mode == RCM_PASSTHROUGH) return(MAV_MODE_MANUAL_ARMED);
 	if (uu->config.manual_rc_roll.mode == RCM_ACRO) return(MAV_MODE_STABILIZE_ARMED);
-	if (uu->config.manual_rc_roll.mode == RCM_TARGET) return(MAV_MODE_GUIDED_ARMED);
-	if (uu->config.manual_rc_roll.mode == RCM_AUTO) return(MAV_MODE_AUTO_ARMED);	
+	if (uu->config.manual_rc_roll.mode == RCM_STABILIZE) return(MAV_MODE_GUIDED_ARMED);
+	if (uu->config.manual_rc_roll.mode == RCM_STEADY) return(MAV_MODE_AUTO_ARMED);	
     }
     return(MAV_MODE_PREFLIGHT);
 }
@@ -205,7 +205,7 @@ void mavlinkSendGlobalPositionInt(void *d) {
 					 latitude*10000000.0*100, longitude*10000000.0*100, uu->droneLastPosition[2]*10000,
 					 uu->droneLastPosition[2]*10000, 
 					 uu->droneLastVelocity[0]*10000, uu->droneLastVelocity[1]*10000, uu->droneLastVelocity[2]*10000,
-					 normalizeAngle(uu->droneLastRpy[2], 0, 2*M_PI)*18000/M_PI
+					 normalizeAngle(-uu->droneLastRpy[2], 0, 2*M_PI)*18000/M_PI
 	);
     
     len = mavlink_msg_to_send_buffer(buf, &msg);

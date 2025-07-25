@@ -1,11 +1,4 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <stdint.h>
-#include <string.h>
-#include <math.h>
-#include <sys/time.h>
-#include "pi2c.h"
+#include "common.h"
 #include "MPU6050_6Axis_MotionApps20.h"
 
 // class default I2C address is 0x68
@@ -77,39 +70,16 @@ uint8_t	printQuaternion = 0;
 // ===                      INITIAL SETUP                       ===
 // ================================================================
 
+struct raspilotTlibStr      	ttt, *tt;
+int				streami;
+
 static void setup(int argc, char **argv) {
-  int 	i;
-  char	*i2cpath;
-  int	optSharedI2cFlag;
-
-  i2cpath = (char*)"/dev/i2c-1";
-  optSharedI2cFlag = 0;
-  
-  // TODO: get also i2c device path from command line!
-  for(i=1; i<argc; i++) {
-    if (strcmp(argv[i], "-rpy") == 0) {
-      printRpy = 1;
-    } else if (strcmp(argv[i], "--rpy") == 0) {
-      printRpy = 0;
-    } else if (strcmp(argv[i], "-quat") == 0) {
-      printQuaternion = 1;
-    } else if (strcmp(argv[i], "--quat") == 0) {
-      printQuaternion = 0;
-    } else if (strcmp(argv[i], "-s") == 0) {
-      // share i2c. Do not reset shared semaphores
-      optSharedI2cFlag = 1;
-    } else if (argv[i][0] != '-') {
-      i2cpath = argv[i];
-    }
-  }
-
-  if (optSharedI2cFlag) pi2cInit(i2cpath, optSharedI2cFlag);
   
   // initialize device
   printf("Initializing I2C devices...\n");
   // Remove this
   // pi2cInit((char*)"/dev/i2c-1", 1);
-  mpu.initialize(i2cpath, 0x68);
+  mpu.initialize(tt->optI2cPath, 0x68);
 
   // Is DLPF adding latency also with dmp?
   mpu.setDLPFMode(0);
@@ -175,6 +145,8 @@ static void setup(int argc, char **argv) {
 static int ncount = 0;
 
 static int loop() {
+  double 	rpy[3];
+  
   // if programming failed, don't try to do anything
   if (!dmpReady) return(0);
   // get current FIFO count
@@ -205,57 +177,27 @@ static int loop() {
     // original
     //printf("quat %9.7f %9.7f %9.7f %9.7f\n", q.w,q.x,q.y,q.z);
 
-    if (printQuaternion) {
-      // translated to drone orientation
-      // translation discovered by pure experimentation
-#if 0    
-      // This is for the following orientation of MPU development board:
-      //    front of the drone
-      //     ^
-      //   o   I
-      //       I
-      //   o   I
-      //holes  pins     
-      printf("quat %9.7f %9.7f %9.7f %9.7f\n", -q.y, q.x, q.z, q.w);
-#elif 1
-      // This is for the following orientation of MPU development board:
-      //    front of the drone
-      //     ^
-      //   I   o
-      //   I   
-      //   I   o
-      // pins holes
-      printf("quat %9.7f %9.7f %9.7f %9.7f\n", q.y, -q.x, q.z, q.w);
-#endif
-    }
-    
-    if (printRpy) {
-      mpu.dmpGetGravity(&gravity, &q);
-      mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
-      printf("rpy %9.7f %9.7f %9.7f\n", -ypr[1], ypr[2], -ypr[0]);
-    }    
-    
-    
-    fflush(stdout);
+    mpu.dmpGetGravity(&gravity, &q);
+    mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
+    rpy[0] = ypr[2];
+    rpy[1] = ypr[1];
+    rpy[2] = ypr[0];
+    raspilotTlibSend(tt, streami, 0, 1.0, rpy, 3);
+
     ncount ++;
     return(1);
   }
   return(0);
 }
 
-long long getTimeMsec() {
-    struct timeval tv;
-    
-    gettimeofday(&tv, NULL);
-    return(tv.tv_sec * 1000 + tv.tv_usec / 1000);
-}
-
 int main(int argc, char **argv) {
-  int r;
-  int shortSleepCount;
-  int sleepUsec;
-  unsigned debugCount;
-  long long startTime;
+
+  
+  tt = raspilotTlibInit(&ttt, argc, argv, TLIB_UNIVERSE_MAP_NO);
+    
+  if (tt->optSharedI2cFlag) pi2cInit(tt->optI2cPath, tt->optSharedI2cFlag);
+
+  streami = raspilotTlibInitStream(tt, (char*)"rpy", TLIB_SHM_YES);
 
   
   setup(argc, argv);
@@ -265,26 +207,10 @@ int main(int argc, char **argv) {
   setRangePerDigit();
 #endif
   
-  debugCount = 0;
-  shortSleepCount = 0;
-  sleepUsec = 3000;
-  // for(startTime=getTimeMsec(); getTimeMsec()<startTime+10000; ) {
   for(;;) {
-    r = loop();
-    if (r) {
-      // auto determine for how long I can sleep here
-      if (debugCount++ % 100 == 0) {printf("debug sleeps: %d + 200 * %d usec\n", sleepUsec, shortSleepCount); fflush(stdout);}
-      sleepUsec = sleepUsec - 200 + shortSleepCount * 200;
-      if (sleepUsec <= 200) sleepUsec = 200;
-      usleep(sleepUsec);
-      shortSleepCount = 0;
-    } else {
-      usleep(200);
-      shortSleepCount ++;
-    }
+    loop();
+    raspilotTlibMainLoopSleep(tt, 0);
   }	
-
-  printf("Count == %d in %5lld ms.\n", ncount, getTimeMsec()-startTime);
 
   return 0;
 }

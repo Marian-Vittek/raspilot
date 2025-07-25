@@ -1,55 +1,26 @@
-#include <stdbool.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <time.h>
-#include <string.h>
-#include <signal.h>
-
+#include "common.h"
 #include "Fusion.h"
-#include "pi2c.h"
 #include "MPU6050.h"
-
-static inline double doubleGetTime() {
-  struct timespec tt;
-  clock_gettime(CLOCK_REALTIME, &tt);
-  return(tt.tv_sec + tt.tv_nsec/1000000000.0);
-}
 
 static void taskStop(int signum) {
     exit(0);
 }
 
 int main(int argc, char **argv) {
-    double 	t0, t1, samplePeriod;
-    int		i, usleepTime;
-    int		magFd;
-    uint8_t	mm[6];
-    int16_t 	AcX,AcY,AcZ,GyX,GyY,GyZ,MgX,MgY,MgZ;
+    double 			t0, t1, samplePeriod;
+    int64_t			sampleTime;
+    int				i, streami;
+    int				magFd;
+    uint8_t			mm[6];
+    int16_t 			AcX,AcY,AcZ,GyX,GyY,GyZ,MgX,MgY,MgZ;
+    double			rpy[3];    
+    struct raspilotTlibStr      ttt, *tt;
 
-    int		optSharedI2cFlag;
-    char	*optI2cPath;
-    double	optRate;
-
-    optSharedI2cFlag = 0;
-    optI2cPath = (char*)"/dev/i2c-1";
-    optRate = 1000.0; 			// default rate 1kHz
+    tt = raspilotTlibInit(&ttt, argc, argv, TLIB_UNIVERSE_MAP_NO);
+    streami = raspilotTlibInitStream(tt, (char*)"rpy", TLIB_SHM_YES);
     
-    for(i=1; i<argc; i++) {
-	if (strcmp(argv[i], "-s") == 0) {
-	    // share i2c. Do not reset shared semaphores
-	    optSharedI2cFlag = 1;
-	} else if (strcmp(argv[i], "-r") == 0) {
-	    // refresh rate in Hz
-	    i++;
-	    if (i<argc) optRate = strtod(argv[i], NULL);
-	} else {
-	    optI2cPath = argv[i];
-	}
-    }	
+    if (tt->optSharedI2cFlag) pi2cInit(tt->optI2cPath, tt->optSharedI2cFlag);
     
-    if (optSharedI2cFlag) pi2cInit(optI2cPath, 1);
-
     // Define calibration (replace with actual calibration data if available)
     const FusionMatrix gyroscopeMisalignment = {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f};
     const FusionVector gyroscopeSensitivity = {1.0f, 1.0f, 1.0f};
@@ -64,7 +35,7 @@ int main(int argc, char **argv) {
     FusionOffset offset;
     FusionAhrs ahrs;
 
-    FusionOffsetInitialise(&offset, optRate);
+    FusionOffsetInitialise(&offset, tt->sampleRate);
     FusionAhrsInitialise(&ahrs);
 
     // Set AHRS algorithm settings
@@ -73,14 +44,12 @@ int main(int argc, char **argv) {
             .gain = 0.5f,
             .accelerationRejection = 10.0f,
             .magneticRejection = 20.0f,
-            .rejectionTimeout = (unsigned)(5 * optRate), /* 5 seconds */
+            .rejectionTimeout = (unsigned)(5 * tt->sampleRate), /* was 5 seconds */
     };
     FusionAhrsSetSettings(&ahrs, &settings);
 
-
-    
     // create mpu connection
-    MPU6050 	mpu(optI2cPath, 0x68);
+    MPU6050 	mpu(tt->optI2cPath, 0x68);
 
     if (mpu.initialize() != 0) return(-1);
 
@@ -102,7 +71,7 @@ int main(int argc, char **argv) {
     usleep(1000);
     
     // connect to magnetometer
-    magFd = pi2cOpen(optI2cPath, 0x1e);
+    magFd = pi2cOpen(tt->optI2cPath, 0x1e);
     if (magFd < 0) {
 	fprintf(stderr, "pi2c magnetometer connection failed\n");
 	return(-1);
@@ -112,10 +81,10 @@ int main(int argc, char **argv) {
     // continuous mode
     pi2cWriteByteToReg(magFd, 0x02, 0x00);
 
-    usleepTime = 1000000 / optRate;
-    usleep(usleepTime);
+    usleep(100000);
 
-    t0 = doubleGetTime();
+    sampleTime = raspilotTlibUsecTime();
+    t0 = sampleTime / 1000000.0;
     i = 0;
     for(;;) {
         FusionVector gyroscope = {0.0f, 0.0f, 0.0f};     // replace this with actual gyroscope data in degrees/s
@@ -137,7 +106,8 @@ int main(int argc, char **argv) {
 	magnetometer.axis.y = ((int16_t)mm[2] << 8) | mm[3];
 	magnetometer.axis.z = ((int16_t)mm[4] << 8) | mm[5];
 	
-	t1 = doubleGetTime();
+	sampleTime = raspilotTlibUsecTime();
+	t1 = sampleTime / 1000000.0;
 	samplePeriod = t1 - t0;
 
         // Apply calibration
@@ -154,18 +124,16 @@ int main(int argc, char **argv) {
         // Print algorithm outputs
         const FusionEuler euler = FusionQuaternionToEuler(FusionAhrsGetQuaternion(&ahrs));
 
-	// Print rpy in drone coordinates. This depends on how precisely the sensor is mounted on drone.
-	// TODO: Maybe print in sensor's coordinates and make translation inside raspilot.
-	printf("rpy %7.5f %7.5f %7.5f\n", euler.angle.pitch*M_PI/180.0, euler.angle.roll*M_PI/180.0, euler.angle.yaw*M_PI/180.0);
-	fflush(stdout);
+	// pitch - negative == nose down;      positive == nose up
+	// roll  - negative == left wing down; positive == left wing up
+	// yaw   - positive == rotated counterclockwise (view from up)
+	rpy[0] = euler.angle.pitch*M_PI/180.0;
+	rpy[1] = euler.angle.roll*M_PI/180.0;
+	rpy[2] = euler.angle.yaw*M_PI/180.0;
 
+	raspilotTlibSend(tt, streami, sampleTime, 1.0, rpy, 3);
 	t0 = t1;
-
-	if (samplePeriod > 1.0/optRate && usleepTime > 0) usleepTime--;
-	else if (samplePeriod < 1.0/optRate) usleepTime++;
-	usleep(usleepTime);
-
-	// if (i++ % 1000 == 0) printf("debug usleepTime == %d\n", usleepTime);
+	raspilotTlibMainLoopSleep(tt, sampleTime);
     }
 
     taskStop(0);

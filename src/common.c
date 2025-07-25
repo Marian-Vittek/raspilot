@@ -3,13 +3,8 @@
 int 			debugLevel;
 int 			logLevel;
 int 			baseLogLevel;
-struct universe		uuu;
-struct universe		*uu = &uuu;
 struct timeLineEvent    *timeLine = NULL;
 uint64_t		currentTimeLineTimeUsec;
-struct globalTimeInfo   currentTime;
-int			shutDownInProgress = 0;
-struct jsonnode 	dummyJsonNode;
 int64_t 		nextStabilizationTickUsec;
 int64_t 		nextPidTickUsec;
 int			stdbaioBaioMagic = 0;
@@ -18,32 +13,8 @@ int			trajectoryLogBaioMagic = 0;
 int			pingToHostBaioMagic = 0;
 double			pingToHostLastAnswerTime = 0;
 
-// enumeration names
-char 			*signalInterruptNames[258];
-int 			deviceDataStreamVectorLength[DT_MAX];
-char 			*deviceDataTypeNames[DT_MAX+2];
-char			*deviceConnectionTypeNames[DCT_MAX+2];
-char			*radioControlNames[RC_MAX+2];
-char			*pilotMainModeNames[MODE_MAX+2];
-char			*remoteControlModeNames[RCM_MAX+2];
-
 
 ////////////////////////////////////////////////////////////////////////////////////////////////
-
-static char baioStaticStringsRing[STATIC_STRINGS_RING_SIZE][TMP_STRING_SIZE];
-static int  baioStaticStringsRingIndex = 0;
-
-char *getTemporaryStringPtrFromStaticStringRing() {
-    char *res;
-    
-    res = baioStaticStringsRing[baioStaticStringsRingIndex];
-    baioStaticStringsRingIndex  = (baioStaticStringsRingIndex+1) % STATIC_STRINGS_RING_SIZE;
-    // make sure that snprint-ed string will be zero terminating
-    res[TMP_STRING_SIZE-1] = 0;
-    return(res);
-}
-
-/////////////////////////////////////////////////////////////////////////////////////////////////
 // "fast" parsing
 
 #define STRTODN_TABULATED_POWERS 32
@@ -223,18 +194,6 @@ void writeToFd(int fd, char *buf, int bufsize) {
     }
 }
 
-char *printPrefix_st(struct universe *uu, char *file, int line) {
-    int		i, r;
-    char	*res;
-
-    // Hmm. BTW this is a costly function if there is a lot of debug output. Maybe optimized a bit.
-    res = getTemporaryStringPtrFromStaticStringRing();
-    r = snprintf(res, TMP_STRING_SIZE-1, "%s: %s:%d", currentLocalTime_st(), file, line);
-    for(i=r; i>=0 && i<40; i++) res[i] = ' ';
-    res[i] = 0;
-    return(res);
-}
-
 void dumpHex(char *msg, char *d, int len) {
     int i;
     printf("%s: ", msg);
@@ -356,144 +315,7 @@ double angleSubstract(double a1, double a2) {
     return(normalizeAngle(a1 - a2, -M_PI, M_PI));
 }
 
-void vec2Rotate(double *res, double *v, double theta) {
-    double sint, cost, xx, yy;
-
-    // printf("rotating %f %f by %f degree counter clockwise \n", v[0], v[1], theta*180/M_PI);
-    sint = sin(theta);
-    cost = cos(theta);
-    // get values to local variables for case res == v
-    xx = v[0];
-    yy = v[1];
-
-    if (0) {
-	// clockwise rotation
-	res[0] = xx * cost + yy * sint;
-	res[1] = yy * cost - xx * sint;
-    } else {
-	// counter clockwise rotation
-	res[0] = xx * cost - yy * sint;
-	res[1] = yy * cost + xx * sint;
-    }	
-    // printf("rotated to %f %f\n", v[0], v[1]);
-}
-
-
 //////////////////////////////////////////////////////////////////////////////////
-
-char *currentLocalTime_st() {
-    char            *res;
-    time_t          t;
-    int             u;
-    struct tm       *tm, ttm;
-
-    res = getTemporaryStringPtrFromStaticStringRing();
-
-    snprintf(res, TMP_STRING_SIZE-1, "%4d-%02d-%02d %02d:%02d:%02d.%03d", 
-             1900+currentTime.lcltm.tm_year, currentTime.lcltm.tm_mon+1, currentTime.lcltm.tm_mday, 
-             currentTime.lcltm.tm_hour, currentTime.lcltm.tm_min, currentTime.lcltm.tm_sec,
-             currentTime.msecPart);
-    return(res);
-}
-
-char *sprintSecTime_st(long long int utime) {
-    static char     *res;
-    time_t          t;
-    int             u;
-    struct tm       *tm, ttm;
-
-    res = getTemporaryStringPtrFromStaticStringRing();
-    t = utime / 1000000;
-#if _WIN32
-    ttm = *localtime(&t);
-    tm = &ttm;
-#else
-    tm = localtime_r(&t, &ttm);
-#endif
-    snprintf(res, TMP_STRING_SIZE-1, "%4d-%02d-%02d %02d:%02d:%02d", 
-	     1900+tm->tm_year, tm->tm_mon+1, tm->tm_mday, tm->tm_hour, tm->tm_min, tm->tm_sec
-	);
-    return(res);
-}
-
-char *sprintUsecTime_st(long long int utime) {
-    char     		*res;
-    time_t          	t;
-    int             	u;
-    struct tm       	*tm, ttm;
-
-    res = getTemporaryStringPtrFromStaticStringRing();
-    t = utime / 1000000;
-    u = utime % 1000000;
-#if _WIN32
-    ttm = *localtime(&t);
-    tm = &ttm;
-#else
-    tm =  localtime_r(&t, &ttm);
-#endif
-    snprintf(res, TMP_STRING_SIZE-1, "%4d-%02d-%02d %02d:%02d:%02d.%03d %03d", 
-	     1900+tm->tm_year, tm->tm_mon+1, tm->tm_mday, tm->tm_hour, tm->tm_min, tm->tm_sec,
-	     u/1000, u%1000);
-    return(res);
-}
-
-void setCurrentTimeToTimeVal(struct timeval *tv) {
-    int             previousTimeHour, m, s;
-
-    if (currentTime.sec < tv->tv_sec || (currentTime.sec == tv->tv_sec && currentTime.usecPart < tv->tv_usec)) {
-
-        previousTimeHour = currentTime.hour;
-
-        // update current time
-        currentTime.sec = tv->tv_sec;
-        currentTime.hour = tv->tv_sec / (60*60);
-        currentTime.usecPart = tv->tv_usec;
-        currentTime.msecPart = tv->tv_usec / 1000;
-        currentTime.usec = ((long long int)tv->tv_sec) * 1000000LL + tv->tv_usec;
-        currentTime.dtime = tv->tv_sec + tv->tv_usec / 1000000.0;
-        // currentTime.dtime = (tv->tv_sec - 1640995200) + tv->tv_usec / 1000000.0;	// like this since 1.1.2022
-	currentTime.msec = currentTime.usec / 1000;
-	//currentTime.msec = currentTime.dtime * 1000.0;
-	
-	// update tm structures
-	// TODO: check if we are the same halfhour, some timezones are half an hour shifted
-        if (currentTime.hour == previousTimeHour) {
-            // we are the same hour as previously, no need to call localtime, update only minutes and seconds in tm structures
-            s = currentTime.sec % 60;
-            m = (currentTime.sec / 60) % 60;
-            currentTime.gmttm.tm_sec = currentTime.lcltm.tm_sec = s;
-            currentTime.gmttm.tm_min = currentTime.lcltm.tm_min = m;
-        } else {
-#if _WIN32
-	    currentTime.gmttm = *gmtime(&currentTime.sec);
-            currentTime.lcltm = *localtime(&currentTime.sec);
-#else
-            gmtime_r(&currentTime.sec, &currentTime.gmttm);
-            localtime_r(&currentTime.sec, &currentTime.lcltm);
-#endif
-        }
-    }
-}
-
-void setCurrentTime() {
-    struct timeval  tv;
-
-    gettimeofday(&tv, NULL);
-    setCurrentTimeToTimeVal(&tv);
-}
-
-void incrementCurrentTime() {
-    struct timeval  tv;	
-
-    tv.tv_sec = currentTime.sec;
-    tv.tv_usec = currentTime.usecPart;
-    tv.tv_usec ++;
-    if (tv.tv_usec >= 1000000) {
-	tv.tv_sec += tv.tv_usec / 1000000;
-	tv.tv_usec = tv.tv_usec % 1000000;		
-    }
-    setCurrentTimeToTimeVal(&tv);
-}
 
 int checkTimeLimit(char *op, double maxTime, int res) {
     static char	 	b[TMP_STRING_SIZE];
@@ -700,127 +522,114 @@ void timeLineDump() {
 
 //////////////////////////////////////////////////////////////////////////////////////////////////
 
-char *arrayWithDimToStr_st(double *a, int dim) {
-    char	*res, *separator;
-    int		i, j;
-    
-    res = getTemporaryStringPtrFromStaticStringRing();
-    i = 0;
-    if (i>=TMP_STRING_SIZE-1) return(FILE_LINE_ID_STR() ": Error");
-    i += snprintf(res+i, TMP_STRING_SIZE-i-1, "[");
-    separator = "";
-    for(j=0; j<dim; j++) {
-	if (i>=TMP_STRING_SIZE-1) return("Error: vector too large to print");
-	i += snprintf(res+i, TMP_STRING_SIZE-i-1, "%s%7.3f", separator, a[j]);
-	// i += snprintf(res+i, TMP_STRING_SIZE-i-1, "%s%9.5f", separator, a[j]);
-	separator = " ";
-    }
-    if (i>=TMP_STRING_SIZE-1) return("Error: vector too large to print");
-    i += snprintf(res+i, TMP_STRING_SIZE-i-1, "]");
-    return(res);
-}
-
-//////////////////////////////////////////////////////////////////////////////////////////////////
-
 void enumNamesInit() {
     // signal interrupt names
-    ENUM_NAME_SET(signalInterruptNames, SIGINT);
-    ENUM_NAME_SET(signalInterruptNames, SIGILL);
-    ENUM_NAME_SET(signalInterruptNames, SIGABRT);
-    ENUM_NAME_SET(signalInterruptNames, SIGFPE);
-    ENUM_NAME_SET(signalInterruptNames, SIGSEGV);
-    ENUM_NAME_SET(signalInterruptNames, SIGTERM);
-    ENUM_NAME_SET(signalInterruptNames, SIGHUP);
-    ENUM_NAME_SET(signalInterruptNames, SIGQUIT);
-    ENUM_NAME_SET(signalInterruptNames, SIGTRAP);
-    ENUM_NAME_SET(signalInterruptNames, SIGKILL);
-    ENUM_NAME_SET(signalInterruptNames, SIGBUS);
-    ENUM_NAME_SET(signalInterruptNames, SIGSYS);
-    ENUM_NAME_SET(signalInterruptNames, SIGPIPE);
-    ENUM_NAME_SET(signalInterruptNames, SIGALRM);
-    ENUM_NAME_SET(signalInterruptNames, SIGURG);
-    ENUM_NAME_SET(signalInterruptNames, SIGSTOP);
-    ENUM_NAME_SET(signalInterruptNames, SIGTSTP);
-    ENUM_NAME_SET(signalInterruptNames, SIGCONT);
-    ENUM_NAME_SET(signalInterruptNames, SIGCHLD);
-    ENUM_NAME_SET(signalInterruptNames, SIGTTIN);
-    ENUM_NAME_SET(signalInterruptNames, SIGTTOU);
-    ENUM_NAME_SET(signalInterruptNames, SIGPOLL);
-    ENUM_NAME_SET(signalInterruptNames, SIGXCPU);
-    ENUM_NAME_SET(signalInterruptNames, SIGXFSZ);
-    ENUM_NAME_SET(signalInterruptNames, SIGVTALRM);
-    ENUM_NAME_SET(signalInterruptNames, SIGPROF);
-    ENUM_NAME_SET(signalInterruptNames, SIGUSR1);
-    ENUM_NAME_SET(signalInterruptNames, SIGUSR2);
+    ENUM_NAME_SET(uu->signalInterruptNames, SIGINT);
+    ENUM_NAME_SET(uu->signalInterruptNames, SIGILL);
+    ENUM_NAME_SET(uu->signalInterruptNames, SIGABRT);
+    ENUM_NAME_SET(uu->signalInterruptNames, SIGFPE);
+    ENUM_NAME_SET(uu->signalInterruptNames, SIGSEGV);
+    ENUM_NAME_SET(uu->signalInterruptNames, SIGTERM);
+    ENUM_NAME_SET(uu->signalInterruptNames, SIGHUP);
+    ENUM_NAME_SET(uu->signalInterruptNames, SIGQUIT);
+    ENUM_NAME_SET(uu->signalInterruptNames, SIGTRAP);
+    ENUM_NAME_SET(uu->signalInterruptNames, SIGKILL);
+    ENUM_NAME_SET(uu->signalInterruptNames, SIGBUS);
+    ENUM_NAME_SET(uu->signalInterruptNames, SIGSYS);
+    ENUM_NAME_SET(uu->signalInterruptNames, SIGPIPE);
+    ENUM_NAME_SET(uu->signalInterruptNames, SIGALRM);
+    ENUM_NAME_SET(uu->signalInterruptNames, SIGURG);
+    ENUM_NAME_SET(uu->signalInterruptNames, SIGSTOP);
+    ENUM_NAME_SET(uu->signalInterruptNames, SIGTSTP);
+    ENUM_NAME_SET(uu->signalInterruptNames, SIGCONT);
+    ENUM_NAME_SET(uu->signalInterruptNames, SIGCHLD);
+    ENUM_NAME_SET(uu->signalInterruptNames, SIGTTIN);
+    ENUM_NAME_SET(uu->signalInterruptNames, SIGTTOU);
+    ENUM_NAME_SET(uu->signalInterruptNames, SIGPOLL);
+    ENUM_NAME_SET(uu->signalInterruptNames, SIGXCPU);
+    ENUM_NAME_SET(uu->signalInterruptNames, SIGXFSZ);
+    ENUM_NAME_SET(uu->signalInterruptNames, SIGVTALRM);
+    ENUM_NAME_SET(uu->signalInterruptNames, SIGPROF);
+    ENUM_NAME_SET(uu->signalInterruptNames, SIGUSR1);
+    ENUM_NAME_SET(uu->signalInterruptNames, SIGUSR2);
 
-    ENUM_NAME_SET(deviceDataTypeNames, DT_NONE);
-    ENUM_NAME_SET(deviceDataTypeNames, DT_VOID);
-    ENUM_NAME_SET(deviceDataTypeNames, DT_PING);
-    ENUM_NAME_SET(deviceDataTypeNames, DT_THRUST);
-    ENUM_NAME_SET(deviceDataTypeNames, DT_THRUST_SHM);
-    ENUM_NAME_SET(deviceDataTypeNames, DT_GIMBAL_X);
-    ENUM_NAME_SET(deviceDataTypeNames, DT_GIMBAL_Y);
-    ENUM_NAME_SET(deviceDataTypeNames, DT_DEBUG);
-    ENUM_NAME_SET(deviceDataTypeNames, DT_PONG);
-    ENUM_NAME_SET(deviceDataTypeNames, DT_POSITION_VECTOR);
-    ENUM_NAME_SET(deviceDataTypeNames, DT_BOTTOM_RANGE);
-    ENUM_NAME_SET(deviceDataTypeNames, DT_FLOW_XY);
-    ENUM_NAME_SET(deviceDataTypeNames, DT_ALTITUDE);
-    ENUM_NAME_SET(deviceDataTypeNames, DT_TEMPERATURE);
-    ENUM_NAME_SET(deviceDataTypeNames, DT_MAGNETIC_HEADING);
-    ENUM_NAME_SET(deviceDataTypeNames, DT_EARTH_ACCELERATION);
-    ENUM_NAME_SET(deviceDataTypeNames, DT_ORIENTATION_RPY);
-    // ENUM_NAME_SET(deviceDataTypeNames, DT_ORIENTATION_QUATERNION);
-    ENUM_NAME_SET(deviceDataTypeNames, DT_POSITION_NMEA);
-    ENUM_NAME_SET(deviceDataTypeNames, DT_MAGNETIC_HEADING_NMEA);
-    ENUM_NAME_SET(deviceDataTypeNames, DT_JSTEST);
-    ENUM_NAME_SET(deviceDataTypeNames, DT_POSITION_SHM);
-    ENUM_NAME_SET(deviceDataTypeNames, DT_ORIENTATION_RPY_SHM);
-    ENUM_NAME_SET(deviceDataTypeNames, DT_EARTH_ACCELERATION_SHM);
-    ENUM_NAME_SET(deviceDataTypeNames, DT_MAVLINK_RC_CHANNELS_OVERRIDE);
-    ENUM_NAME_SET(deviceDataTypeNames, DT_MAVLINK_ATTITUDE);
-    ENUM_NAME_SET(deviceDataTypeNames, DT_MAVLINK_BATTERY_STATUS);
-    ENUM_NAME_SET(deviceDataTypeNames, DT_MAVLINK_GLOBAL_POSITION);
-    ENUM_NAME_SET(deviceDataTypeNames, DT_MAVLINK_HOME_POSITION);
-    ENUM_NAME_SET(deviceDataTypeNames, DT_MAVLINK_STATUSTEXT);
-    ENUM_NAME_SET(deviceDataTypeNames, DT_MAX);
-    ENUM_NAME_CHECK(deviceDataTypeNames, DT_);
+    ENUM_NAME_SET(uu->deviceDataTypeNames, DT_NONE);
+    ENUM_NAME_SET(uu->deviceDataTypeNames, DT_VOID);
+    ENUM_NAME_SET(uu->deviceDataTypeNames, DT_PING);
+    ENUM_NAME_SET(uu->deviceDataTypeNames, DT_THRUST);
+    ENUM_NAME_SET(uu->deviceDataTypeNames, DT_THRUST_SHM);
+    ENUM_NAME_SET(uu->deviceDataTypeNames, DT_GIMBAL_X);
+    ENUM_NAME_SET(uu->deviceDataTypeNames, DT_GIMBAL_Y);
+    ENUM_NAME_SET(uu->deviceDataTypeNames, DT_DEBUG);
+    ENUM_NAME_SET(uu->deviceDataTypeNames, DT_PONG);
+    ENUM_NAME_SET(uu->deviceDataTypeNames, DT_POSITION_SENSOR);
+    ENUM_NAME_SET(uu->deviceDataTypeNames, DT_POSITION_DRONE);
+    ENUM_NAME_SET(uu->deviceDataTypeNames, DT_BOTTOM_RANGE);
+    ENUM_NAME_SET(uu->deviceDataTypeNames, DT_FLOW_XY);
+    ENUM_NAME_SET(uu->deviceDataTypeNames, DT_ALTITUDE);
+    ENUM_NAME_SET(uu->deviceDataTypeNames, DT_TEMPERATURE);
+    ENUM_NAME_SET(uu->deviceDataTypeNames, DT_MAGNETIC_HEADING);
+    ENUM_NAME_SET(uu->deviceDataTypeNames, DT_EARTH_ACCELERATION_SENSOR);
+    ENUM_NAME_SET(uu->deviceDataTypeNames, DT_EARTH_ACCELERATION_DRONE);
+    ENUM_NAME_SET(uu->deviceDataTypeNames, DT_ORIENTATION_RPY_SENSOR);
+    ENUM_NAME_SET(uu->deviceDataTypeNames, DT_ORIENTATION_RPY_DRONE);
+    // ENUM_NAME_SET(uu->deviceDataTypeNames, DT_ORIENTATION_QUATERNION);
+    ENUM_NAME_SET(uu->deviceDataTypeNames, DT_POSITION_NMEA);
+    ENUM_NAME_SET(uu->deviceDataTypeNames, DT_MAGNETIC_HEADING_NMEA);
+    ENUM_NAME_SET(uu->deviceDataTypeNames, DT_JSTEST);
+    ENUM_NAME_SET(uu->deviceDataTypeNames, DT_MAVLINK_RC_CHANNELS_OVERRIDE);
+    ENUM_NAME_SET(uu->deviceDataTypeNames, DT_MAVLINK_ATTITUDE);
+    ENUM_NAME_SET(uu->deviceDataTypeNames, DT_MAVLINK_BATTERY_STATUS);
+    ENUM_NAME_SET(uu->deviceDataTypeNames, DT_MAVLINK_GLOBAL_POSITION);
+    ENUM_NAME_SET(uu->deviceDataTypeNames, DT_MAVLINK_HOME_POSITION);
+    ENUM_NAME_SET(uu->deviceDataTypeNames, DT_MAVLINK_STATUSTEXT);
+    ENUM_NAME_SET(uu->deviceDataTypeNames, DT_MAX);
+    ENUM_NAME_CHECK(uu->deviceDataTypeNames, DT_);
     
-    ENUM_NAME_SET(deviceConnectionTypeNames, DCT_NONE);
-    ENUM_NAME_SET(deviceConnectionTypeNames, DCT_INTERNAL_ZEROPOSE);
-    ENUM_NAME_SET(deviceConnectionTypeNames, DCT_COMMAND_BASH);
-    ENUM_NAME_SET(deviceConnectionTypeNames, DCT_COMMAND_EXEC);
-    ENUM_NAME_SET(deviceConnectionTypeNames, DCT_NAMED_PIPES);
-    ENUM_NAME_SET(deviceConnectionTypeNames, DCT_MAVLINK_PTTY);
-    ENUM_NAME_SET(deviceConnectionTypeNames, DCT_MAX);
-    ENUM_NAME_CHECK(deviceConnectionTypeNames, DCT_);
+    ENUM_NAME_SET(uu->deviceInternalAlgoNames, IA_NONE);
+    ENUM_NAME_SET(uu->deviceInternalAlgoNames, IA_ZERO_POSE);
+    ENUM_NAME_SET(uu->deviceInternalAlgoNames, IA_ACCELERATION_POSE);
+    ENUM_NAME_SET(uu->deviceInternalAlgoNames, IA_INERTIA_POSE);
+    ENUM_NAME_SET(uu->deviceInternalAlgoNames, IA_MAX);
+    ENUM_NAME_CHECK(uu->deviceInternalAlgoNames, IA_);
 
-    ENUM_NAME_SET(radioControlNames, RC_NONE);
-    ENUM_NAME_SET(radioControlNames, RC_ROLL);
-    ENUM_NAME_SET(radioControlNames, RC_PITCH);
-    ENUM_NAME_SET(radioControlNames, RC_YAW);
-    ENUM_NAME_SET(radioControlNames, RC_ALTITUDE);
-    ENUM_NAME_SET(radioControlNames, RC_BUTTON_LAUNCH_COUNTDOWN);
-    ENUM_NAME_SET(radioControlNames, RC_BUTTON_STANDBY);
-    ENUM_NAME_SET(radioControlNames, RC_BUTTON_PANIC_SHUTDOWN);
-    ENUM_NAME_SET(radioControlNames, RC_MAX);
-    ENUM_NAME_CHECK(radioControlNames, RC_);
+    ENUM_NAME_SET(uu->deviceConnectionTypeNames, DCT_NONE);
+    ENUM_NAME_SET(uu->deviceConnectionTypeNames, DCT_INTERNAL_ALGO);
+    ENUM_NAME_SET(uu->deviceConnectionTypeNames, DCT_COMMAND_BASH);
+    ENUM_NAME_SET(uu->deviceConnectionTypeNames, DCT_COMMAND_EXEC);
+    ENUM_NAME_SET(uu->deviceConnectionTypeNames, DCT_NAMED_PIPES);
+    ENUM_NAME_SET(uu->deviceConnectionTypeNames, DCT_MAVLINK_PTTY);
+    ENUM_NAME_SET(uu->deviceConnectionTypeNames, DCT_MAX);
+    ENUM_NAME_CHECK(uu->deviceConnectionTypeNames, DCT_);
+
+    ENUM_NAME_SET(uu->radioControlNames, RC_NONE);
+    ENUM_NAME_SET(uu->radioControlNames, RC_ROLL);
+    ENUM_NAME_SET(uu->radioControlNames, RC_PITCH);
+    ENUM_NAME_SET(uu->radioControlNames, RC_YAW);
+    ENUM_NAME_SET(uu->radioControlNames, RC_ALTITUDE);
+    ENUM_NAME_SET(uu->radioControlNames, RC_BUTTON_LAUNCH_COUNTDOWN);
+    ENUM_NAME_SET(uu->radioControlNames, RC_BUTTON_STANDBY);
+    ENUM_NAME_SET(uu->radioControlNames, RC_BUTTON_PANIC_SHUTDOWN);
+    ENUM_NAME_SET(uu->radioControlNames, RC_MAX);
+    ENUM_NAME_CHECK(uu->radioControlNames, RC_);
     
-    ENUM_NAME_SET(pilotMainModeNames, MODE_NONE);
-    ENUM_NAME_SET(pilotMainModeNames, MODE_MOTOR_PWM_CALIBRATION);
-    ENUM_NAME_SET(pilotMainModeNames, MODE_MOTOR_TEST);
-    ENUM_NAME_SET(pilotMainModeNames, MODE_SINGLE_MISSION);
-    ENUM_NAME_SET(pilotMainModeNames, MODE_MANUAL_RC);
-    ENUM_NAME_SET(pilotMainModeNames, MODE_MAX);
-    ENUM_NAME_CHECK(pilotMainModeNames, MODE_);
+    ENUM_NAME_SET(uu->pilotMainModeNames, MODE_NONE);
+    ENUM_NAME_SET(uu->pilotMainModeNames, MODE_MOTOR_PWM_CALIBRATION);
+    ENUM_NAME_SET(uu->pilotMainModeNames, MODE_MOTOR_TEST);
+    ENUM_NAME_SET(uu->pilotMainModeNames, MODE_GYRO_TEST);
+    ENUM_NAME_SET(uu->pilotMainModeNames, MODE_FULL_TEST);
+    ENUM_NAME_SET(uu->pilotMainModeNames, MODE_SINGLE_MISSION);
+    ENUM_NAME_SET(uu->pilotMainModeNames, MODE_MANUAL_RC);
+    ENUM_NAME_SET(uu->pilotMainModeNames, MODE_MAX);
+    ENUM_NAME_CHECK(uu->pilotMainModeNames, MODE_);
     
-    ENUM_NAME_SET(remoteControlModeNames, RCM_NONE);
-    ENUM_NAME_SET(remoteControlModeNames, RCM_PASSTHROUGH);
-    ENUM_NAME_SET(remoteControlModeNames, RCM_ACRO);
-    ENUM_NAME_SET(remoteControlModeNames, RCM_TARGET);
-    ENUM_NAME_SET(remoteControlModeNames, RCM_AUTO);
-    ENUM_NAME_SET(remoteControlModeNames, RCM_MAX);
-    ENUM_NAME_CHECK(remoteControlModeNames, RCM_);
+    ENUM_NAME_SET(uu->remoteControlModeNames, RCM_NONE);
+    ENUM_NAME_SET(uu->remoteControlModeNames, RCM_PASSTHROUGH);
+    ENUM_NAME_SET(uu->remoteControlModeNames, RCM_ACRO);
+    ENUM_NAME_SET(uu->remoteControlModeNames, RCM_STABILIZE);
+    ENUM_NAME_SET(uu->remoteControlModeNames, RCM_STEADY);
+    ENUM_NAME_SET(uu->remoteControlModeNames, RCM_MAX);
+    ENUM_NAME_CHECK(uu->remoteControlModeNames, RCM_);
 
 }
 
@@ -835,6 +644,32 @@ int enumNamesStringToInt(char *s, char **names) {
 	if (strcmp(s, names[i]) == 0) return(i);
     }
     return(-1);
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////////
+
+void deviceStreamTypesInit() {
+    int i;
+
+    i = 0;
+    uu->deviceStreamAccelerationDataTypes[i++] = DT_EARTH_ACCELERATION_SENSOR;
+    uu->deviceStreamAccelerationDataTypes[i++] = DT_EARTH_ACCELERATION_DRONE;
+    uu->deviceStreamAccelerationDataTypes[i++] = DT_NONE;
+    
+    i = 0;
+    // deviceStreamOrientationDataTypes[i++] = DT_ORIENTATION_QUATERNION;
+    uu->deviceStreamOrientationDataTypes[i++] = DT_ORIENTATION_RPY_SENSOR;
+    uu->deviceStreamOrientationDataTypes[i++] = DT_ORIENTATION_RPY_DRONE;
+    uu->deviceStreamOrientationDataTypes[i++] = DT_NONE;
+
+    i = 0;
+    uu->deviceStreamPositionDataTypes[i++] = DT_POSITION_SENSOR;
+    uu->deviceStreamPositionDataTypes[i++] = DT_POSITION_DRONE;
+    uu->deviceStreamPositionDataTypes[i++] = DT_POSITION_NMEA;
+    uu->deviceStreamPositionDataTypes[i++] = DT_FLOW_XY;
+    uu->deviceStreamPositionDataTypes[i++] = DT_BOTTOM_RANGE;
+    uu->deviceStreamPositionDataTypes[i++] = DT_ALTITUDE;
+    uu->deviceStreamPositionDataTypes[i++] = DT_NONE;
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////
@@ -1118,62 +953,6 @@ int regressionBufferEstimateForTime(struct regressionBuffer *hh, double time, do
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////
-// raspilotRingBuffer
-
-double *raspilotRingBufferGetFirstFreeVector(struct raspilotRingBuffer *hh) {
-    if (hh->size == 0 || hh->vectorsize == 0) return(NULL);
-    return(&hh->a[hh->ai*(hh->vectorsize+1)+1]);
-}
-
-void raspilotRingBufferFindRecordForTime(struct raspilotRingBuffer *hh, double time, double *restime, double **res) {
-    int 	i, mini, maxi, ci, ri;
-    double	tt;
-
-    // find the closes record for the time, it supposes that records are ordered by time
-    if (hh == NULL || hh->n < 1) {
-	*res = NULL;
-	return;
-    }
-
-    if (hh->n >= hh->size) {
-	mini = hh->ai;
-	maxi = hh->ai+hh->size-1;
-    } else {
-	maxi = hh->ai-1;
-	mini = hh->ai-hh->n;
-    }
-    i = 0;
-    while (maxi - mini > 1) {
-	// Binary search.
-	// ci = (maxi + mini) / 2;
-	// Approximative search
-	ci = mini + (time - hh->a[(mini%hh->size)  * (hh->vectorsize+1)]) * (maxi-mini)/(hh->a[(maxi%hh->size)  * (hh->vectorsize+1)] - hh->a[(mini%hh->size)  * (hh->vectorsize+1)]);
-	// printf("<%f, %f> : %f :: <%d, %d> --> %d\n", hh->time[mini%hh->size], hh->time[maxi%hh->size], time, mini, maxi, ci);
-	if (ci <= mini) ci = mini+1;
-	if (ci >= maxi) ci = maxi-1;
-	tt = hh->a[(ci%hh->size)  * (hh->vectorsize+1)];
-	if (tt > time) {
-	    maxi = ci;
-	} else if (tt < time) {
-	    mini = ci;
-	} else {
-	    ri = ci;
-	    goto finito;
-	}
-	i++;
-    }
-    if (fabs(time - hh->a[(mini%hh->size)  * (hh->vectorsize+1)]) < fabs(time - hh->a[(maxi%hh->size) * (hh->vectorsize+1)])) {
-	ri = mini;
-    } else {
-	ri = maxi;
-    }
-finito:
-    // printf("found index after %d loops\n", i);
-    if (restime != NULL) *restime = hh->a[(ri%hh->size) * (hh->vectorsize+1)];
-    *res = &hh->a[(ri%hh->size)*(hh->vectorsize+1)+1];
-}
-
-/////////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////////
 
 int vec1TruncateToSize(double *r, double size, int warningFlag, char *warningId) {
@@ -1390,7 +1169,7 @@ static void mpuGetYawPitchRoll(vec3 data, quat q, vec3 gravity) {
     // roll: (tilt left/right, about X axis)
     data[2] = atan(gravity[1] / sqrt(gravity[0]*gravity[0] + gravity[2]*gravity[2]));
 }
-static void mpuQuatToYpr(quat qq, double *yaw, double *pitch, double *roll) {
+void mpuQuatToYpr(quat qq, double *yaw, double *pitch, double *roll) {
     vec3	gr, vv;
     
     mpuGetGravity(gr, qq);
@@ -1405,71 +1184,6 @@ static void mpuQuatToYpr(quat qq, double *yaw, double *pitch, double *roll) {
     *pitch = vv[1];
     *roll = vv[2];
 #endif
-}
-
-// quat to rpi and back by wiki
-// not sure what is the correspondance between mpu and this
-static void wikiQuaternionToEulerAngles(quat q, double *yaw, double *pitch, double *roll) {
-    double x, y, z, w;
-    double sinr_cosp, cosr_cosp, sinp, siny_cosp, cosy_cosp;
-    
-    x = q[0];
-    y = q[1];
-    z = q[2];
-    w = q[3];
-    
-    // roll (x-axis rotation)
-    sinr_cosp = 2 * (w * x + y * z);
-    cosr_cosp = 1 - 2 * (x * x + y * y);
-    *roll = atan2(sinr_cosp, cosr_cosp);
-
-    // pitch (y-axis rotation)
-    // [MV] I had to change the sign here to get my pitch
-    sinp = 2 * (w * y - z * x);
-    if (fabs(sinp) >= 1) {
-        *pitch = - copysign(M_PI / 2, sinp); // use 90 degrees if out of range
-    } else {
-        *pitch = - asin(sinp);
-    }
-	
-    // yaw (z-axis rotation)
-    siny_cosp = 2 * (w * z + x * y);
-    cosy_cosp = 1 - 2 * (y * y + z * z);
-    *yaw = atan2(siny_cosp, cosy_cosp);
-	
-}
-
-static void wikiEulerAnglesToQuaternion(double yaw, double pitch, double roll, quat q) {
-    double cy, sy, cp, sp, cr, sr;
-
-    cy = cos(yaw * 0.5);
-    sy = sin(yaw * 0.5);
-    // [MV] Use pitch with inversed sign to get back to original quaternion
-    cp = cos(-pitch * 0.5);
-    sp = sin(-pitch * 0.5);
-    cr = cos(roll * 0.5);
-    sr = sin(roll * 0.5);
-
-    q[3] = cr * cp * cy + sr * sp * sy;
-    q[0] = sr * cp * cy - cr * sp * sy;
-    q[1] = cr * sp * cy + sr * cp * sy;
-    q[2] = cr * cp * sy - sr * sp * cy;
-}
-
-//////////////////////////////////////////////////////////////////////////////////
-// main functions using either mpu conversion or wiki, choose one
-
-void quatToRpy(quat qq, double *roll, double *pitch, double *yaw) {
-    // Experiment with those two
-    if (0) {
-	mpuQuatToYpr(qq, yaw, pitch, roll);
-    } else {
-	wikiQuaternionToEulerAngles(qq, yaw, pitch, roll);
-    }
-}
-
-void rpyToQuat(double roll, double pitch, double yaw, quat q) {
-    wikiEulerAnglesToQuaternion(yaw, pitch, roll, q);
 }
 
 //////////////////////////////////////////////////////////////////////////////////
@@ -1855,7 +1569,7 @@ void *createSharedMemory(int size, char *namefmt, ...) {
     
     va_start(ap, namefmt);
     vsnprintf(name, TMP_STRING_SIZE-1, namefmt, ap);
-    //printf("%s: Info: Creating shared memory %s\n", PPREFIX(), name); fflush(stdout);
+    // printf("%s: Info: Creating shared memory %s\n", PPREFIX(), name); fflush(stdout);
     lprintf(1, "%s: Info: Creating shared memory %s\n", PPREFIX(), name);
     va_end(ap);
 
@@ -1886,14 +1600,59 @@ struct raspilotInputBuffer *raspilotCreateSharedMemory(struct deviceStreamData *
     struct raspilotInputBuffer 	*res;
     int				len;
 
-    len = RASPILOT_INPUT_BUFFER_SIZE(ddd->regression_size, deviceDataStreamVectorLength[ddd->type]);
-    res = createSharedMemory(len, "raspilot.%s.%s", ddd->dd->name, ddd->name);
+    len = RASPILOT_INPUT_BUFFER_SIZE(ddd->regression_size, uu->deviceDataStreamVectorLength[ddd->type]);
+    res = createSharedMemory(len, "%s", raspilotDeviceStreamSharedMemName_st(ddd->dd->name, ddd->name));
     if (res == NULL) return(NULL);
-    res->buffer.vectorsize = deviceDataStreamVectorLength[ddd->type];
-    res->buffer.size = ddd->regression_size;
-    res->status = RIBS_SHARED_INITIALIZE;
-    res->magicVersion = RASPILOT_SHM_MAGIC_VERSION;
-    res->confidence = 0;
+    // lprintf(1, "%s: Info: cleaning %p len %d\n", PPREFIX(), res, len);
+    memset(res, 0, len);
+    //res->buffer.vectorsize = uu->deviceDataStreamVectorLength[ddd->type];
+    //res->buffer.size = ddd->regression_size;
     return(res);
 }
 
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// This is a trick that all our allocations are part of a single chunk of a shared memory. The only allocator
+// we use is this one.
+
+static char *theMemory = NULL;
+static int  theMemoryRemainingSize;
+
+char *raspilotUniverseMalloc(int n) {
+    char	*res;
+
+    // maybe initialize theMemory
+    if (theMemory == NULL) return(NULL);
+    
+    // fprintf(stderr, "%s: n == %d, remaining size == %d\n", PPREFIX(), n, theMemoryRemainingSize);
+    if (n > theMemoryRemainingSize) {
+	// Out of memory. However we do not want to crash raspilot severly.
+	fprintf(stderr, "\n%s: Raspilot has run out of memory. Fix the problem or increase THE_MEMORY_SIZE !!!\n\n", PPREFIX());
+	lprintf(0, "\n%s: Raspilot has run out of memory. Fix the problem or increase THE_MEMORY_SIZE !!!\n\n", PPREFIX());
+	return(malloc(n));
+    } else {
+	res = theMemory;
+	theMemory += n;
+	theMemoryRemainingSize -= n;
+	return(res);
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void createUniverse() {
+    uu = createSharedMemory(RASPILOT_UNIVERSE_SHM_SIZE, RASPILOT_UNIVERSE_SHM_NAME);
+    if (uu == NULL) {
+	fprintf(stderr, "Can't allocate universe. Fatal, exiting\n");
+	exit(-1);
+    }
+    theMemory = ((char*)uu) + sizeof(struct universe);
+    theMemoryRemainingSize = RASPILOT_UNIVERSE_SHM_SIZE - sizeof(struct universe);
+
+    memset(uu, 0, sizeof(struct universe));
+    uu->prefix.self = (char *) uu;
+    uu->prefix.version = RASPILOT_UNIVERSE_VERSION;
+}
+
+void destroyUniverse() {
+    unlink(RASPILOT_UNIVERSE_SHM_NAME);
+}

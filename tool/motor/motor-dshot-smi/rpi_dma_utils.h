@@ -38,8 +38,8 @@
 
 // Structure for mapped peripheral or memory
 typedef struct {
-    int fd,         // File descriptor
-        h,          // Memory handle
+  int32_t fd;         // File descriptor
+    uint64_t    h,          // Memory handle
         size;       // Memory size
     void *bus,      // Bus address
         *virt,      // Virtual address
@@ -47,14 +47,14 @@ typedef struct {
 } MEM_MAP;
 
 // Get virtual 8 and 32-bit pointers to register
-#define REG8(m, x)  ((volatile uint8_t *) ((uint32_t)(m.virt)+(uint32_t)(x)))
-#define REG32(m, x) ((volatile uint32_t *)((uint32_t)(m.virt)+(uint32_t)(x)))
+#define REG8(m, x)  ((volatile uint8_t *) ((uintptr_t)(m.virt)+(uintptr_t)(x)))
+#define REG32(m, x) ((volatile uint32_t *)((uintptr_t)(m.virt)+(uintptr_t)(x)))
 // Get bus address of register
-#define REG_BUS_ADDR(m, x)  ((uint32_t)(m.bus)  + (uint32_t)(x))
+#define REG_BUS_ADDR(m, x)  ((uintptr_t)(m.bus)  + (uintptr_t)(x))
 // Convert uncached memory virtual address to bus address
-#define MEM_BUS_ADDR(mp, a) ((uint32_t)a-(uint32_t)mp->virt+(uint32_t)mp->bus)
+#define MEM_BUS_ADDR(mp, a) ((uintptr_t)a-(uintptr_t)mp->virt+(uintptr_t)mp->bus)
 // Convert bus address to physical address (for mmap)
-#define BUS_PHYS_ADDR(a)    ((void *)((uint32_t)(a)&~0xC0000000))
+#define BUS_PHYS_ADDR(a)    ((void *)((uintptr_t)(a)&~0xC0000000))
 
 // GPIO register definitions
 #define GPIO_BASE       (rpiRegBase + 0x200000)
@@ -131,6 +131,7 @@ typedef struct {
 #define DMA_PRIORITY(n) ((n) << 16)
 
 // DMA control block (must be 32-byte aligned)
+// looks like it shall be 64-byt aligned on 64-bt os
 typedef struct {
     uint32_t ti,    // Transfer info
         srce_ad,    // Source address
@@ -139,8 +140,8 @@ typedef struct {
         stride,     // Transfer stride
         next_cb,    // Next control block
         debug,      // Debug register, zero in control block
-        unused;
-} DMA_CB __attribute__ ((aligned(32)));
+      unused[9];
+} DMA_CB __attribute__ ((aligned(64)));
 
 // PWM controller registers
 #define PWM_BASE        (PHYS_REG_BASE + 0x20C000)
@@ -166,7 +167,7 @@ typedef struct {
 #define CLK_PASSWD      0x5a000000
 #define PWM_CLOCK_ID    0xa
 
-extern int32_t     rpiRegBase;
+extern  uintptr_t    rpiRegBase;
 
 void fail(char *s);
 void *map_periph(MEM_MAP *mp, void *phys, int size);
@@ -180,13 +181,13 @@ uint8_t gpio_in(int pin);
 void disp_mode_vals(uint32_t mode);
 int open_mbox(void);
 void close_mbox(int fd);
-uint32_t msg_mbox(int fd, VC_MSG *msgp);
+uintptr_t msg_mbox(int fd, VC_MSG *msgp);
 void *map_segment(void *addr, int size);
 void unmap_segment(void *addr, int size);
-uint32_t alloc_vc_mem(int fd, uint32_t size, VC_ALLOC_FLAGS flags);
+uintptr_t alloc_vc_mem(int fd, uint32_t size, VC_ALLOC_FLAGS flags);
 void *lock_vc_mem(int fd, int h);
-uint32_t unlock_vc_mem(int fd, int h);
-uint32_t free_vc_mem(int fd, int h);
+uintptr_t unlock_vc_mem(int fd, int h);
+uintptr_t free_vc_mem(int fd, int h);
 uint32_t set_vc_clock(int fd, int id, uint32_t freq);
 void disp_vc_msg(VC_MSG *msgp);
 void enable_dma(int chan);

@@ -1,4 +1,7 @@
 //////////////////////////////////////////////////////////////////////////
+// We implement an "extended" JSON which is JSON where field names can be used without quotes,
+// comma can occur after the last field, constant expressions can be used instead of constants
+// and two consecutive string literals are joined into one string.
 
 #include "common.h"
 
@@ -204,11 +207,11 @@ char *jsonConstantExpressionParse(char *s, struct jsonPosition *pp, double *res)
 ///////////////////////////
 
 char *jsonParseStringLiteral(char *ss, char **res) {
-    char			*d;
-    char			*s;
-    int				i, dsize;
+    char		*d;
+    char		*s, *tt;
+    int			i, dsize;
     unsigned long	cc;
-
+    
     dsize = 32;
     ALLOCC(d, dsize, char);
     for(s=ss,i=0; *s != 0 && *s != '"'; s++,i++) {
@@ -241,8 +244,17 @@ char *jsonParseStringLiteral(char *ss, char **res) {
 	} else {
 	    d[i] = *s;
 	}
+	tt = s+1;
+	if (*tt == '"') {
+	    for(tt++; isblank(*tt); tt++) ;
+	    if (*tt == '"') {
+		// There are two consecutive string literals, take them as one.
+		s = tt;
+		continue;
+	    }
+	}
     }
-
+    
 jsonBreak:
     if (*s == 0) {
 	FREE(d);
@@ -274,7 +286,7 @@ char *jsonParseStringRec(char *b, struct jsonPosition *pp, struct jsonnode **res
     if (*s == '{') {
         // JSON Object
 	CALLOC(*res, struct jsonnode);
-	(*res)->type = JSON_NODE_TYPE_OBJECT;
+	(*res)->type = JSON_TYPE_OBJECT;
 	jsonNotePosition(*res, &spp);
 	(*res)->u.fields = NULL;
 #if JSON_OBJECT_TREE
@@ -328,7 +340,7 @@ char *jsonParseStringRec(char *b, struct jsonPosition *pp, struct jsonnode **res
     } else if (*s == '[') {
         // JSON array
 	CALLOC(*res, struct jsonnode);
-	(*res)->type = JSON_NODE_TYPE_ARRAY;
+	(*res)->type = JSON_TYPE_ARRAY;
 	jsonNotePosition(*res, &spp);
 	(*res)->u.fields = NULL;
 	fff = &(*res)->u.fields;
@@ -383,14 +395,14 @@ char *jsonParseStringRec(char *b, struct jsonPosition *pp, struct jsonnode **res
         if (ss == NULL) goto jsonError;
         s = ss+1;
 	CALLOC(*res, struct jsonnode);
-	(*res)->type = JSON_NODE_TYPE_STRING;
+	(*res)->type = JSON_TYPE_STRING;
 	jsonNotePosition(*res, &spp);
 	(*res)->u.s = slit;
     } else if (isdigit(*s) || *s == '.' || *s == '+' || *s == '-' || *s == '(') {
 	s = jsonConstantExpressionParse(s, pp, &dval);
 	if (s == NULL) goto jsonError;
 	CALLOC(*res, struct jsonnode);
-	(*res)->type = JSON_NODE_TYPE_NUMBER;
+	(*res)->type = JSON_TYPE_NUMBER;
 	jsonNotePosition(*res, &spp);
 	(*res)->u.n = dval;
     } else {
@@ -409,7 +421,7 @@ char *jsonParseStringRec(char *b, struct jsonPosition *pp, struct jsonnode **res
 	    *res = NULL;
 	} else {
 	    CALLOC(*res, struct jsonnode);
-	    (*res)->type = JSON_NODE_TYPE_BOOL;
+	    (*res)->type = JSON_TYPE_BOOL;
 	    jsonNotePosition(*res, &spp);
 	    (*res)->u.b = i;
 	}
@@ -446,26 +458,30 @@ void jsonFree(struct jsonnode *nn) {
     if (nn == NULL) return;
 
     switch (nn->type) {
-    case JSON_NODE_TYPE_STRING:
-	FREE(nn->u.s);
-	break;
-    case JSON_NODE_TYPE_ARRAY:
+    case JSON_TYPE_STRING:
+		FREE(nn->u.s);
+		break;
+    case JSON_TYPE_ARRAY:
+#if JSON_ARRAY_TABLE_ONLY
+		for(i=0; i<nn->u.a.tableSize; i++) FREE(nn->u.a.table[i]);
+#endif		
 #if JSON_ARRAY_TABLE || JSON_ARRAY_TABLE_ONLY
-	for(i=0; i<nn->u.a.tableSize; i++) FREE(nn->u.a.table[i]);
-	FREE(nn->u.a.table);
-	break;
-#endif
+		FREE(nn->u.a.table);
+#endif		
+#if JSON_ARRAY_TABLE_ONLY		
+		break;
+#endif		
 	// if not table, passthrough to freeing list of elements!
-    case JSON_NODE_TYPE_OBJECT:
-	ll = nn->u.fields; 
-	while (ll != NULL) {
-	    if (nn->type == JSON_NODE_TYPE_OBJECT) FREE(ll->u.name);
-	    jsonFree(ll->val);
-	    llnext = ll->next;
-	    FREE(ll);
-	    ll = llnext;
-	}
-	break;
+    case JSON_TYPE_OBJECT:
+		ll = nn->u.fields; 
+		while (ll != NULL) {
+			if (nn->type == JSON_TYPE_OBJECT) FREE(ll->u.name);
+			jsonFree(ll->val);
+			llnext = ll->next;
+			FREE(ll);
+			ll = llnext;
+		}
+		break;
     }
 
 #if JSON_SOURCE_POSITIONS
@@ -524,17 +540,17 @@ void jsonPrint(struct jsonnode *nn, FILE *ff) {
     }
 	
     switch (nn->type) {
-    case JSON_NODE_TYPE_BOOL:
+    case JSON_TYPE_BOOL:
 	if (nn->u.b) fprintf(ff, "true");
 	else fprintf(ff, "false");
 	break;
-    case JSON_NODE_TYPE_NUMBER:
+    case JSON_TYPE_NUMBER:
 	fprintf(ff, "%f", nn->u.n);
 	break;
-    case JSON_NODE_TYPE_STRING:
+    case JSON_TYPE_STRING:
 	jsonPrintString(nn->u.s, ff);
 	break;
-    case JSON_NODE_TYPE_ARRAY:
+    case JSON_TYPE_ARRAY:
 	fprintf(ff, "[");
 	for(ll=nn->u.fields; ll!=NULL; ll=ll->next) {
 	    jsonPrint(ll->val, ff);
@@ -542,7 +558,7 @@ void jsonPrint(struct jsonnode *nn, FILE *ff) {
 	}
 	fprintf(ff, "]");
 	break;
-    case JSON_NODE_TYPE_OBJECT:
+    case JSON_TYPE_OBJECT:
 	fprintf(ff, "{");
 	for(ll=nn->u.fields; ll!=NULL; ll=ll->next) {
 	    fprintf(ff, "\"%s\": ", ll->u.name);
@@ -558,7 +574,7 @@ struct jsonnode *jsonFindArrayIndex(struct jsonnode *nn, int index) {
     struct jsonFieldList	*ll, memb;
     int				i;
     
-    if (nn == NULL || nn->type != JSON_NODE_TYPE_ARRAY || index < 0) return(NULL);
+    if (nn == NULL || nn->type != JSON_TYPE_ARRAY || index < 0) return(NULL);
 #if JSON_ARRAY_TABLE || JSON_ARRAY_TABLE_ONLY
     if (index >= nn->u.a.tableSize) return(NULL);
     return(nn->u.a.table[index]);
@@ -572,7 +588,7 @@ struct jsonnode *jsonFindArrayIndex(struct jsonnode *nn, int index) {
 struct jsonnode *jsonFindObjectField(struct jsonnode *nn, char *name) {
     struct jsonFieldList	*ll, memb;
 
-    if (nn == NULL || nn->type != JSON_NODE_TYPE_OBJECT) return(NULL);
+    if (nn == NULL || nn->type != JSON_TYPE_OBJECT) return(NULL);
 #if JSON_OBJECT_TREE
     memb.u.name = name;
     ll = sglib_orbtree_find_member(nn->u.t.tree, &memb);
@@ -600,7 +616,7 @@ struct jsonnode *jsonFind(struct jsonnode *nn, char *composedField) {
     if (*cc == '[') {
 	// TODO: Test this, it has not been used yet
 	cc ++;
-	if (nn->type != JSON_NODE_TYPE_ARRAY) return(NULL);
+	if (nn->type != JSON_TYPE_ARRAY) return(NULL);
 	i = strtol(cc, &ee, 10);
 	if (ee == cc) return(NULL);
 	cc = ee;
@@ -610,7 +626,7 @@ struct jsonnode *jsonFind(struct jsonnode *nn, char *composedField) {
 	// tail recursion
 	return(jsonFind(jsonFindArrayIndex(nn, i), cc));
     } else {
-	if (nn->type != JSON_NODE_TYPE_OBJECT) return(NULL);
+	if (nn->type != JSON_TYPE_OBJECT) return(NULL);
 	for(ee = cc; *ee != 0; ee++) {
 	    if (*ee == '.' || *ee == '[' || isspace(*ee)) break;
 	}
@@ -630,7 +646,7 @@ double jsonFindDouble(struct jsonnode *nn, char *name, double defaultValue) {
     struct jsonnode 	*tt;
 
     tt = jsonFind(nn, name);
-    if (tt == NULL || tt->type != JSON_NODE_TYPE_NUMBER) return(defaultValue);
+    if (tt == NULL || tt->type != JSON_TYPE_NUMBER) return(defaultValue);
     return(tt->u.n);
 }
 
@@ -638,7 +654,7 @@ char *jsonFindString(struct jsonnode *nn, char *name, char *defaultValue) {
     struct jsonnode 	*tt;
 
     tt = jsonFind(nn, name);
-    if (tt == NULL || tt->type != JSON_NODE_TYPE_STRING) return(defaultValue);
+    if (tt == NULL || tt->type != JSON_TYPE_STRING) return(defaultValue);
     return(tt->u.s);
 }
 

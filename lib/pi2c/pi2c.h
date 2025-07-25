@@ -4,6 +4,7 @@
 void pi2cInit(char *path, int multiProcessSharingFlag) ;
 void pi2cClose(int fd) ;
 int pi2cOpen(char *path, int devAddr) ;
+int pi2cReadBytesWithDelay(int ifd, uint8_t regAddr, unsigned int sleepUsec, uint8_t length, uint8_t *data) ;
 int pi2cReadBytes(int fd, uint8_t regAddr, uint8_t length, uint8_t *data) ;
 int pi2cWrite(int fd, uint8_t* data, int length) ;
 int pi2cWriteBytesToReg(int fd, uint8_t regAddr, uint8_t length, uint8_t* data) ;

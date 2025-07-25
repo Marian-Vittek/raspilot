@@ -30,7 +30,7 @@
 	if (cc == NULL) {						\
 	    lprintf(0, "%s: Error: %s.%s is NULL in %s.\n", PPREFIX(), context, id, path); \
 	    CANT_LOAD_CONFIGURATION_FILE_FATAL(path);			\
-	    cc = &dummyJsonNode;					\
+	    cc = &uu->dummyJsonNode;					\
 	}								\
 	if (cc->type != jsonType) {					\
 	    lprintf(0, "%s: Error: %s.%s is not of type %s in %s.\n", PPREFIX(), context, id, jsonNodeTypeEnumNames[jsonType], path); \
@@ -56,19 +56,19 @@
 	if (node == NULL) {	\
 	    (d)->name = strDuplicate(defaultValue);			\
 	    lprintf(10,"%s: Info: parameter %s.%-40s: %s\n", PPREFIX(), context, #name, (d)->name); \
-	} else if (LOAD_CONFIG_TYPE_OK(node, JSON_NODE_TYPE_STRING)) {	\
+	} else if (LOAD_CONFIG_TYPE_OK(node, JSON_TYPE_STRING)) {	\
 	    (d)->name = strSafeDuplicate(node->u.s);			\
 	    node->used = 1;						\
 	    lprintf(10,"%s: Info: parameter %s.%-40s: %s\n", PPREFIX(), context, #name, (d)->name); \
 	} else {			\
-	    LOAD_CONFIG_ERROR_ON_WRONG_TYPE(node, path, context, #name, JSON_NODE_TYPE_STRING); \
+	    LOAD_CONFIG_ERROR_ON_WRONG_TYPE(node, path, context, #name, JSON_TYPE_STRING); \
 	}								\
     }
 
 #define LOAD_CONFIG_ENUM_STRING_OPTION(cc, context, d, enumnames, name) { \
 	struct jsonnode *node;						\
 	node = jsonFindObjectField(cc, #name);				\
-	if (LOAD_CONFIG_TYPE_OK(node, JSON_NODE_TYPE_STRING)) {		\
+	if (LOAD_CONFIG_TYPE_OK(node, JSON_TYPE_STRING)) {		\
 	    (d)->name = enumNamesStringToInt(node->u.s, enumnames);	\
 	    if ((d)->name < 0) {					\
 		lprintf(0,"%s: Error wrong value %s in %s. One of ", PPREFIX(), node->u.s, #name); \
@@ -80,7 +80,7 @@
 	    node->used = 1;						\
 	    lprintf(10,"%s: Info: parameter %s.%-40s: %s\n", PPREFIX(), context, #name, enumnames[(d)->name]); \
 	} else {			\
-	    LOAD_CONFIG_ERROR_ON_WRONG_TYPE(node, path, context, #name, JSON_NODE_TYPE_STRING); \
+	    LOAD_CONFIG_ERROR_ON_WRONG_TYPE(node, path, context, #name, JSON_TYPE_STRING); \
 	}								\
     }
 
@@ -97,12 +97,12 @@
 #define LOAD_CONFIG_DOUBLE_OPTION(cc, context, d, name) {		\
         struct jsonnode *node;                                          \
         node = jsonFindObjectField(cc, #name);                                \
-        if (LOAD_CONFIG_TYPE_OK(node, JSON_NODE_TYPE_NUMBER)) {		\
+        if (LOAD_CONFIG_TYPE_OK(node, JSON_TYPE_NUMBER)) {		\
 	    (d)->name = node->u.n;					\
 	    node->used = 1;						\
 	    lprintf(10,"%s: Info: parameter %s.%-40s: %g\n", PPREFIX(), context, #name, (double)(d)->name); \
 	} else {			\
-	    LOAD_CONFIG_ERROR_ON_WRONG_TYPE(node, path, context, #name, JSON_NODE_TYPE_NUMBER); \
+	    LOAD_CONFIG_ERROR_ON_WRONG_TYPE(node, path, context, #name, JSON_TYPE_NUMBER); \
 	}								\
     }
 #define LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(cc, context, d, name, defaultValue) { \
@@ -111,12 +111,12 @@
 	if (node == NULL) {	\
 	    (d)->name = (defaultValue);					\
 	    lprintf(10,"%s: Info: parameter %s.%-40s: %g\n", PPREFIX(), context, #name, (double)(d)->name); \
-	} else if (LOAD_CONFIG_TYPE_OK(node, JSON_NODE_TYPE_NUMBER)) {	\
+	} else if (LOAD_CONFIG_TYPE_OK(node, JSON_TYPE_NUMBER)) {	\
 	    (d)->name = node->u.n;					\
 	    node->used = 1;						\
 	    lprintf(10,"%s: Info: parameter %s.%-40s: %g\n", PPREFIX(), context, #name, (double)(d)->name); \
 	} else {			\
-	    LOAD_CONFIG_ERROR_ON_WRONG_TYPE(node, path, context, #name, JSON_NODE_TYPE_NUMBER); \
+	    LOAD_CONFIG_ERROR_ON_WRONG_TYPE(node, path, context, #name, JSON_TYPE_NUMBER); \
 	}								\
     }
 
@@ -138,12 +138,12 @@
 	if (node == NULL) {	\
 	    (d)->name = (defaultValue);					\
 	    lprintf(10,"%s: Info: parameter %s.%-40s: %d\n", PPREFIX(), context, #name, (int)(d)->name); \
-	} else if (LOAD_CONFIG_TYPE_OK(node, JSON_NODE_TYPE_BOOL)) {	\
+	} else if (LOAD_CONFIG_TYPE_OK(node, JSON_TYPE_BOOL)) {	\
 	    (d)->name = node->u.b;					\
 	    node->used = 1;						\
 	    lprintf(10,"%s: Info: parameter %s.%-40s: %d\n", PPREFIX(), context, #name, (int)(d)->name); \
 	} else {			\
-	    LOAD_CONFIG_ERROR_ON_WRONG_TYPE(node, path, context, #name, JSON_NODE_TYPE_BOOL); \
+	    LOAD_CONFIG_ERROR_ON_WRONG_TYPE(node, path, context, #name, JSON_TYPE_BOOL); \
 	}								\
     }
 
@@ -181,11 +181,11 @@ static int configMaybeLoadVector(struct jsonnode *cc, double *vv, int length, ch
     struct jsonnode 		*c;
     struct jsonFieldList 	*ll;
     i = 0;
-    for(ll=configFindFieldList(cc, fieldname, JSON_NODE_TYPE_ARRAY, context); ll!=NULL; ll=ll->next) {
+    for(ll=configFindFieldList(cc, fieldname, JSON_TYPE_ARRAY, context); ll!=NULL; ll=ll->next) {
 	if (i < length) {
 	    LOAD_CONFIG_CONTEXT_PUSH(context, "%s[%d]", fieldname, i);
 	    c = ll->val;
-	    LOAD_CONFIG_ERROR_ON_WRONG_TYPE(c, path, context, "", JSON_NODE_TYPE_NUMBER);
+	    LOAD_CONFIG_ERROR_ON_WRONG_TYPE(c, path, context, "", JSON_TYPE_NUMBER);
 	    vv[i] = c->u.n;
 	    lprintf(10,"%s: Info: parameter %.*s: %f\n", PPREFIX(), 40, context, vv[i]);
 	    LOAD_CONFIG_CONTEXT_POP(context);
@@ -200,11 +200,11 @@ static int configMaybeLoadEnumArray(struct jsonnode *cc, int *vv, int length, ch
     struct jsonnode 		*c;
     struct jsonFieldList 	*ll;
     i = 0;
-    for(ll=configFindFieldList(cc, fieldname, JSON_NODE_TYPE_ARRAY, context); ll!=NULL; ll=ll->next) {
+    for(ll=configFindFieldList(cc, fieldname, JSON_TYPE_ARRAY, context); ll!=NULL; ll=ll->next) {
 	if (i < length) {
 	    LOAD_CONFIG_CONTEXT_PUSH(context, "%s[%d]", fieldname, i);
 	    c = ll->val;
-	    LOAD_CONFIG_ERROR_ON_WRONG_TYPE(c, path, context, "", JSON_NODE_TYPE_STRING);
+	    LOAD_CONFIG_ERROR_ON_WRONG_TYPE(c, path, context, "", JSON_TYPE_STRING);
 	    vv[i] = enumNamesStringToInt(c->u.s, enumnames);
 	    if (vv[i] < 0) {
 		lprintf(0,"%s: Error wrong value %s in %s. One of ", PPREFIX(), c->u.s, fieldname);
@@ -225,7 +225,7 @@ void configMaybeLoadPermutationVector(struct jsonnode *cc, int *vv, int length, 
     struct jsonnode 		*c;
     int 			i, missingElemFlag;
 
-    ll = ll0 = configFindFieldList(cc, fieldname, JSON_NODE_TYPE_ARRAY, context);
+    ll = ll0 = configFindFieldList(cc, fieldname, JSON_TYPE_ARRAY, context);
     missingElemFlag = 0;
     for(i=0; i<length; i++) {
 	LOAD_CONFIG_CONTEXT_PUSH(context, "%s[%d]", fieldname, i);
@@ -234,7 +234,7 @@ void configMaybeLoadPermutationVector(struct jsonnode *cc, int *vv, int length, 
 	    if (ll0 != NULL) missingElemFlag = 1;
 	} else {
 	    c = ll->val;
-	    LOAD_CONFIG_ERROR_ON_WRONG_TYPE(c, path, context, "", JSON_NODE_TYPE_NUMBER);
+	    LOAD_CONFIG_ERROR_ON_WRONG_TYPE(c, path, context, "", JSON_TYPE_NUMBER);
 	    vv[i] = (int) c->u.n;
 	    ll=ll->next;
 	}
@@ -289,7 +289,7 @@ static void configInputBufferInit(struct deviceData *dl, struct deviceStreamData
     double	*memoryPool;
     char	*mem;
     
-    vectorSize = deviceDataStreamVectorLength[ddl->type];
+    vectorSize = uu->deviceDataStreamVectorLength[ddl->type];
     bufferSize = ddl->regression_size;
     len = sizeof(struct raspilotInputBuffer) + bufferSize * (vectorSize + 1) * sizeof(double);
 	
@@ -297,12 +297,16 @@ static void configInputBufferInit(struct deviceData *dl, struct deviceStreamData
     if (deviceIsSharedMemoryDataStream(ddl)) {
 	// Allocate/map shared memory struct raspilotInputBuffer
 	ddl->input = raspilotCreateSharedMemory(ddl);
+	ddl->input->status = RIBS_SHARED_INITIALIZE;
+	ddl->input->magicVersion = RASPILOT_SHM_MAGIC_VERSION;
     } else {
 	CALLOCC(mem, RASPILOT_INPUT_BUFFER_SIZE(bufferSize, vectorSize), char);
 	ddl->input = (struct raspilotInputBuffer *) mem;
 	ddl->input->status = RIBS_NOT_SHARED;
-	raspilotRingBufferInit(&ddl->input->buffer, vectorSize, bufferSize, "%s.%s stream", dl->name, ddl->name);
+	ddl->input->magicVersion = 0;
     }
+    ddl->input->confidence = 0;
+    raspilotRingBufferInit(&ddl->input->buffer, vectorSize, bufferSize, "%s.%s stream", dl->name, ddl->name);
 }
 
 static void configInitiateInverseChannelMap(int *map, int length, int *res) {
@@ -319,7 +323,7 @@ static void configVectorMaybeSpecifiedByUniqueNumber(struct jsonnode *d, double 
     
     dval = defaultValue;
     ww = jsonFindObjectField(d, field);
-    if (ww != NULL && ww->type == JSON_NODE_TYPE_NUMBER) {
+    if (ww != NULL && ww->type == JSON_TYPE_NUMBER) {
 	dval = ww->u.n;
 	ww->used = 1;
     }
@@ -334,9 +338,9 @@ void configLoadDeviceStreams(struct jsonnode *c, struct deviceData	*dl, char *pa
     char				*name;
     double				dweight;
 
-    for(ll=configFindFieldList(c, "stream", JSON_NODE_TYPE_ARRAY, context); ll!=NULL; ll=ll->next) {
+    for(ll=configFindFieldList(c, "stream", JSON_TYPE_ARRAY, context); ll!=NULL; ll=ll->next) {
 	d = ll->val;
-	LOAD_CONFIG_ERROR_ON_WRONG_TYPE(d, path, context, "", JSON_NODE_TYPE_OBJECT);
+	LOAD_CONFIG_ERROR_ON_WRONG_TYPE(d, path, context, "", JSON_TYPE_OBJECT);
 
 	name = jsonFindString(d, "name", NULL);
 	i = configGetDeviceDataIndex(dl, name);
@@ -345,7 +349,7 @@ void configLoadDeviceStreams(struct jsonnode *c, struct deviceData	*dl, char *pa
 	    oldtype = ddl->type;
 	    ddl->dd = dl;
 	    LOAD_CONFIG_CONTEXT_PUSH(context, "stream[%d]", i);
-	    LOAD_CONFIG_ENUM_STRING_OPTION(d, context, ddl, deviceDataTypeNames, type);
+	    LOAD_CONFIG_ENUM_STRING_OPTION(d, context, ddl, uu->deviceDataTypeNames, type);
 	    if (ddl->type < DT_NONE || ddl->type >= DT_MAX) {
 		lprintf(0,"%s: Error: stream type in %s. Exiting.\n", PPREFIX(), context);
 		// Actuall this probably means serious configuration problem. Prefer not to continue
@@ -380,25 +384,33 @@ void configLoadDeviceStreams(struct jsonnode *c, struct deviceData	*dl, char *pa
 	    LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(d, context, ddl, mandatory, 0);
 	    LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(d, context, ddl, regression_size, 2);
 	    LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(d, context, ddl, debug_level, 30);
-	    ALLOCC(ddl->weight, deviceDataStreamVectorLength[ddl->type], double);
-	    configVectorMaybeSpecifiedByUniqueNumber(d, ddl->weight, deviceDataStreamVectorLength[ddl->type], "weight", 1.0, path, context);
+	    ALLOCC(ddl->weight, uu->deviceDataStreamVectorLength[ddl->type], double);
+	    configVectorMaybeSpecifiedByUniqueNumber(d, ddl->weight, uu->deviceDataStreamVectorLength[ddl->type], "weight", 1.0, path, context);
 	    //if (ddl->weight[0] != ddl->weight[1]) {
 	    //lprintf(0,"%s: Warning: different weight for X and Y axis! Not yet implemented!\n", PPREFIX());
 	    //}
-	    
-	    ALLOCC(ddl->drift_auto_fix_period, deviceDataStreamVectorLength[ddl->type], double);
-	    configLoadVectorWithDefaultValue(d, ddl->drift_auto_fix_period, deviceDataStreamVectorLength[ddl->type], "drift_auto_fix_period", 0, path, context, 0);
-	    CALLOCC(ddl->driftOffset, deviceDataStreamVectorLength[ddl->type], double);
-	    ALLOCC(ddl->drift_offset_per_second, deviceDataStreamVectorLength[ddl->type], double);
-	    configLoadVectorWithDefaultValue(d, ddl->drift_offset_per_second, deviceDataStreamVectorLength[ddl->type], "drift_offset_per_second", 0, path, context, 0);
+	    LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(d, context, ddl, factor, 1.0);
+	    configLoadVectorWithDefaultValue(d, ddl->slow_down, 2, "slow_down", 0, path, context, 0);
+	    if (ddl->slow_down[0] < 0 || ddl->slow_down[0] > 1.0) {
+		lprintf(0,"%s: Warning: %s: acc_slow_down[0] shall be between 0 and 1.\n", PPREFIX(), context);
+		ddl->slow_down[0] = 0;
+	    }
+	    ALLOCC(ddl->drift_auto_fix_period, uu->deviceDataStreamVectorLength[ddl->type], double);
+	    configLoadVectorWithDefaultValue(d, ddl->drift_auto_fix_period, uu->deviceDataStreamVectorLength[ddl->type], "drift_auto_fix_period", 0, path, context, 0);
+	    for(i=0; i<uu->deviceDataStreamVectorLength[ddl->type]; i++) {
+		if (ddl->drift_auto_fix_period[i] != 0) lprintf(0,"%s: Warning: %s: drift_auto_fix_period is highly experimental option!\n", PPREFIX(), context);
+	    }
+	    CALLOCC(ddl->driftOffset, uu->deviceDataStreamVectorLength[ddl->type], double);
+	    CALLOCC(ddl->drift_per_second, uu->deviceDataStreamVectorLength[ddl->type], double);
+	    configLoadVectorWithDefaultValue(d, ddl->drift_per_second, uu->deviceDataStreamVectorLength[ddl->type], "drift_offset_per_second", 0, path, context, 0);
 	    // we usually process all pending input from ParsedVector to RegressionBuffer at each tick
 	    configInputBufferInit(dl, ddl);
-	    regressionBufferInit(&ddl->outputBuffer, deviceDataStreamVectorLength[ddl->type], ddl->regression_size, "%s.%s stream out buffer", dl->name, ddl->name);
-	    CALLOCC(ddl->launchData, deviceDataStreamVectorLength[ddl->type], double);
+	    regressionBufferInit(&ddl->outputBuffer, uu->deviceDataStreamVectorLength[ddl->type], ddl->regression_size, "%s.%s stream out buffer", dl->name, ddl->name);
+	    CALLOCC(ddl->launchData, uu->deviceDataStreamVectorLength[ddl->type], double);
 	    
-	    CALLOCC(ddl->channel_map, deviceDataStreamVectorLength[ddl->type], int);	    
-	    configMaybeLoadEnumArray(d, ddl->channel_map, deviceDataStreamVectorLength[ddl->type], "channel_map", radioControlNames, path, context);
-	    configInitiateInverseChannelMap(ddl->channel_map, deviceDataStreamVectorLength[ddl->type], ddl->inverse_channel_map);
+	    CALLOCC(ddl->channel_map, uu->deviceDataStreamVectorLength[ddl->type], int);	    
+	    configMaybeLoadEnumArray(d, ddl->channel_map, uu->deviceDataStreamVectorLength[ddl->type], "channel_map", uu->radioControlNames, path, context);
+	    configInitiateInverseChannelMap(ddl->channel_map, uu->deviceDataStreamVectorLength[ddl->type], ddl->inverse_channel_map);
 	    
 	    ddl->nextWithSameType = uu->deviceStreamDataByType[ddl->type];
 	    uu->deviceStreamDataByType[ddl->type] = ddl;
@@ -436,10 +448,11 @@ void configLoadDeviceConnection(struct jsonnode *cc, struct deviceData *dl, char
     }
     c->used = 1;
     LOAD_CONFIG_CONTEXT_PUSH(context, "connection");
-    LOAD_CONFIG_ERROR_ON_WRONG_TYPE(c, path, context, "", JSON_NODE_TYPE_OBJECT);
-    LOAD_CONFIG_ENUM_STRING_OPTION(c, context, &dl->connection, deviceConnectionTypeNames, type);
+    LOAD_CONFIG_ERROR_ON_WRONG_TYPE(c, path, context, "", JSON_TYPE_OBJECT);
+    LOAD_CONFIG_ENUM_STRING_OPTION(c, context, &dl->connection, uu->deviceConnectionTypeNames, type);
     switch (dl->connection.type) {
-    case DCT_INTERNAL_ZEROPOSE:
+    case DCT_INTERNAL_ALGO:
+	LOAD_CONFIG_ENUM_STRING_OPTION(c, context, &dl->connection.u, uu->deviceInternalAlgoNames, algo);
 	break;
     case DCT_COMMAND_BASH:
     case DCT_COMMAND_EXEC:
@@ -477,7 +490,7 @@ void configLoadRcSpec(struct jsonnode *cc, struct manual_rc *ss, char *fieldname
     }
     c->used = 1;
     LOAD_CONFIG_CONTEXT_PUSH(context, "%s", fieldname);
-    LOAD_CONFIG_ENUM_STRING_OPTION(c, context, ss, remoteControlModeNames, mode);
+    LOAD_CONFIG_ENUM_STRING_OPTION(c, context, ss, uu->remoteControlModeNames, mode);
     LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(c, context, ss, middle_neutral_zone, 0.0);
     LOAD_CONFIG_DOUBLE_OPTION(c, context, ss, min);
     LOAD_CONFIG_DOUBLE_OPTION(c, context, ss, max);
@@ -497,13 +510,13 @@ static void configLoadPidController(struct jsonnode *c, struct pidController *pp
     struct jsonnode *cc;
 
     memset(pp, 0, sizeof(*pp));
-    pp->name = name;
+    pp->name = strDuplicate(name);
     pp->constant.integralMax = integralMax;
     pp->constant.derivativeMax = derivativeMax;
     cc = jsonFindObjectField(c, name);
     if (cc != NULL) cc->used = 1;
     LOAD_CONFIG_CONTEXT_PUSH(context, "%s", name);
-    LOAD_CONFIG_ERROR_ON_WRONG_TYPE(cc, path, context, "", JSON_NODE_TYPE_OBJECT);
+    LOAD_CONFIG_ERROR_ON_WRONG_TYPE(cc, path, context, "", JSON_TYPE_OBJECT);
     LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(cc, context, &pp->constant, p, 0.0);
     LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(cc, context, &pp->constant, i, 0.0);
     LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(cc, context, &pp->constant, d, 0.0);
@@ -529,7 +542,7 @@ void configLoadFromJsonNode(struct jsonnode *cc, char *path, char *context) {
     // vector lengths may depend on some configuration, so I can not initialize before that point
     mainInitDeviceDataStreamVectorLengths(uu->motor_number);
 
-    LOAD_CONFIG_ENUM_STRING_OPTION(cc, context, cfg, pilotMainModeNames, pilot_main_mode);
+    LOAD_CONFIG_ENUM_STRING_OPTION(cc, context, cfg, uu->pilotMainModeNames, pilot_main_mode);
     
     LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(cc, context, uu, autopilot_loop_Hz, 100);
     LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(cc, context, uu, stabilization_loop_Hz, 100);
@@ -557,6 +570,7 @@ void configLoadFromJsonNode(struct jsonnode *cc, char *path, char *context) {
     LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(cc, context, cfg, drone_max_inclination, M_PI/8);
     LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(cc, context, cfg, drone_panic_inclination, M_PI/2);
     LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(cc, context, cfg, drone_max_speed, 1.0);
+    // configVectorMaybeSpecifiedByUniqueNumber(d, ddl->drone_max_speed, 3, "drone_max_speed", 1.0, path, context);
     LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(cc, context, cfg, drone_max_rotation_speed, 0.5);
     LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(cc, context, cfg, drone_min_altitude, 0.05);
     LOAD_CONFIG_DOUBLE_OPTION_WITH_DEFAULT_VALUE(cc, context, cfg, drone_max_altitude, 20000.0);
@@ -574,9 +588,9 @@ void configLoadFromJsonNode(struct jsonnode *cc, char *path, char *context) {
 
     // Load PID values. Do this at the end because some default values may depend on other configuration values.
     configLoadPidController(cc, &pp, "pidXY", 50.0*cfg->drone_max_speed, 1.0*cfg->drone_max_speed, path, context);
-    pp.name = "pidX";
+    pp.name = strDuplicate("pidX");	// dup because of shm
     uu->pidX = pp;
-    pp.name = "pidY";
+    pp.name = strDuplicate("pidY");	// dup because of shm
     uu->pidY = pp;
     configLoadPidController(cc, &uu->pidRoll, "pidRoll", 1.0, 0.05, path, context);
     configLoadPidController(cc, &uu->pidPitch, "pidPitch", 1.0, 0.05, path, context);
@@ -592,9 +606,9 @@ void configLoadFromJsonNode(struct jsonnode *cc, char *path, char *context) {
 	//lprintf(0, "%s: Warning: It is higly recommended to set I to zero for either pidX and pidY or pidRoll and pidPitch!\n", PPREFIX());
     //}
     
-    for(ll=configFindFieldList(cc, "device", JSON_NODE_TYPE_ARRAY, context); ll!=NULL; ll=ll->next) {
+    for(ll=configFindFieldList(cc, "device", JSON_TYPE_ARRAY, context); ll!=NULL; ll=ll->next) {
 	c = ll->val;
-	LOAD_CONFIG_ERROR_ON_WRONG_TYPE(c, path, context, "", JSON_NODE_TYPE_OBJECT);
+	LOAD_CONFIG_ERROR_ON_WRONG_TYPE(c, path, context, "", JSON_TYPE_OBJECT);
 
 	name = jsonFindString(c, "name", NULL);
 	i = configGetDeviceIndex(name);
@@ -633,13 +647,13 @@ void configCheckForUnusedObjects(struct jsonnode *nn, char *context) {
 
     contextlen = strlen(context);
     switch (nn->type) {
-    case JSON_NODE_TYPE_ARRAY:
+    case JSON_TYPE_ARRAY:
 	for(ll=nn->u.fields; ll!=NULL; ll=ll->next) {
 	    snprintf(context+contextlen, TMP_STRING_SIZE-contextlen, "[%d]", ll->u.index);
 	    configCheckForUnusedObjects(ll->val, context);
 	}
 	break;
-    case JSON_NODE_TYPE_OBJECT:
+    case JSON_TYPE_OBJECT:
 	for(ll=nn->u.fields; ll!=NULL; ll=ll->next) {
 	    snprintf(context+contextlen, TMP_STRING_SIZE-contextlen, ".%s", ll->u.name);
 	    if (ll->val != NULL && ll->val->used == 0) {

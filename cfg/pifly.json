@@ -122,6 +122,14 @@
     pidAccAltitude: { p:0.1,  i:0.1,  d:0},
     
 
+    manual_rc_roll:     {mode:"RCM_STABILIZE", middle_neutral_zone: 0.1, min:-0.2, max: 0.2},
+    manual_rc_pitch:    {mode:"RCM_STABILIZE", middle_neutral_zone: 0.1, min:-0.2, max: 0.2},
+    manual_rc_yaw:      {mode:"RCM_ACRO", middle_neutral_zone: 0.8, min:-1.0, max: 1.0},
+
+    // manual_rc_altitude: {mode:"RCM_PASSTHROUGH", min:0.0, max: 0.8},
+    // manual_rc_altitude: {mode:"RCM_ACRO", min:0.0, max: 0.8},
+    manual_rc_altitude: {mode:"RCM_STABILIZE", min:0.0, max: 5.0},
+
     /////////////////////////////////////////////////////////////////////////////////////////////////////
     /////////////////////////////////////////////////////////////////////////////////////////////////////
     // Following part of the configuration defines sensors and other devices installed on the drone and
@@ -161,7 +169,7 @@
 	    //mount_rpy: [0.098, 0.05, 0],
 	    mount_rpy: [-0.16, -0.04, 0],
             stream: [
-		{ type: "DT_ORIENTATION_RPY_SHM", tag: "rpy",  weight: [1.0, 1.0, 1.0], mandatory:1, drift_auto_fix_period:[0,0,0.5], regression_size:16, latency: 0.01, debug_level: 88},
+		{ type: "DT_ORIENTATION_RPY_SENSOR", tag: "rpy",  weight: [1.0, 1.0, 1.0], mandatory:1, regression_size:16, latency: 0.01, debug_level: 88},
 		{ type: "DT_DEBUG",           tag: "debug", debug_level: 22},
             ],
 	},
@@ -196,9 +204,9 @@
 	    mount_position: [0, 0, 0.05],
 	    warming_time: 1.0,
             stream: [
-		{ type: "DT_POSITION_VECTOR",      tag: "pose:",  mandatory:1, weight: [1.0, 1.0, 1.0], regression_size:4, latency: 0.2, debug_level: 88},
-		// { type: "DT_POSITION_VECTOR",      tag: "pose:",  mandatory:1, weight: [0.0001, 0.0001, 0.0001], regression_size:20, latency: 0.10, debug_level: 88},
-		{ type: "DT_ORIENTATION_RPY", 	   tag: "rpy:", weight: [1e-20, 1e-20, 1], mandatory:1, regression_size:10, latency: 0, debug_level: 88},
+		{ type: "DT_POSITION_SENSOR",      tag: "pose:",  mandatory:1, weight: [1.0, 1.0, 1.0], regression_size:4, latency: 0.2, debug_level: 88},
+		// { type: "DT_POSITION_SENSOR",      tag: "pose:",  mandatory:1, weight: [0.0001, 0.0001, 0.0001], regression_size:20, latency: 0.10, debug_level: 88},
+		{ type: "DT_ORIENTATION_RPY_SENSOR", 	   tag: "rpy:", weight: [1e-20, 1e-20, 1], mandatory:1, regression_size:10, latency: 0, debug_level: 88},
 		{ type: "DT_VOID",                 tag: "lat:", debug_level: 1},
 		{ type: "DT_DEBUG",                tag: "debug", debug_level: 22},
             ],
@@ -222,10 +230,11 @@
 	{
 	    name: "zeropose",
 	    connection : {
-		type: "DCT_INTERNAL_ZEROPOSE",
+		type: "DCT_INTERNAL_ALGO",
+		algo: "IA_ZEROPOSE",
 	    },
             stream: [
-		{ type: "DT_POSITION_VECTOR",        tag: "position", weight: 1e-100, debug_level: 1},
+		{ type: "DT_POSITION_SENSOR",        tag: "position", weight: 1e-100, debug_level: 1},
             ],
 	},
 #endif

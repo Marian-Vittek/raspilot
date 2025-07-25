@@ -28,13 +28,15 @@
 #include <sys/time.h>
 #include <sys/wait.h>
 #include <sys/mman.h>
+#include <sys/ioctl.h>
 
 #include <pthread.h>
+#include <semaphore.h>
 
-#include "raspilotshm.h"
+#include <linux/i2c-dev.h>
+
 #include "expmem.h"
 #include "sglib.h"
-#include "pi2c.h"
 
 // In out coordinates:
 // pitch - negative == nose down;      positive == nose up
@@ -84,6 +86,12 @@
 // whether to increase thrust depending on roll, pitch to hold the same altitude
 #define ALTITUDE_THRUST_CORRECTION_FOR_ROLL_PITCH	1
 
+// device buffer shared memory stuff
+#define RASPILOT_SHM_MAGIC_VERSION 			0xcfe0234
+#define RASPILOT_RING_BUFFER_SIZE(size, vectorsize) 	(sizeof(struct raspilotRingBuffer) + (size) * ((vectorsize)+1) * sizeof(double))
+#define RASPILOT_INPUT_BUFFER_SIZE(size, vectorsize) 	(sizeof(struct raspilotInputBuffer) + (size) * ((vectorsize)+1) * sizeof(double))
+
+
 //////////////////////////////////////////////////////////////
 
 #if 0
@@ -103,11 +111,13 @@
 #define DEVICE_DATA_VECTOR_MAX 		64
 // In order to speed up parsing of thrust sent to motorsd, we are sending integers instead of double.
 // The actual thrust <0..1> will be multiplied by this factor before being sent to motors.
-#define MOTOR_STREAM_THRUST_FACTOR			10000
+#define MOTOR_STREAM_THRUST_FACTOR	10000
 
 /////////////////////////////////////////////////////////////
 
 #define TMP_STRING_SIZE                 255
+#define TMP_STRING_SIZE_BIG             32768
+
 #define STATIC_STRINGS_RING_SIZE        64
 #define ZERO_SIZED_ARRAY_SIZE           0
 #define MAGIC_NUMBER			0xcafe
@@ -118,6 +128,27 @@
 #define MOTOR_THRUST_EPSILON		0.001
 
 #define GRAVITY_ACCELERATION		9.8
+
+// This is the total memory size we are going to use. We will allocate pieces from there.
+#define RASPILOT_UNIVERSE_SHM_NAME      ((char*)"raspilot.universe")
+#define RASPILOT_UNIVERSE_SHM_SIZE 	(1<<26)
+#define RASPILOT_UNIVERSE_VERSION	0x1bca
+#define CONNECT_TO_RASPILOT_UNIVERSE(argc, argv, sleepOnFailUs, uu) {	\
+	int errCode;							\
+	uu = (struct universe *)raspilotShmConnectToUniverse(RASPILOT_UNIVERSE_SHM_NAME, RASPILOT_UNIVERSE_SHM_SIZE, RASPILOT_UNIVERSE_VERSION, &errCode); \
+	if (uu == NULL) {						\
+	    if (errCode == 1 && sleepOnFailUs > 0) {			\
+		fprintf(stdout,"debug %s:%d: Connect to raspilot universe failed. Retry after %dus.\n", __FILE__, __LINE__, sleepOnFailUs); fflush(stdout); \
+		raspilotShmRestartProgram(argc, argv, sleepOnFailUs);	\
+	    } else {							\
+		fprintf(stdout,"debug %s:%d: Can't connect to raspilot universe. Fatal. Exiting!\n", __FILE__, __LINE__); fflush(stdout); \
+		fprintf(stderr,"Can't connect to raspilot universe. Fatal. Exiting.\n"); \
+		exit(-1);						\
+	    }								\
+	} else {							\
+	    fprintf(stdout,"debug Connected to raspilot universe.\n"); fflush(stdout); \
+	}								\
+    }
 
 /////////////////////////////////////////////////////////////
 
@@ -185,12 +216,12 @@
 #define TLINE_UTIME_AFTER_MSEC(n)       (currentTimeLineTimeUsec + 1000LL*(n))
 #define TLINE_UTIME_AFTER_USEC(n)       (currentTimeLineTimeUsec + (n))
 
-#define PPREFIX()            		(printPrefix_st(uu, __FILE__, __LINE__))
+#define PPREFIX()            		(printPrefix_st(uu, (char*)__FILE__, __LINE__))
 #define STR_ERRNO()               	(strerror(errno))
 
-#define DEBUG_HERE_I_AM()         	{printf("%s: H.I.AM: %s:%d\n", PPREFIX(), __FILE__, __LINE__); fflush(stdout);}
+#define DEBUG_HERE_I_AM()         	{printf("debug %s: H.I.AM: %s:%d\n", PPREFIX(), __FILE__, __LINE__); fflush(stdout);}
 
-#define ENUM_NAME_SET(e, x) {assert(x<DIM(e)); e[x] = #x;}
+#define ENUM_NAME_SET(e, x) {assert(x<DIM(e)); e[x] = strDuplicate(#x);}
 #define ENUM_NAME_NO_NULL_CHECK(names, i) {if (names[i] == NULL) {printf("%s:%s:%d: Internal error: Enumeration \"%s\" name item %d is not filled! Did you add an item and not updated names? Fatal, exiting!\n", PPREFIX(), __FILE__, __LINE__, #names, i); exit(-1);}}
 #define ENUM_NAME_CHECK(names, prefix) {				\
 	int i;								\
@@ -230,7 +261,6 @@
             printf("%s:%d: assertion %s failed  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n", __FILE__, __LINE__, #x); \
             fflush(stdout);                                             \
             if (EDEBUG) CORE_DUMP();                                     \
-            shutdown();					\
         }                                                               \
     }
 
@@ -253,6 +283,8 @@ enum pilotMainModeEnum {
     MODE_NONE,
     MODE_MOTOR_PWM_CALIBRATION,
     MODE_MOTOR_TEST,
+    MODE_GYRO_TEST,
+    MODE_FULL_TEST,
     MODE_MANUAL_RC,
     MODE_SINGLE_MISSION,
     MODE_MAX,
@@ -261,12 +293,23 @@ enum pilotMainModeEnum {
 // Modes for remote controls controlling roll/pitch/yaw
 enum remoteControlModes {
     RCM_NONE,
-    RCM_PASSTHROUGH,	// rc is directly interpreted as thrust 
-    RCM_ACRO,	// rc is interpreted as (rotation) speed (assisted by PID controller) (requires gyro)
-    RCM_TARGET,		// rc is interpreted as target roll/pitch/yaw value (requires gyro)
-    RCM_AUTO,		// rc is interpreted as drone speed, actual roll/pitch is controlled by autopilot (requires gyro+position(GPS))
+    RCM_PASSTHROUGH,	// rc is directly interpreted as thrust difference
+    RCM_ACRO,		// rc is interpreted as (rotation) speed (assisted by PID controller) (requires gyro)
+    RCM_STABILIZE,	// rc is interpreted as target roll/pitch/yaw value (requires gyro)
+    RCM_STEADY,		// rc is interpreted as drone speed, roll/pitch is controlled by autopilot (requires gyro+position(GPS))
     RCM_MAX,
 };
+
+/*
+// TODO: Introduce special modes for altitude
+enum remoteControlAltitudeModes {
+    RCMA_NONE,
+    RCMA_ACRO,		// rc is interpreted as thrust
+    RCMA_SPEED,		// rc is interpreted as climbing speed (requires gyro, recommended altimeter)
+    RCMA_ALTITUDE,	// rc is interpreted as target altitude (requires gyro, recommended altimeter)
+    RCMA_MAX,
+};
+*/
 
 // Possible main states in which autopilot can be
 enum flyStageEnum {
@@ -277,7 +320,9 @@ enum flyStageEnum {
     FS_STANDBY,
     FS_COUNTDOWN,
     FS_WAITING_FOR_SENSORS,
-    FS_PRE_FLY,
+    // TODO: Renamo the following two stages
+    FS_SENSORS_READY,		
+    FS_PRE_LAUNCH,        // This is dummy pre-fly stage used to non-fly mode with all sensors like a FS_FLY
     FS_FLY,
     // Exceptional states
     FS_EMERGENCY_LANDING,
@@ -304,25 +349,22 @@ enum deviceDataTypes {
     // Text based streams through pipes/sockets
     DT_DEBUG,
     DT_PONG,
-    DT_POSITION_VECTOR,
+    DT_POSITION_SENSOR,
+    DT_POSITION_DRONE,
     DT_BOTTOM_RANGE,
     DT_FLOW_XY,
     DT_ALTITUDE,
     DT_TEMPERATURE,
     DT_MAGNETIC_HEADING,
-    DT_EARTH_ACCELERATION,
-    DT_ORIENTATION_RPY,
-    // DT_ORIENTATION_QUATERNION,    
+    DT_EARTH_ACCELERATION_SENSOR,
+    DT_EARTH_ACCELERATION_DRONE,
+    DT_ORIENTATION_RPY_SENSOR,
+    DT_ORIENTATION_RPY_DRONE,
+    // DT_ORIENTATION_QUATERNION,
     DT_POSITION_NMEA,
     DT_MAGNETIC_HEADING_NMEA,
     // Exotic stuff
     DT_JSTEST,		// joystick
-
-
-    // Shared memory streams
-    DT_POSITION_SHM,
-    DT_EARTH_ACCELERATION_SHM,
-    DT_ORIENTATION_RPY_SHM,
 
     // Input from Mavlink
     DT_MAVLINK_RC_CHANNELS_OVERRIDE, 
@@ -336,11 +378,19 @@ enum deviceDataTypes {
     DT_MAX,
 };
 
+enum deviceInternalAlgoDeviceEnum {
+    IA_NONE,
+    IA_ZERO_POSE,
+    IA_ACCELERATION_POSE,
+    IA_INERTIA_POSE,
+    IA_MAX,
+};
+
 // Maybe this is useless, you can implement all of them as DCT_COMMAND_BASH
 enum deviceConnectionTypeEnum {
     DCT_NONE,
     // A dummy device providing pose which is always zero
-    DCT_INTERNAL_ZEROPOSE,
+    DCT_INTERNAL_ALGO,
     // A subprocess forked and executed and connected by a pair of linux pipes
     // command itself can write/read to/form pipes or shared memory.
     DCT_COMMAND_BASH,
@@ -371,6 +421,22 @@ enum radioControlEnum {
     RC_MAX,
 };
 
+enum statisticsActionEnum {
+    STATISTIC_NONE,
+    STATISTIC_INIT,
+    STATISTIC_PRINT,
+    STATISTIC_MAX,
+};
+
+enum raspilotInpuBufferStatusEnum {
+    RIBS_NONE,
+    RIBS_NOT_SHARED,
+    RIBS_SHARED_INITIALIZE,
+    RIBS_SHARED_OK,
+    RIBS_SHARED_FINALIZE,
+    RIBS_MAX,
+};
+
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // json stuff
     
@@ -384,18 +450,18 @@ enum radioControlEnum {
 
 // If you change enum, do not forget to chage corresponing ENUM_NAMES in the #define
 enum jsonNodeTypeEnum {
-    JSON_NODE_TYPE_BOOL,
-    JSON_NODE_TYPE_NUMBER,
-    JSON_NODE_TYPE_STRING,
-    JSON_NODE_TYPE_OBJECT,
-    JSON_NODE_TYPE_ARRAY,
+    JSON_TYPE_BOOL,
+    JSON_TYPE_NUMBER,
+    JSON_TYPE_STRING,
+    JSON_TYPE_OBJECT,
+    JSON_TYPE_ARRAY,
 };
 #define JSON_NODE_TYPE_ENUM_NAMES {		\
-	"JSON_NODE_TYPE_BOOL",			\
-	    "JSON_NODE_TYPE_NUMBER",		\
-	    "JSON_NODE_TYPE_STRING",		\
-	    "JSON_NODE_TYPE_OBJECT",		\
-	    "JSON_NODE_TYPE_ARRAY",		\
+	"JSON_TYPE_BOOL",			\
+	    "JSON_TYPE_NUMBER",		\
+	    "JSON_TYPE_STRING",		\
+	    "JSON_TYPE_OBJECT",		\
+	    "JSON_TYPE_ARRAY",		\
 	    }
 
 // structure storing where in the source file the node occurs
@@ -446,6 +512,7 @@ struct jsonFieldList {
 #endif
 };
 
+/////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////
 // time / timeline 
 struct globalTimeInfo {
@@ -649,6 +716,39 @@ struct pidController {
     struct pidControllerData		d;
 };
 
+// Ring buffer storing vectors is used to pass values from devices to raspilot
+struct raspilotRingBuffer {
+    char		name[256];	// for debug output only?
+    int			size;
+    int			vectorsize;
+    int			ai;		// index where next elem will be stored
+    int			ailast;		// index where the last elem was added, i.e.  (ai-1) % size
+    int			n;		// number of total inserted elements, not only currently stored (ai == n%size)
+
+    // the actual data stored in the buffer are allocate after the structure
+    double		a[0];		// a[size][vectorsize+1] // a[i][0] is time/key, then goes the vector
+};
+
+struct raspilotInputBuffer {
+    // Raw data coming from the sensor are parsed, "timestamped" and put into this buffer.
+    // Devices putting values through shared memory write directly to this buffer and initialize mutex.
+    // Mutex is not initialized/activated if status == RIBS_NOT_SHARED
+    enum raspilotInpuBufferStatusEnum	status;
+    // the time when raspilo last read from the buffer used to detect disconnection in tools
+    int64_t				lastReadTimeUsec;
+    pthread_mutex_t 			mutex;
+    // buffer must be the last member of the struct, because its data are allocated after it.
+    int					magicVersion;	// some number to verifying that both raspilot and device are using the same version of shm
+    // TODO: confidence shall be by meassured value and by vector element
+    double				confidence;
+    // must be the last, actual buffer is allocated after this structure
+    struct raspilotRingBuffer		buffer;
+};
+
+struct raspilotUniversePrefix {
+    int 	version;
+    char 	*self;
+};
 
 // Regression buffer is a data structure used to compute "moving
 // linear regression". It is used to filter inputs from sensors. It is
@@ -699,13 +799,16 @@ struct deviceStreamData {
     double			latency;		// data received refers to the time lastDataTime - latency
     double			timeout;		// if last value is more then timeout old, sensor is ignored
     double			min_range;		// minimal valid range for rangefinders (radar)
-    double			max_range;		// minimal valid range for rangefinders (radar)
+    double			max_range;		// maximal valid range for rangefinders (radar)
     double			min_altitude;		// min valid altitude (for flow detectors)
     double			max_altitude;		// max valid altitude (for flow detectors)
     uint8_t			mandatory;		// whether device has to be active before launch
     int				debug_level;
     double			*weight;		// array[deviceDataStreamVectorLength[type]], weight is per vector element
     int				regression_size;   	// the size of the history saved for linear interpolation
+
+    double			factor;			// at the moment only used in pseudo accelerometer pose 
+    vec2			slow_down;		// at the moment only used in pseudo accelerometer pose 
     // int				use_mean;   		// This is probably useless, you can use negative latency for that
 
     struct deviceData		*dd;			// "back" pointer to device data where I belong
@@ -722,10 +825,10 @@ struct deviceStreamData {
     // 'drift_offset_per_second' is the main value to set up when defining a drifting device manually.
     // Alternatively, you can specify drift_auto_fix_period as time to auto recompute 'drift_offset_per_second'.
     double			*drift_auto_fix_period; 	// array[deviceDataStreamVectorLength[type]]
-    double   			*drift_offset_per_second; 	// array[deviceDataStreamVectorLength[type]]
+    // The device drift is: driftOffset + time * drift_per_second
     double			*driftOffset; 			// array[deviceDataStreamVectorLength[type]]
+    double   			*drift_per_second; 		// array[deviceDataStreamVectorLength[type]]
     double			driftOffsetLastIncrementTime;
-
 
     // This is the place where the 'raw' values from the device are stored.
     // Data coming from the sensor through a text pipe are parsed, "timestamped" and put into this buffer.
@@ -761,12 +864,14 @@ struct deviceStreamDataDriftUpdateStr {
 struct connection {
     int type; // enum deviceConnectionTypeEnum
     union {
+	// internal algo
+	int			algo;
 	// command
-	char		*command;
+	char			*command;
 	// named pipes
 	struct {
-	    char	*read_pipe;
-	    char	*write_pipe;
+	    char		*read_pipe;
+	    char		*write_pipe;
 	} namedPipes;
 	// mavlink pseudo terminal
 	struct {
@@ -804,6 +909,15 @@ struct deviceData {
     uint8_t			enabled;
     int 			baioMagic;
     double 			lastActivityTime;
+
+    // devices may need some device specific data. They can be allocate here
+    void			*privateData;
+};
+
+struct acceleratorPosePrivateData {
+    vec3			accumulatedVelocity;
+    vec3			accumulatedPosition;
+    struct regressionBuffer	longTimeAccelerationHistory;
 };
 
 /////////////////////////////////////////
@@ -841,7 +955,7 @@ struct config {
     double			pilot_reach_goal_position_time;
     double			drone_max_inclination;
     double			drone_panic_inclination;
-    double			drone_max_speed;
+    double			drone_max_speed; // [3];
     double			drone_max_rotation_speed;
     double			drone_min_altitude;
     double			drone_max_altitude;
@@ -879,8 +993,11 @@ struct manualControl {
     double gimbalXIncrementPerSecond;
     double gimbalYIncrementPerSecond;
 };
-    
+
 struct universe {
+    // This must be the start of the universe
+    struct raspilotUniversePrefix prefix;
+    
     // configuration
     char			*cfgFileName;
     
@@ -917,6 +1034,11 @@ struct universe {
 
     // Following optimizes sensor fusion
     struct deviceStreamData	*deviceStreamDataByType[DT_MAX];	// lists by data types
+
+    // zero terminating arrays of device stream types by what they provide
+    int 			deviceStreamAccelerationDataTypes[DT_MAX];
+    int 			deviceStreamOrientationDataTypes[DT_MAX];
+    int 			deviceStreamPositionDataTypes[DT_MAX];
     
     // device with drifting values are enchained in this list
     struct deviceStreamData	*autoDriftingStreamsList;
@@ -937,6 +1059,7 @@ struct universe {
     // Long buffer is used to smooth position and velo from sensor fusion
     struct regressionBuffer	longBufferPosition;
     struct regressionBuffer	longBufferRpy;
+    struct regressionBuffer	longBufferAcceleration;
 
     // Short buffer is used to smooth roll and pitch
     struct regressionBuffer	shortBufferPosition;
@@ -972,36 +1095,114 @@ struct universe {
     // TODO: split into historyPosition and historyRpy, so that position sensors
     // can find the new orientation there
     struct raspilotRingBuffer	*historyPose;
-    
+
+    // some runtime variable/constant
+    int				shutDownInProgress;
+    struct jsonnode 		dummyJsonNode;
+    int 			deviceDataStreamVectorLength[DT_MAX];
+
+    // it is practical to have those in shared universe
+    // enumeration names
+    char 			*signalInterruptNames[258];
+    char 			*deviceDataTypeNames[DT_MAX+2];
+    char			*deviceConnectionTypeNames[DCT_MAX+2];
+    char			*deviceInternalAlgoNames[IA_MAX+2];
+    char			*radioControlNames[RC_MAX+2];
+    char			*pilotMainModeNames[MODE_MAX+2];
+    char			*remoteControlModeNames[RCM_MAX+2];
+
+
     // end of universe
-    unsigned			magicNumber;
+    uint32_t			magicNumber;
 };
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+// raspilot_tlib
+
+#define TLIB_UNIVERSE_MAP_NO    0
+#define TLIB_UNIVERSE_MAP_YES   1
+#define TLIB_SHM_NO  		0
+#define TLIB_SHM_YES  		1
+
+// how many devices from i2c I can use
+#define RASPILOT_TLIB_I2C_DEV_MAX       8
+
+// single tool can publish up to 16 streams
+#define RASPILOT_TLIB_STREAMS_MAX       16
+
+// A tool providing data uses this structure
+struct raspilotTlibStream {
+    char			*tag;
+    int				shmModeActive;
+    struct raspilotInputBuffer 	*shmbuf;
+};
+
+
+// This is a common data structure for usual raspilot tools in tool directory
+// It is a convenience structure containing what the most of tools are using in common.
+// A tool does not necessery use all of fields. It only initializes and use those
+// parts which it needs.
+struct raspilotTlibStr {
+    // a copy of argc and argv from the main program
+    int				argc;
+    char			**argv;
+
+    // This (together with streamname) will be the name for the shared memory
+    char			*deviceName;		// coming from environment (or command line)
+
+    // if found in the configuration, this points to my device data
+    struct deviceData 		*dd;
+    
+    // shared memory streams
+    struct raspilotTlibStream	stream[RASPILOT_TLIB_STREAMS_MAX];
+    int                         streami;				// first free stream
+
+    // path to the i2c device we are using, usualy "/dev/i2c1"
+    char			*optI2cPath;
+    // a flag whether we share i2c with other processes
+    int                         optSharedI2cFlag;
+    // if raspilot does not read shared memory for such time, consider it dosconnected
+    int64_t			raspilotReadTimeoutUsec;
+    
+    // pi2c file descriptors for devices on i2cPath
+    int				i2c[RASPILOT_TLIB_I2C_DEV_MAX];
+    int                         i2ci;				// first free i2c
+    
+    // Main loop timing variables
+    double			sampleRate;
+    int64_t			requiredPeriodUsec;
+    int64_t 			sleepTimeUsec;
+    int64_t 			lastSampleTimeUsec;
+
+    // some exception callbacks
+    void			(*onRaspilotDisconnection)(struct raspilotTlibStr*,struct raspilotTlibStream *);  // if NULL, exit
+    
+    // pointer to the shared memory with the raspilot universe
+    struct universe             *universe;                     // this is assigned to the global variable uu as well
+};
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////
+
 
 typedef int deviceDataParseFunction(char *tag, char *p, struct deviceData *dd, struct deviceStreamData *ddd);
 
+#ifdef __cplusplus__
+extern "C" {
+#endif
+    
 //////////////////////////////////////////////////////////////////////////////////////////////
 //
 // common.c
+
 extern int 			debugLevel;
 extern int 			logLevel;
 extern int 			baseLogLevel;
-extern struct universe		*uu;
-extern struct globalTimeInfo	currentTime;
 extern struct timeLineEvent     *timeLine;
 extern uint64_t			currentTimeLineTimeUsec;
 extern int64_t 			nextStabilizationTickUsec;
 extern int64_t 			nextPidTickUsec;
-extern int			shutDownInProgress;
-extern struct jsonnode 		dummyJsonNode;
-extern char 			*signalInterruptNames[258];
-extern int 			deviceDataStreamVectorLength[DT_MAX];
-extern char 			*deviceDataTypeNames[DT_MAX+2];
-extern char			*deviceConnectionTypeNames[DCT_MAX+2];
-extern char			*radioControlNames[RC_MAX+2];
-extern char			*pilotMainModeNames[MODE_MAX+2];
-extern char			*remoteControlModeNames[RCM_MAX+2];
 
-char *getTemporaryStringPtrFromStaticStringRing();
 int strtoint(char *s, char **ee) ;
 void strtodninit() ;
 double strtodn(char *p, char **ee) ;
@@ -1015,7 +1216,6 @@ int strSafeNCmp(char *s1, char *s2, int n) ;
 int strSafeCmp(char *s1, char *s2) ;
 int isspaceString(char *s) ;
 void writeToFd(int fd, char *buf, int bufsize) ;
-char *printPrefix_st(struct universe *uu, char *file, int line) ;
 void dumpHex(char *msg, char *d, int len) ;
 double signd(double x) ;
 double normalizeToRange(double value, double min, double max) ;
@@ -1025,14 +1225,7 @@ double normalizeAngle(double omega, double min, double max) ;
 double normalizeToRange(double value, double min, double max) ;
 double truncateToRange(double x, double min, double max, char *warningTag, int warningIndex) ;
 void vecTruncateInnerToRange(vec3 r, int dim, double min, double max, char *warningId);
-void vec2Rotate(double *res, double *v, double theta) ;
 
-char *currentLocalTime_st() ;
-char *sprintSecTime_st(long long int utime) ;
-char *sprintUsecTime_st(long long int utime) ;
-void setCurrentTimeToTimeVal(struct timeval *tv) ;
-void setCurrentTime() ;
-void incrementCurrentTime() ;
 int checkTimeLimit(char *op, double maxTime, int res) ;
 void timeLineInsertEvent(long long int usec, void (*event)(void *arg), void *arg) ;
 struct timeLineEvent *timeLineFindEventAtUnknownTime(void (*event)(void *arg), void *arg) ;
@@ -1046,17 +1239,14 @@ int timeLineInsertUniqEventIfNotYetInserted(long long int usec, void (*event)(vo
 void timeLineTimeToNextEvent(struct timeval *tv, int maxseconds) ;
 int timeLineExecuteScheduledEvents(int updateCurrenttimeFlag) ;
 void timeLineDump() ;
-char *arrayWithDimToStr_st(double *a, int dim) ;
 void enumNamesInit() ;
+void deviceStreamTypesInit() ;
 void logEnumNames(int loglevel, char **names) ;
 int enumNamesStringToInt(char *s, char **names) ;
 void initSerialPort(int fd, int baudrate) ;
 void terminalResume() ;
 int stdbaioStdinMaybeGetPendingChar() ;
 void stdbaioStdinClearBuffer();
-
-double *raspilotRingBufferGetFirstFreeVector(struct raspilotRingBuffer *hh) ;
-void raspilotRingBufferFindRecordForTime(struct raspilotRingBuffer *hh, double time, double *restime, double **res) ;
 
 void regressionBufferPrintSums(struct regressionBuffer *hh) ;
 void regressionBufferAddToSums(struct regressionBuffer *hh, double time, double *vec) ;
@@ -1077,8 +1267,6 @@ double vectorLength(double *a, int dim) ;
 void pidControllerReset(struct pidController *pp, double dt) ;
 char *pidControllerStatistics(struct pidController *pp, int showProposedCiFlag) ;
 double pidControllerStep(struct pidController *pp, double setpoint, double measured_value, double dt) ;
-void quatToRpy(quat qq, double *roll, double *pitch, double *yaw);
-void rpyToQuat(double roll, double pitch, double yaw, quat q) ;
 void stdbaioInit() ;
 void stdbaioClose() ;
 void logbaioInit() ;
@@ -1093,6 +1281,8 @@ void pingToHostRegularCheck(void *d) ;
 void pingToHostClose() ;
 
 struct raspilotInputBuffer *raspilotCreateSharedMemory(struct deviceStreamData *ddd) ;
+void createUniverse() ;
+void destroyUniverse() ;
 
 // json.c
 extern char *jsonNodeTypeEnumNames[];
@@ -1115,13 +1305,12 @@ void mainLoadMissionFile() ;
 
 // device.c
 int deviceIsSharedMemoryDataStream(struct deviceStreamData *ddl) ;
-struct deviceData *deviceFindByName(char *name) ;
-struct deviceStreamData *deviceFindStreamByName(struct deviceData *dd, char *name) ;
-struct deviceStreamData *deviceFindStreamByType(struct deviceData *dd, int type) ;
 void manualPilotSetControl(struct manualControlState *control, double rc_value, struct manual_rc *ss, char *controlName, int loglevel) ;
 void manualControlInit(struct manualControlState *ss, struct manual_rc *mm) ;
 void deviceParseInputStreamLineToInputBuffer(struct deviceData *dd, char *s, int n) ;
+void deviceStopRegularAutoAdjustementOfDrifts() ;
 void deviceTranslateInputToOutput(struct deviceStreamData *ddd) ;
+int pseudoDeviceUpdatePoses(vec3 acceleration, vec3 rpy) ;
 void deviceInitiate(int i) ;
 void deviceFinalize(int i) ;
 void deviceSendToAllDevices(char *fmt, ...) ;
@@ -1161,6 +1350,7 @@ void pilotRegularSendGimbalPwm(void *d) ;
 void manualControlRegularCheck(void *d) ;
 void pilotRegularMotorTestModeTick(void *d) ;
 void pilotRegularStabilisationTick(void *d) ;
+void pilotGyroTestStabilisationTick(void *d) ;
 void pilotRegularMissionModeLoopTick(void *d) ;
 int pilotAreAllDevicesReady() ;
 void pilotLaunchPoseSet(void *d) ;
@@ -1197,6 +1387,17 @@ struct baio *baioNewNamedPipes(char *readPipePath, char *writePipePath, int addi
 struct baio *baioNewPseudoTerminal(char *link, int baudrate, int additionalSpaceToAllocate) ;
 struct baio *baioNewUDP(char *ip, int port, int ioDirection, int additionalSpaceToAllocate);
 
+// pi2c.c
+void pi2cInit(char *path, int multiProcessSharingFlag) ;
+void pi2cClose(int fd) ;
+int pi2cOpen(char *path, int devAddr) ;
+int pi2cReadBytesWithDelay(int ifd, uint8_t regAddr, unsigned int sleepUsec, uint8_t length, uint8_t *data) ;
+int pi2cReadBytes(int fd, uint8_t regAddr, uint8_t length, uint8_t *data) ;
+int pi2cWrite(int fd, uint8_t* data, int length) ;
+int pi2cWriteBytesToReg(int fd, uint8_t regAddr, uint8_t length, uint8_t* data) ;
+int pi2cWriteByteToReg(int ifd, uint8_t regAddr, uint8_t data) ;
+int pi2cWriteWordsToReg(int fd, uint8_t regAddr, uint8_t length, uint16_t* data) ;
+
 // mavlink.c
 int mavlinkParseInput(struct deviceData *dd, struct baio *bb, int fromj, int num) ;
 void mavlinkInitiate(struct deviceData *dd, struct baio *bb) ;
@@ -1206,7 +1407,51 @@ void mavlinkPrintfStatusTextToListeners(char *fmt, ...) ;
 // mission.c
 void missionProcessInteractiveInput(int c) ;
 void missionLandImmediately() ;
+void missionFullTest() ;
 void mission();
+
+// raspilot_tlib.c
+extern struct universe		*uu;
+extern struct globalTimeInfo	currentTime;
+    
+void raspilotShmRestartProgram(int argc, char **argv, int sleepUs) ;
+char *raspilotShmConnectToUniverse(char *name, int size, int version, int *errCode) ;
+struct raspilotInputBuffer *raspilotShmConnect(char *name) ;
+int raspilotShmPush(struct raspilotInputBuffer *ii, double time, double *vector, int size) ;
+void raspilotRingBufferInit(struct raspilotRingBuffer *hh, int vectorSize, int bufferSize, char *namefmt, ...) ;
+void raspilotRingBufferAddElem(struct raspilotRingBuffer *hh, double time, double *vec) ;
+void raspilotRingBufferDump(struct raspilotRingBuffer *hh) ;
+void raspilotRingBufferDump(struct raspilotRingBuffer *hh) ;
+double *raspilotRingBufferGetFirstFreeVector(struct raspilotRingBuffer *hh) ;
+void raspilotRingBufferFindRecordForTime(struct raspilotRingBuffer *hh, double time, double *restime, double **res) ;
+
+char *getTemporaryStringPtrFromStaticStringRing();
+char *currentLocalTime_st() ;
+char *sprintSecTime_st(long long int utime) ;
+char *sprintUsecTime_st(long long int utime) ;
+void setCurrentTimeToTimeVal(struct timeval *tv) ;
+void setCurrentTime() ;
+void incrementCurrentTime() ;
+char *printPrefix_st(struct universe *uu, char *file, int line) ;
+struct deviceData *deviceFindByName(char *name) ;
+struct deviceStreamData *deviceFindStreamByName(struct deviceData *dd, char *name) ;
+struct deviceStreamData *deviceFindStreamByType(struct deviceData *dd, int type) ;
+void vec2Rotate(double *res, double *v, double theta) ;
+void quatToRpy(quat qq, double *roll, double *pitch, double *yaw);
+void rpyToQuat(double roll, double pitch, double yaw, quat q) ;
+void deviceSensorPositionToDronePosition(vec3 resDronePosition, vec3 sensorPosition, struct deviceData *dd, double time) ;
+char *arrayWithDimToStr_st(double *a, int dim) ;
+
+int64_t raspilotTlibUsecTime() ;
+struct raspilotTlibStr *raspilotTlibInit(struct raspilotTlibStr *tt, int argc, char **argv, int mapRaspilotUniverseFlag);
+void raspilotTlibSetRefreshRateHz(struct raspilotTlibStr *tt, double refreshRateHz);
+char *raspilotDeviceStreamSharedMemName_st(char *deviceName, char *streamTag) ;
+int raspilotTlibInitStream(struct raspilotTlibStr *tt, char *streamTag, int sharedMemoryStreamFlag);
+int raspilotTlibInitI2cDevice(struct raspilotTlibStr *tt, int address);
+int raspilotTlibSend(struct raspilotTlibStr *tt, int streamIndex, int64_t sampleTimeUsec, double confidence, double *vector, int vectorLength);
+void raspilotTlibMainLoopSleep(struct raspilotTlibStr *tt, int64_t sampleTimeUsec);
+
+
 
 // main.c
 void mainInitDeviceDataStreamVectorLengths(int motor_number) ;
@@ -1215,6 +1460,9 @@ void shutdown();
 void mainEmergencyLanding() ;
 void mainStandardShutdown(void *d);
 
+#ifdef __cplusplus__
+} // extern "C" 
+#endif
 
 
 

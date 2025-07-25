@@ -9,12 +9,7 @@
  * @url https://github.com/DFRobot/DFRobot_BMI160
  */
 
-#include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-
-#include "pi2c.h"
+#include "common.h"
 //#include<Arduino.h>
 //#include<Wire.h>
 //#include<SPI.h>

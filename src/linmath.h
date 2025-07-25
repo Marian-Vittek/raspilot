@@ -18,6 +18,11 @@
 
 #define LINMATH_H_DEFINE_VEC(n) \
 typedef double vec##n[n]; \
+LINMATH_H_FUNC void vec##n##_set(vec##n r, double const v) \
+{ \
+	int i; \
+	for(i=0; i<n; ++i) r[i] = v; \
+} \
 LINMATH_H_FUNC void vec##n##_assign(vec##n r, vec##n const a) \
 { \
 	int i; \

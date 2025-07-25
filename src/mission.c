@@ -128,17 +128,56 @@ void missionJoystick(double loiterTime) {
     raspilotLand(uu->currentWaypoint.position[0], uu->currentWaypoint.position[1]);    
 }
 
+void missionStall(double time) {
+    // This mission does nothing, motors are stopped and all sensors shall be working
+    // it is good for checking if devices are giving right values
+    uu->flyStage = FS_PRE_LAUNCH;
+    motorsStop(NULL);
+    while (uu->flyStage == FS_PRE_LAUNCH) {
+	raspilotPoll();
+    }
+    pilotImmediateLanding();
+}
+
 ///////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////
+
+#define PID_SET_TO_ZERO(pp) {(pp).constant.p = (pp).constant.i = (pp).constant.d = 0;}
+
+void missionFullTest() {
+
+    // This is a mode like normal flying (loitering) mission, but motors are not going to engage.
+    // To do this, set all PID's to zero and execute loiter mission
+    PID_SET_TO_ZERO(uu->pidRoll);
+    PID_SET_TO_ZERO(uu->pidPitch);
+    PID_SET_TO_ZERO(uu->pidYaw);
+    PID_SET_TO_ZERO(uu->pidAltitude);
+    PID_SET_TO_ZERO(uu->pidAccAltitude);
+    PID_SET_TO_ZERO(uu->pidX);
+    PID_SET_TO_ZERO(uu->pidY);
+
+    // set the base altitude hold thrust to zero as well
+    uu->config.motor_altitude_thrust_hold = 0;
+
+    // do the standard loiter mission
+    raspilotPreLaunchSequence(0);
+    missionLoiter(999999, 0.01);
+}
+
 
 void mission() {
     // autopilot mission mode
     // timeLineInsertEvent(UTIME_AFTER_SECONDS(1), pilotRegularManualControl, NULL); // because of joystick test with openHd
     raspilotPreLaunchSequence(0);
 
-    // raspilotBusyWait(9999999);
-    missionLoiter(200.0, 0.20);
+    
+    // Stall mission is doing nothing while being in flight mode. It is good to verify orientation
+    // of sensors via openhd or logs.
+    
+    // missionStall(9999999);
+    
+    missionLoiter(200.0, 0.60);
 	
     // missionTestYawLoiter(0.20);
     

@@ -10,7 +10,6 @@
 
 struct baio 	*baioTab[BAIO_MAX_CONNECTIONS];
 int 		baioTabMax;
-
 int 		baioDebugLevel = 10;
 
 //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -895,7 +894,7 @@ pid_t popen2(char *command, int *in_fd, int *out_fd, int useBashFlag) {
     int                 pin[2], pout[2];
     pid_t               pid;
     int                 r, md;
-    char                ccc[TMP_STRING_SIZE+10];
+    char                ccc[TMP_STRING_SIZE_BIG+10];
 
     if (createPipesForPopens(in_fd, out_fd, pin, pout) == -1) return(-1);
 
@@ -919,11 +918,6 @@ pid_t popen2(char *command, int *in_fd, int *out_fd, int useBashFlag) {
             close(0);
         }
 
-        // we do not want to loose completely stderr of the task. redirect it to a common file
-        md = open("currentsubmsgs.txt", O_WRONLY | O_CREAT | O_APPEND, 0644);
-        dup2(md, 2);
-        close(md);
-
         if (in_fd != NULL) {
             close(pout[0]);
             dup2(pout[1], 1);
@@ -932,6 +926,14 @@ pid_t popen2(char *command, int *in_fd, int *out_fd, int useBashFlag) {
             // if there is no pipe for stdout, join stderr.
             dup2(2, 1);
         }
+
+#if 0
+        // if we do not want to inherit stderr in oder not to loose it completely redirect it to a common file
+        md = open("currentsubmsgs.txt", O_WRONLY | O_CREAT | O_APPEND, 0644);
+        dup2(md, 2);
+        close(md);
+#endif
+	
 
         // close all remaining fds. This is important because otherwise files and pipes may remain open
         // until the new process terminates.

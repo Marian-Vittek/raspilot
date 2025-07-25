@@ -26,10 +26,9 @@ Copyright (c) 2023 Marian Vittek
 Adjusted to raspberry-pi's pi2c
 */
 
+#include "common.h"
 #include <math.h>
-
 #include "MS5611.h"
-#include "pi2c.h"
 
 bool MS5611::begin(char *path, int devAddr, ms5611_osr_t osr) {
   i2cFd = pi2cOpen(path, devAddr);

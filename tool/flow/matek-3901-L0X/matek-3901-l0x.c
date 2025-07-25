@@ -6,14 +6,7 @@
 
  */
 
-#include <stdlib.h>
-#include <stdio.h>
-#include <unistd.h>
-#include <stdint.h>
-#include <termios.h>
-#include <string.h>
-#include <errno.h>
-
+#include "common.h"
 #include "msp_protocol.h"
 
 int baudrateToSpeed_t(int baudrate) {
@@ -159,6 +152,10 @@ static inline double motionToAlpha(double p) {
     return(p * FACTOR);
 }
 
+struct raspilotTlibStr  ttt, *tt;
+int 			streamiRange;
+int 			streamiMotion;
+
 int mspScanMessage(FILE *ff) {
     int 	i, c;
     int 	function, payloadSize;
@@ -166,6 +163,8 @@ int mspScanMessage(FILE *ff) {
     int32_t 	rangeMm, motionX, motionY;
     int 	ck;
     uint8_t 	checksum;
+    double	range[2];
+    double	motion[3];
 
     // Scan message prefix
     c = getc(ff);
@@ -207,7 +206,10 @@ int mspScanMessage(FILE *ff) {
 	// When in motion, very often it reports range -1 with quality == 255;
 	// Avoid such cases and do not report anything when out of range
 	if (rangeMm >= 20 && rangeMm <= 2000) {
-	    printf("range %5.3f %4.2f\n", rangeMm/1000.0, quality/255.0);
+	    range[0] = rangeMm/1000.0;
+	    range[1] = quality/255.0;
+	    raspilotTlibSend(tt, streamiRange, 0, 1.0, range, 2);
+	    //printf("range %5.3f %4.2f\n", rangeMm/1000.0, quality/255.0);
 	    // printf("Got MSP2_SENSOR_RANGEFINDER: quality: %3d; distanceMm: %5d\n", quality, distanceMm);
 	    lastRange = rangeMm/1000.0;
 	}
@@ -229,7 +231,11 @@ int mspScanMessage(FILE *ff) {
 	// printf("pixelmotion %5.3f %5.3f %4.2f\n", -motionY/1000.0, -motionX/1000.0, quality/255.0);
 	
 	// Actually print the motion in drone frame (not the sensor frame) and translated to angles (not sensor pixels).
-	printf("motion %5.3f %5.3f %4.2f\n", motionToAlpha(-motionY), motionToAlpha(-motionX), quality/255.0);
+	motion[0] = motionToAlpha(-motionY);
+	motion[1] = motionToAlpha(-motionX);
+	motion[2] = quality/255.0;
+	raspilotTlibSend(tt, streamiMotion, 0, 1.0, motion, 3);
+	// printf("motion %5.3f %5.3f %4.2f\n", motionToAlpha(-motionY), motionToAlpha(-motionX), quality/255.0);
 	break;
     default:	
 	printf("%s:%d: Unexpected message type %04x of size %d.\n", __FILE__, __LINE__, function, payloadSize);
@@ -240,14 +246,18 @@ int mspScanMessage(FILE *ff) {
 }
 
 int main(int argc, char **argv) {
-    char	*fname;
-    FILE 	*ff;
-    int 	r;
+    char			*fname;
+    FILE 			*ff;
+    int 			i, r;
 
-    if (argc < 2) {
-	fname = "/dev/serial0";
-    } else {
-	fname = argv[1];
+
+    tt = raspilotTlibInit(&ttt, argc, argv, TLIB_UNIVERSE_MAP_NO);
+    streamiRange = raspilotTlibInitStream(tt, (char*)"range", TLIB_SHM_NO);
+    streamiMotion = raspilotTlibInitStream(tt, (char*)"motion", TLIB_SHM_NO);
+    
+    fname = "/dev/serial0";
+    for(i=1; i<argc; i++) {
+	if (argv[i][0]!='-') fname = argv[i];
     }
     
     ff = fopen(fname, "rw");
@@ -261,7 +271,6 @@ int main(int argc, char **argv) {
     for(;;) {
 	r = mspScanMessage(ff);
 	if (r != 0) mspSkipUntilMsgStart(ff);
-	fflush(stdout);
     }
     
     
