@@ -104,56 +104,7 @@ to the standard output.
 
 ### Getting Started
 
-You need to have at least a basic understanding of Linux and C
-programming in order to use Raspilot. Different modules in ./tool
-directory use various 3rd party libraries. If you use those modules
-you will need to install corresponding libraries. That are common
-libraries like 'pigpio' and/or 'bcm2835'.
-
-This project is not mature enough to be used by third parties.
-However, if you have the courage to compile and try Raspilot then:
-
-
-1.) Clone Raspilot to your Raspberry Pi
-
-``` cd your_destination_directory
-    git clone https://github.com/Marian-Vittek/raspilot.git
-```
-
-2.) Create/Edit configuration file for your drone in the directory
-"cfg". There are a few working configurations which can be used as
-templates. Then create a symbolic link to your configuration file in
-the "src" directory. The name of the link shall be "config.json".
-
-```
-    cd raspilot/src
-    ln -s -f ../cfg/raspilot-myconfiguration.json config.json
-```
-
-3.) Compile Raspilot
-
-```
-    make all
-```
-
-4.) Launch the autopilot with
-
-```
-   make starttolog
-```
-
-Once the mission is completed, the log from the last flight can be
-seen in the file currentlog.txt. All logs from previous flights can be
-found in ../log directory. If you do not need log files, you can
-launch autopilot with:
-
-```
-  make start
-```
-
-
-Good luck and do not hesitate to contact me.
-
-
-
-
+You probably do not want to use Raspilot "as is" for your newly built
+drone. It is not mature yet. It may be used as a basis for your own
+autopilot development and enhancements however. Do not hesitate to
+contact me you you want to participate in the development.
