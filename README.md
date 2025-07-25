@@ -48,7 +48,6 @@ the drone.
 
 
 
-
 ### What does raspilot provide?
 
 Raspilot is a small software at the moment. It implements the
@@ -86,6 +85,9 @@ and 400Hz. At lower frequencies the drone is unstable, higher
 frequencies did not make sense for us as we do not have sensors with
 such update rate.
 
+You probably do not want to use Raspilot "as is" for your newly built
+drone. It is not mature yet. It may be used as a basis for your own
+autopilot development and enhancements however.
 
 
 ### Hardware
